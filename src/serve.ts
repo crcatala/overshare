@@ -42,7 +42,12 @@ export async function startViewerServer(
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
-    let path = decodeURIComponent(url.pathname);
+    let path: string;
+    try {
+      path = decodeURIComponent(url.pathname);
+    } catch {
+      return void res.writeHead(400).end("bad request");
+    }
     if (path === "/" || path === "/session") {
       res.writeHead(302, { Location: "/session/" }).end();
       return;
@@ -112,14 +117,15 @@ export interface LocalShareSummary {
  * `local/index.json` lists them so the viewer can show a picker when opened without
  * a share in the hash. Shared by `agent-share serve` and the Vite dev server.
  */
-export function localShares(files: string[]): { names: string[]; respond(subpath: string): Buffer | string | undefined } {
+export function localShares(files: string[]): { names: string[]; respond(name: string): Buffer | string | undefined } {
   const byName = new Map<string, string>();
   for (const f of files) byName.set(basename(f), resolve(f));
   return {
     names: [...byName.keys()],
-    respond(subpath: string) {
-      if (subpath === "index.json" && !byName.has("index.json")) return JSON.stringify(summarize(byName));
-      const file = byName.get(decodeURIComponent(subpath));
+    /** `name` is the already-decoded path segment after `local/`. */
+    respond(name: string) {
+      if (name === "index.json" && !byName.has("index.json")) return JSON.stringify(summarize(byName));
+      const file = byName.get(name);
       return file && existsSync(file) ? readFileSync(file) : undefined;
     },
   };

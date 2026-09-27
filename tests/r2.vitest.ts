@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { createPublisher, parseShareRef } from "../src/publish/index.js";
+import { accessWarnings, createPublisher, parseShareRef, preflightWarnings } from "../src/publish/index.js";
 import { R2Publisher, checkPublicAccess, r2SourceTemplate, type R2Config } from "../src/publish/r2.js";
 
 interface Captured {
@@ -99,5 +99,46 @@ describe("parseShareRef", () => {
   it("uses the fallback target for bare non-gist ids and rejects junk", () => {
     expect(parseShareRef("AbCdEfGhIjKlMnOpQrStUv", "r2")).toEqual({ target: "r2", id: "AbCdEfGhIjKlMnOpQrStUv" });
     expect(() => parseShareRef("not a link!")).toThrow();
+  });
+
+  it("accepts the R2 data URL that publish prints", () => {
+    const r2 = { bucket: "b", prefix: "s/", publicUrl: "https://shares.example.com/" };
+    expect(parseShareRef("https://shares.example.com/s/AbCdEfGhIjKlMnOpQrStUv.json", "gist", r2)).toEqual({ target: "r2", id: "AbCdEfGhIjKlMnOpQrStUv" });
+    expect(() => parseShareRef("https://other.example.com/s/AbCdEfGhIjKlMnOpQrStUv.json", "gist", r2)).toThrow();
+  });
+
+  it("parses raw gist URLs", () => {
+    expect(parseShareRef("https://gist.githubusercontent.com/octo/5260b8cf9b1baae31a40717ac1ab5f08/raw/session.json")).toEqual({
+      target: "gist",
+      id: "5260b8cf9b1baae31a40717ac1ab5f08",
+    });
+  });
+
+  it.each([
+    ["a commit URL ending in hex", "https://github.com/acme/repo/commit/8309559a1b2c3d4e5f60718293a4b5c6d7e8f901"],
+    ["a bare 40-hex commit sha", "8309559a1b2c3d4e5f60718293a4b5c6d7e8f901"],
+    ["a local viewer link", "http://localhost:3000/session/#local:x.json"],
+    ["a bare non-gist id without an r2 fallback", "AbCdEfGhIjKlMnOpQrStUv"],
+  ])("refuses %s (delete is destructive)", (_name, input) => {
+    expect(() => parseShareRef(input, "gist")).toThrow();
+  });
+});
+
+describe("publish warnings", () => {
+  const r2Config = { ...DEFAULT_CONFIG, target: "r2" as const, r2: { bucket: "b", publicUrl: "https://shares.example.com" } };
+
+  it("warns before uploading to R2 while viewerUrl is still the built-in default", () => {
+    expect(preflightWarnings({ ...r2Config, viewerUrlSource: "default" }, "r2")[0]).toMatch(/viewerUrl is the built-in default/);
+    expect(preflightWarnings({ ...r2Config, viewerUrlSource: "config" }, "r2")).toEqual([]);
+    expect(preflightWarnings({ ...DEFAULT_CONFIG, viewerUrlSource: "default" }, "gist")).toEqual([]);
+  });
+
+  it("reports missing public access or CORS after an R2 upload", async () => {
+    const result = { publisher: "r2", id: "x", url: "u", viewerUrl: "v", rawUrl: "https://shares.example.com/x.json" };
+    const respond = (status: number, headers: Record<string, string> = {}) => (async () => new Response("{}", { status, headers })) as typeof fetch;
+    expect(await accessWarnings(r2Config, "r2", result, respond(404))).toEqual([expect.stringMatching(/returned 404/)]);
+    expect(await accessWarnings(r2Config, "r2", result, respond(200))).toEqual([expect.stringMatching(/CORS policy does not allow https:\/\/agent\.nub\.sh/)]);
+    expect(await accessWarnings(r2Config, "r2", result, respond(200, { "access-control-allow-origin": "*" }))).toEqual([]);
+    expect(await accessWarnings(r2Config, "gist", result, respond(404))).toEqual([]);
   });
 });

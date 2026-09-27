@@ -33,9 +33,12 @@ export default defineConfig(({ command }) => {
     publicDir: false,
     define: { __AGENT_SHARE_SOURCES__: JSON.stringify(sources) },
     // Listens on localhost only unless you pass `npm run dev -- --host`. Any Host header is
-    // accepted (e.g. a VPS domain, Tailscale name or tunnel): the dev server only serves
-    // the viewer source and already-redacted local shares.
-    server: { port: 3000, allowedHosts: true },
+    // accepted (e.g. a VPS domain, Tailscale name or tunnel), which disables Vite's
+    // DNS-rebinding protection. To keep that safe, Vite may only read the viewer and the
+    // shared src/ modules: without fs.allow it would serve any file in the checkout via
+    // /@fs/ (raw fixture transcripts, a secrets file kept here, …). Local shares are served
+    // separately by the plugin below, and only the files it was given.
+    server: { port: 3000, allowedHosts: true, fs: { strict: true, allow: [viewerRoot, resolve(repo, "src")] } },
     build: { outDir: "dist/session", emptyOutDir: true, sourcemap: true, target: "es2022" },
     plugins: [cspPlugin(sources, dev), deployFilesPlugin(sources), localSharesPlugin()],
   };
@@ -75,7 +78,13 @@ function localSharesPlugin(): Plugin {
           return;
         }
         if (!path.startsWith("/session/local/")) return next();
-        const body = local.respond(path.slice("/session/local/".length));
+        let name: string;
+        try {
+          name = decodeURIComponent(path.slice("/session/local/".length));
+        } catch {
+          return void res.writeHead(400).end("bad request");
+        }
+        const body = local.respond(name);
         if (!body) return void res.writeHead(404).end("not found");
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }).end(body);
       });

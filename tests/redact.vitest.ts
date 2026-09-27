@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Redactor } from "../src/redact/index.js";
-import { collectKnownSecrets } from "../src/redact/known-values.js";
+import { collectKnownSecrets, readSecretsFile } from "../src/redact/known-values.js";
 import { findSecretPatterns, looksLikeSecret } from "../src/redact/patterns.js";
 import { rescanPayload } from "../src/redact/rescan.js";
 import { fake, randomish } from "./helpers.js";
@@ -135,5 +135,43 @@ describe("rescanPayload", () => {
     expect(issues.map((i) => i.rule)).toEqual(["known-secret:K", "github-v2", "home-path"]);
     expect(issues.every((i) => !payload.includes(i.preview.replace(/….*/, "") + "zzz"))).toBe(true);
     expect(issues[0]!.preview).toMatch(/^.{4}…\(\d+ chars\)$/);
+  });
+});
+
+describe("readSecretsFile", () => {
+  function parse(content: string) {
+    const file = join(mkdtempSync(join(tmpdir(), "as-sf-")), "secrets.env");
+    writeFileSync(file, content);
+    const warnings: string[] = [];
+    const values = readSecretsFile(file, (w) => warnings.push(w)).map((k) => [k.label, k.value]);
+    return { values, warnings };
+  }
+
+  it("splits env-style KEY=VALUE lines, keeping = inside values and stripping quotes", () => {
+    expect(parse('DB_PASSWORD=pa=ss=word123\nexport API_KEY="quoted-value"\n# comment\n\n').values).toEqual([
+      ["DB_PASSWORD", "pa=ss=word123"],
+      ["API_KEY", "quoted-value"],
+    ]);
+  });
+
+  it("keeps bare values whole — base64 padding and embedded = never drop or leak a prefix", () => {
+    const { values } = parse("c2VjcmV0LWJhc2U2NC12YWx1ZQ==\nabc=defghijklmnop\n");
+    expect(values).toContainEqual(["secret", "c2VjcmV0LWJhc2U2NC12YWx1ZQ=="]);
+    expect(values).toContainEqual(["secret", "abc=defghijklmnop"]);
+    // The ambiguous "abc=" line also redacts its tail on its own.
+    expect(values).toContainEqual(["abc", "defghijklmnop"]);
+  });
+
+  it("also redacts the value of a lowercase key on its own", () => {
+    expect(parse("db_password=hunter2xyz\n").values).toEqual([
+      ["secret", "db_password=hunter2xyz"],
+      ["db_password", "hunter2xyz"],
+    ]);
+  });
+
+  it("warns about values too short to redact safely", () => {
+    const { values, warnings } = parse("TOO=ab\nxy\nOK_KEY=long-enough\n");
+    expect(values).toEqual([["OK_KEY", "long-enough"]]);
+    expect(warnings).toEqual([expect.stringMatching(/:1: value for TOO is shorter/), expect.stringMatching(/:2: value is shorter/)]);
   });
 });

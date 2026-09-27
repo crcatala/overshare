@@ -64,7 +64,7 @@ export class R2Publisher implements Publisher {
   constructor(
     private readonly opts: { config: R2Config; credentials: R2Credentials; viewerUrl: string; fetch?: typeof fetch },
   ) {
-    this.client = new AwsClient({ ...opts.credentials, service: "s3", region: "auto", retries: 2 });
+    this.client = new AwsClient({ ...opts.credentials, service: "s3", region: "auto" });
   }
 
   private objectUrl(id: string): string {

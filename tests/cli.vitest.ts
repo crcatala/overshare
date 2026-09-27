@@ -54,6 +54,25 @@ describe("cli", { timeout: 30_000 }, () => {
     expect(json).not.toContain(secret);
   });
 
+  it("--secrets-file values are redacted as known secrets", () => {
+    const custom = `acmeint.${"k3v9".repeat(4)}`;
+    const dir = mkdtempSync(join(tmpdir(), "as-sf-cli-"));
+    const secrets = join(dir, "secrets.env");
+    writeFileSync(secrets, `ACME_TOKEN=${custom}\n`);
+    const session = sessionFile(custom);
+    const without = cli(["report", session, "--mode", "full", "--json"]);
+    expect(JSON.parse(without.stdout).counts["known-secret"]).toBeUndefined();
+    const withFile = cli(["report", session, "--mode", "full", "--json", "--secrets-file", secrets]);
+    expect(JSON.parse(withFile.stdout).counts["known-secret"]).toBe(1);
+    expect(withFile.stdout).not.toContain(custom);
+  });
+
+  it("delete refuses to run without confirmation when there is no TTY", () => {
+    const r = cli(["delete", "https://agent.nub.sh/session/#octo/5260b8cf9b1baae31a40717ac1ab5f08"], { PATH: "/nonexistent" });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("Refusing to delete without confirmation");
+  });
+
   it("publish refuses --yes when the report is not clean (and never reaches gh)", () => {
     const r = cli(["publish", sessionFile(fake.github()), "--mode", "full", "--yes"], { PATH: "/nonexistent" });
     expect(r.status).toBe(2);

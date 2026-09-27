@@ -123,8 +123,10 @@ included a full `env` dump with a dozen API keys and an age secret key.
 
 Environment overrides: `AGENT_SHARE_VIEWER_URL`, `AGENT_SHARE_TARGET` (`gist` | `r2`).
 `publish --target r2` overrides the target per run. `--secrets-file <file>` (on
-`report`/`export`/`publish`) adds exact values to redact, as `KEY=VALUE` lines or one
-value per line.
+`report`/`export`/`publish`) adds exact values to redact: `UPPER_SNAKE=value` lines are
+split at the first `=`; any other line is redacted whole (so base64 padding or an `=`
+inside a bare secret never drops or partly reveals it). Values under 4 characters are
+skipped with a warning.
 
 ## Architecture: static only
 
@@ -221,6 +223,9 @@ npm run dev     # Vite dev server → http://localhost:3000/session/
   exports with `AGENT_SHARE_DEV_SHARES="a.json b.json" npm run dev`.
 - **CSP:** dev only allows inline styles and the HMR WebSocket; builds keep the strict
   policy.
+- **File access:** Vite may only read `viewer/` and `src/` (`server.fs.allow`), so the
+  any-hostname setting cannot be used to read other files in the checkout (raw
+  transcripts, a secrets file) via `/@fs/`.
 - **Network:** listens on localhost only; `npm run dev -- --host` exposes it on all
   interfaces. Any hostname is accepted (VPS domain, Tailscale name, tunnel).
 - `npm run preview:cf` builds and runs the viewer in Cloudflare's local runtime

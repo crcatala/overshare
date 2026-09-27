@@ -33,6 +33,15 @@ describe("GistPublisher", () => {
     expect(create.at(-1)).toMatch(/session\.json$/);
   });
 
+  it("deletes a gist non-interactively", async () => {
+    const calls: string[][] = [];
+    const run: CommandRunner = async (cmd, args) => (calls.push([cmd, ...args]), { code: 0, stdout: "", stderr: "" });
+    await new GistPublisher({ viewerUrl: "x", run }).delete("abc123def4567890abcd");
+    expect(calls).toEqual([["gh", "gist", "delete", "abc123def4567890abcd", "--yes"]]);
+    const failing: CommandRunner = async () => ({ code: 1, stdout: "", stderr: "gist not found" });
+    await expect(new GistPublisher({ viewerUrl: "x", run: failing }).delete("abc")).rejects.toThrow(/gist not found/);
+  });
+
   it("fails clearly when gh is not authenticated", async () => {
     const run: CommandRunner = async () => ({ code: 1, stdout: "", stderr: "not logged in" });
     await expect(new GistPublisher({ viewerUrl: "x", run }).publish({ filename: "session.json", content: "{}", description: "d" })).rejects.toThrow(
@@ -119,8 +128,47 @@ describe("local share index", () => {
       expect(index[1]).toMatchObject({ name: "b.json" });
       expect(index[1].error).toBeTruthy();
       expect((await fetch(`${url}local/a.json`)).status).toBe(200);
+      // Malformed percent-encoding must not crash the server.
+      expect((await fetch(`${url}local/%E0%A4%A`)).status).toBe(400);
+      expect((await fetch(`${url}local/index.json`)).status).toBe(200);
     } finally {
       server.close();
     }
+  });
+});
+
+describe("serve with unusual file names", () => {
+  it("serves a share whose name contains %", async () => {
+    const { copyFileSync, mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { startViewerServer } = await import("../src/serve.js");
+    const dir = mkdtempSync(join(tmpdir(), "as-pct-"));
+    const src = join(dir, "src.json");
+    writeFileSync(src, JSON.stringify({ schema: "agentshare/1", title: "pct" }));
+    const file = join(dir, "50%off.json");
+    copyFileSync(src, file);
+    const { server, url } = await startViewerServer({ port: 0, host: "127.0.0.1", files: [file] });
+    try {
+      const res = await fetch(`${url}local/${encodeURIComponent("50%off.json")}`);
+      expect(res.status).toBe(200);
+      expect((await res.json()).title).toBe("pct");
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe("loadConfig", () => {
+  it("records where viewerUrl came from", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { loadConfig } = await import("../src/config.js");
+    const file = join(mkdtempSync(join(tmpdir(), "as-cfg-")), "config.json");
+    expect(loadConfig({ AGENT_SHARE_CONFIG: file }).viewerUrlSource).toBe("default");
+    writeFileSync(file, JSON.stringify({ viewerUrl: "https://mine.example.com/session/" }));
+    expect(loadConfig({ AGENT_SHARE_CONFIG: file })).toMatchObject({ viewerUrl: "https://mine.example.com/session/", viewerUrlSource: "config" });
+    expect(loadConfig({ AGENT_SHARE_CONFIG: file, AGENT_SHARE_VIEWER_URL: "https://env.example.com/" }).viewerUrlSource).toBe("env");
   });
 });

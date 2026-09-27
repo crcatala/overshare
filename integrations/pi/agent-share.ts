@@ -68,8 +68,10 @@ export default function agentShare(pi: ExtensionAPI) {
         timeout: 120_000,
       });
       try {
-        const result = JSON.parse(publishRun.stdout) as { viewerUrl: string; url: string };
+        const result = JSON.parse(publishRun.stdout) as { viewerUrl: string; url: string; warnings?: string[] };
         ctx.ui.notify(`Shared (${mode}, redactions: ${counts}):\n${result.viewerUrl}\nStored at: ${result.url}`, "info");
+        // e.g. bucket not public / CORS missing / default viewer: the link may not load.
+        for (const w of result.warnings ?? []) ctx.ui.notify(`agent-share: ${w}`, "warning");
       } catch {
         ctx.ui.notify(`agent-share publish failed: ${publishRun.stderr.trim().split("\n").at(-1) ?? `exit ${publishRun.code}`}`, "error");
       }

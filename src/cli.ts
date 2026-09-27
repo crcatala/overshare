@@ -7,8 +7,7 @@ import { SHARE_TARGETS, loadConfig, type ShareTarget } from "./config.js";
 import { exportFixtureShares, generateFixtures } from "./fixtures/index.js";
 import { formatBytes, formatTokens } from "./format.js";
 import { prepareShare, type PreparedShare } from "./pipeline.js";
-import { createPublisher, parseShareRef } from "./publish/index.js";
-import { checkPublicAccess } from "./publish/r2.js";
+import { accessWarnings, createPublisher, parseShareRef, preflightWarnings } from "./publish/index.js";
 import { readSecretsFile } from "./redact/known-values.js";
 import { formatReport } from "./report.js";
 import { defaultRoots, listSessions, resolveSession, type SessionRef } from "./resolve.js";
@@ -46,7 +45,7 @@ function prepare(arg: string | undefined, opts: SessionOptions): { ref: SessionR
   const ref = resolveSession(arg, { current: opts.current, harness: opts.harness });
   const config = loadConfig();
   const raw = readFileSync(ref.path, "utf8");
-  const extraKnownSecrets = (opts.secretsFile ?? []).flatMap((f) => readSecretsFile(f));
+  const extraKnownSecrets = (opts.secretsFile ?? []).flatMap((f) => readSecretsFile(f, (msg) => console.error(`warning: ${msg}`)));
   const prepared = prepareShare(raw, { mode: opts.mode, config, harness: ref.harness, leafId: opts.leaf, extraKnownSecrets });
   return { ref, prepared };
 }
@@ -122,6 +121,8 @@ withSessionOptions(program.command("publish"), "brief")
       const target = opts.target ?? config.target;
       // Fail on missing target configuration before doing any work.
       const publisher = createPublisher(config, target);
+      const warnings = preflightWarnings(config, target);
+      for (const w of warnings) console.error(`warning: ${w}`);
       const { prepared } = prepare(arg, opts);
       const { report } = prepared;
       console.error(formatReport(report, { color: !!process.stderr.isTTY && !process.env.NO_COLOR }));
@@ -152,23 +153,16 @@ withSessionOptions(program.command("publish"), "brief")
         content: prepared.json,
         description: `agent-share: ${s.title ?? s.source.sessionId} (${s.harness.name}, ${s.mode}, ${formatTokens(totalTokens(s.stats.tokens))} tokens)`,
       });
-      const warnings: string[] = [];
-      if (target === "r2" && result.rawUrl) {
-        try {
-          const check = await checkPublicAccess(result.rawUrl, new URL(config.viewerUrl).origin);
-          if (check.status !== 200) warnings.push(`public URL returned ${check.status} — is public access enabled on the bucket, and does r2.publicUrl match it?`);
-          else if (!check.cors) warnings.push(`the bucket's CORS policy does not allow ${new URL(config.viewerUrl).origin}; the viewer will not be able to load it (see README "R2 storage")`);
-        } catch (err) {
-          warnings.push(`could not verify the public URL: ${(err as Error).message}`);
-        }
-      }
+      const postWarnings = await accessWarnings(config, target, result);
+      // Always on stderr (also in --json mode) so wrappers and humans both see them.
+      for (const w of postWarnings) console.error(`warning: ${w}`);
+      warnings.push(...postWarnings);
       if (opts.json) {
         console.log(JSON.stringify({ ...result, warnings }, null, 2));
       } else {
         console.log(`\nShared: ${result.viewerUrl}`);
         console.log(`${target === "gist" ? "Gist:  " : "Data:  "} ${result.url}`);
         console.log(`Local viewer: agent-share serve --open-hash '${result.viewerUrl.split("#")[1] ?? ""}'`);
-        for (const w of warnings) console.error(`warning: ${w}`);
       }
     },
   );
@@ -181,7 +175,7 @@ program
   .option("-y, --yes", "do not ask for confirmation")
   .action(async (input: string, opts: { target?: ShareTarget; yes?: boolean }) => {
     const config = loadConfig();
-    const ref = parseShareRef(input, opts.target ?? config.target);
+    const ref = parseShareRef(input, opts.target ?? config.target, config.r2);
     if (!opts.yes) {
       if (!process.stdin.isTTY) throw new Error("Refusing to delete without confirmation; pass --yes");
       if (!(await confirm(`Delete ${ref.target} share ${ref.id}? [y/N] `))) {

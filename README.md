@@ -29,6 +29,10 @@ agent-share publish --current --mode brief        # review → confirm → secre
 agent-share serve out.json                        # local viewer: …/session/#local:out.json
 ```
 
+`serve` listens on port 3000 on all interfaces by default (`--port`, `--host 127.0.0.1`
+to keep it local). It serves the viewer and any share files you pass it — only
+redacted exports — to anyone who can reach the port.
+
 `<session>` is a file path, a session id, or an id prefix. `--current` uses
 `$CLAUDE_CODE_SESSION_ID` inside Claude Code, otherwise the newest session for the
 current directory. `--harness claude-code|pi` narrows the search; `--leaf <id>`

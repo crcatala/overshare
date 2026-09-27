@@ -148,8 +148,8 @@ program
   .command("serve")
   .description("serve the viewer locally (optionally with local share files)")
   .argument("[files...]", "share JSON files to expose as #local:<name>")
-  .option("-p, --port <port>", "port", (v) => Number.parseInt(v, 10), 4178)
-  .option("--host <host>", "bind address", "127.0.0.1")
+  .option("-p, --port <port>", "port", (v) => Number.parseInt(v, 10), 3000)
+  .option("--host <host>", "bind address (use 127.0.0.1 to restrict to this machine)", "0.0.0.0")
   .option("--open-hash <hash>", "print a URL for this hash (e.g. owner/gistId)")
   .action(async (files: string[], opts: { port: number; host: string; openHash?: string }) => {
     const { url, localNames } = await startViewerServer({ port: opts.port, files, host: opts.host });

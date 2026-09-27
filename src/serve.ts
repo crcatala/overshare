@@ -47,9 +47,11 @@ export function startViewerServer(opts: { port: number; files?: string[]; host?:
     res.writeHead(200, { "Content-Type": MIME[extname(file)] ?? "application/octet-stream", "Cache-Control": "no-store" });
     res.end(readFileSync(file));
   });
-  const host = opts.host ?? "127.0.0.1";
+  const host = opts.host ?? "0.0.0.0";
   return new Promise((resolvePromise, reject) => {
-    server.once("error", reject);
+    server.once("error", (err: NodeJS.ErrnoException) =>
+      reject(err.code === "EADDRINUSE" ? new Error(`Port ${opts.port} is already in use — pass --port <n> to pick another`) : err),
+    );
     server.listen(opts.port, host, () => {
       const address = server.address();
       const port = typeof address === "object" && address ? address.port : opts.port;

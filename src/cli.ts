@@ -150,9 +150,11 @@ program
   .argument("[files...]", "share JSON files to expose as #local:<name>")
   .option("-p, --port <port>", "port", (v) => Number.parseInt(v, 10), 3000)
   .option("--host <host>", "bind address (use 127.0.0.1 to restrict to this machine)", "0.0.0.0")
+  .option("--strict-port", "fail if the port is in use instead of trying the next one")
   .option("--open-hash <hash>", "print a URL for this hash (e.g. owner/gistId)")
-  .action(async (files: string[], opts: { port: number; host: string; openHash?: string }) => {
-    const { url, localNames } = await startViewerServer({ port: opts.port, files, host: opts.host });
+  .action(async (files: string[], opts: { port: number; host: string; strictPort?: boolean; openHash?: string }) => {
+    const { url, port, localNames } = await startViewerServer({ port: opts.port, files, host: opts.host, strictPort: opts.strictPort });
+    if (port !== opts.port) console.log(`Port ${opts.port} is in use; using ${port} instead.`);
     console.log(`Viewer: ${url}`);
     for (const name of localNames) console.log(`  ${url}#local:${name}`);
     if (opts.openHash) console.log(`  ${url}#${opts.openHash}`);

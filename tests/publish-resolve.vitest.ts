@@ -81,3 +81,22 @@ describe("resolveSession", () => {
     expect(() => resolveSession("zzz", { roots: r, env: {} })).toThrow(/No session/);
   });
 });
+
+describe("startViewerServer", () => {
+  it("falls back to the next free port unless strictPort is set", async () => {
+    const { createServer } = await import("node:net");
+    const { startViewerServer } = await import("../src/serve.js");
+    const blocker = createServer();
+    await new Promise<void>((r) => blocker.listen(0, "127.0.0.1", r));
+    const taken = (blocker.address() as { port: number }).port;
+    try {
+      const { server, port, url } = await startViewerServer({ port: taken, host: "127.0.0.1" });
+      expect(port).toBeGreaterThan(taken);
+      expect(url).toBe(`http://127.0.0.1:${port}/session/`);
+      server.close();
+      await expect(startViewerServer({ port: taken, host: "127.0.0.1", strictPort: true })).rejects.toThrow(/already in use/);
+    } finally {
+      blocker.close();
+    }
+  });
+});

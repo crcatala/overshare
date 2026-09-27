@@ -30,7 +30,8 @@ agent-share serve out.json                        # local viewer: …/session/#l
 ```
 
 `serve` listens on port 3000 on all interfaces by default (`--port`, `--host 127.0.0.1`
-to keep it local). It serves the viewer and any share files you pass it — only
+to keep it local). If the port is taken it tries 3001, 3002, … (up to 20 ports);
+`--strict-port` fails instead. It serves the viewer and any share files you pass it — only
 redacted exports — to anyone who can reach the port.
 
 `<session>` is a file path, a session id, or an id prefix. `--current` uses

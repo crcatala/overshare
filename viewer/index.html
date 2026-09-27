@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      Transcripts are untrusted content. Scripts load only from this origin, data only
+      from GitHub gists (or this origin), and remote images are blocked (no tracking pixels).
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Agent Session</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <main id="app"><p class="status">Loading session…</p></main>
+    <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

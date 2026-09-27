@@ -1,0 +1,10 @@
+node_modules/
+dist/
+viewer/dist/
+coverage/
+*.log
+.env
+.env.*
+# Local exports and share payloads can contain session content.
+out/
+*.share.json

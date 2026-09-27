@@ -16,7 +16,7 @@ export type Source =
   | { kind: "url"; path: string }
   | { kind: "configured"; source: string; id: string };
 
-/** Share sources baked in by viewer/build.mjs from viewer.config.json. */
+/** Share sources baked in by vite.config.ts from viewer.config.json. */
 declare const __AGENT_SHARE_SOURCES__: Record<string, string>;
 const SOURCES: Record<string, string> = typeof __AGENT_SHARE_SOURCES__ === "undefined" ? {} : __AGENT_SHARE_SOURCES__;
 const SHARE_ID = /^[A-Za-z0-9_-]{8,128}$/;

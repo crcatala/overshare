@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-expect-error — plain ESM build helper without type declarations
-import { contentSecurityPolicy, loadViewerConfig } from "../viewer/config.mjs";
+import { contentSecurityPolicy, deployFiles, loadViewerConfig } from "../viewer/config.mjs";
 
 function configFile(content: unknown): string {
   const file = join(mkdtempSync(join(tmpdir(), "as-vc-")), "viewer.config.json");
@@ -18,6 +18,17 @@ describe("viewer build config", () => {
     expect(csp).toContain("connect-src 'self' https://api.github.com https://gist.githubusercontent.com https://shares.example.com");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(contentSecurityPolicy(sources)).not.toContain("frame-ancestors");
+  });
+
+  it("only loosens the policy for the Vite dev server", () => {
+    const prod = contentSecurityPolicy({});
+    const dev = contentSecurityPolicy({}, { dev: true });
+    expect(prod).toContain("style-src 'self';");
+    expect(prod).not.toContain("ws:");
+    expect(dev).toContain("style-src 'self' 'unsafe-inline'");
+    expect(dev).toMatch(/connect-src [^;]* ws: wss:/);
+    expect(deployFiles({})._headers).toContain(contentSecurityPolicy({}, { header: true }));
+    expect(deployFiles({})._redirects).toBe("/ /session/ 302\n");
   });
 
   it.each([

@@ -1,7 +1,11 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
+import type { AgentShareConfig } from "../config.js";
+import { prepareShare } from "../pipeline.js";
+import { readSecretsFile } from "../redact/known-values.js";
 import { projectDirName } from "../resolve.js";
+import { SHARE_MODES } from "../schema.js";
 import { emitClaudeCode } from "./claude-code.js";
 import { emitPi } from "./pi.js";
 import { Rng } from "./random.js";
@@ -74,3 +78,34 @@ function safeUsername(): string {
     return process.env.USER ?? "developer";
   }
 }
+
+export interface ExportedShare {
+  file: string;
+  bytes: number;
+  status: "clean" | "needs review" | "BLOCKED";
+}
+
+/** Redact and export each fixture transcript in every mode to `<outDir>/shares/<harness>-<mode>.json`. */
+export function exportFixtureShares(fx: GeneratedFixtures, outDir: string, config: AgentShareConfig): ExportedShare[] {
+  const sharesDir = join(outDir, "shares");
+  mkdirSync(sharesDir, { recursive: true });
+  const extraKnownSecrets = readSecretsFile(fx.secretsFile);
+  const out: ExportedShare[] = [];
+  for (const [harness, file] of [["claude-code", fx.claudeFile], ["pi", fx.piFile]] as const) {
+    for (const mode of SHARE_MODES) {
+      const { json, report } = prepareShare(readFileSync(file, "utf8"), {
+        mode,
+        config,
+        harness,
+        knownSecrets: [],
+        extraKnownSecrets,
+        machine: { homeDir: fx.home, username: fx.username },
+      });
+      const target = join(sharesDir, `${harness}-${mode}.json`);
+      writeFileSync(target, json);
+      out.push({ file: target, bytes: report.bytes, status: report.blocked ? "BLOCKED" : report.clean ? "clean" : "needs review" });
+    }
+  }
+  return out;
+}
+

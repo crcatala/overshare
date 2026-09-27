@@ -202,10 +202,27 @@ source's origin is added to the Content-Security-Policy; the viewer only ever fe
 from GitHub gist hosts and the sources you list. (`$AGENT_SHARE_VIEWER_CONFIG` points
 the build at a different file.)
 
-**Build output** (`npm run build:viewer` → `viewer/dist/`): `session/` (the viewer),
-`_headers` (CSP with `frame-ancestors 'none'`, `noindex`, `no-referrer`, `nosniff`),
-`_redirects` (`/` → `/session/`) and `robots.txt`. Any static host works; Cloudflare
-reads `_headers`/`_redirects` natively.
+**Build output** (`npm run build:viewer`, via Vite → `viewer/dist/`): `session/` (the
+viewer, with relative asset URLs so any base path works), `_headers` (CSP with
+`frame-ancestors 'none'`, `noindex`, `no-referrer`, `nosniff`), `_redirects`
+(`/` → `/session/`) and `robots.txt`. Any static host works; Cloudflare reads
+`_headers`/`_redirects` natively.
+
+### Developing the viewer
+
+```bash
+npm run dev     # Vite dev server → http://localhost:3000/session/
+```
+
+- **HMR:** CSS edits hot-swap in place; TypeScript edits reload the page (the viewer is
+  framework-free), which keeps the open session because it lives in the URL hash.
+- **Data:** the fixture sessions are served at `/session/local/` (generated into
+  `fixtures-out/` on first run), so the picker lists them immediately. Point it at other
+  exports with `AGENT_SHARE_DEV_SHARES="a.json b.json" npm run dev`.
+- **CSP:** dev only allows inline styles and the HMR WebSocket; builds keep the strict
+  policy.
+- `npm run preview:cf` builds and runs the viewer in Cloudflare's local runtime
+  (`wrangler dev`) to check `_headers`/`_redirects` exactly as deployed.
 
 ### Deploying to Cloudflare
 
@@ -219,8 +236,7 @@ npm run deploy              # builds the viewer and deploys it
 
 Custom domains (e.g. `agent.example.com`) are attached to the Worker in the Cloudflare
 dashboard; nothing in this repo assumes a domain. Set the CLI's `viewerUrl` to wherever
-you deployed (`https://…/session/`). `npm run dev:viewer` runs it locally with
-`wrangler dev`.
+you deployed (`https://…/session/`).
 
 ## Integrations
 
@@ -258,7 +274,8 @@ format unchanged.
 ```bash
 npm test            # vitest (fixtures are generated in code; fake secrets are assembled at runtime)
 npm run typecheck   # CLI + viewer
-npm run build       # dist/ + viewer/dist/
+npm run build       # dist/ (CLI) + viewer/dist/ (Vite)
+npm run dev         # viewer dev server with HMR and the fixture sessions
 npm start -- report --current   # run from source via tsx
 ```
 

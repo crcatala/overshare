@@ -22,17 +22,37 @@ export function loadViewerConfig(path = process.env.AGENT_SHARE_VIEWER_CONFIG ??
   return { sources };
 }
 
-export function contentSecurityPolicy(sources, { header = false } = {}) {
+/**
+ * CSP for the viewer. `dev` loosens it only for the Vite dev server, which injects
+ * CSS via <style> tags (HMR) and talks to the page over a WebSocket.
+ */
+export function contentSecurityPolicy(sources, { header = false, dev = false } = {}) {
   const origins = [...new Set([...GIST_ORIGINS, ...Object.values(sources).map((t) => new URL(t.replace("{id}", "x")).origin)])];
   return [
     "default-src 'none'",
     "script-src 'self'",
-    "style-src 'self'",
+    dev ? "style-src 'self' 'unsafe-inline'" : "style-src 'self'",
     "img-src 'self' data:",
-    `connect-src 'self' ${origins.join(" ")}`,
+    `connect-src 'self' ${origins.join(" ")}${dev ? " ws: wss:" : ""}`,
     "base-uri 'none'",
     "form-action 'none'",
     // frame-ancestors is ignored in <meta>, so it only goes in the header.
     ...(header ? ["frame-ancestors 'none'"] : []),
   ].join("; ");
+}
+
+/** Cloudflare (Workers assets / Pages) deploy files written next to the viewer build. */
+export function deployFiles(sources) {
+  return {
+    _headers: [
+      "/*",
+      "  X-Robots-Tag: noindex, nofollow",
+      "  Referrer-Policy: no-referrer",
+      "  X-Content-Type-Options: nosniff",
+      `  Content-Security-Policy: ${contentSecurityPolicy(sources, { header: true })}`,
+      "",
+    ].join("\n"),
+    _redirects: "/ /session/ 302\n",
+    "robots.txt": "User-agent: *\nDisallow: /\n",
+  };
 }

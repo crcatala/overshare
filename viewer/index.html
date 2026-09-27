@@ -6,17 +6,16 @@
     <!--
       Transcripts are untrusted content. Scripts load only from this origin, data only
       from GitHub gists and the sources in viewer.config.json, and remote images are
-      blocked (no tracking pixels). The policy is filled in by viewer/build.mjs.
+      blocked (no tracking pixels). The policy is filled in by vite.config.ts.
     -->
     <meta http-equiv="Content-Security-Policy" content="{{CSP}}" />
     <meta name="referrer" content="no-referrer" />
     <meta name="robots" content="noindex, nofollow" />
     <title>Agent Session</title>
-    <link rel="stylesheet" href="app.css" />
   </head>
   <body>
     <main id="app"><p class="status">Loading session…</p></main>
     <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
-    <script type="module" src="app.js"></script>
+    <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError, Option } from "commander";
 import { SHARE_TARGETS, loadConfig, type ShareTarget } from "./config.js";
-import { generateFixtures, type GeneratedFixtures } from "./fixtures/index.js";
+import { exportFixtureShares, generateFixtures } from "./fixtures/index.js";
 import { formatBytes, formatTokens } from "./format.js";
 import { prepareShare, type PreparedShare } from "./pipeline.js";
 import { createPublisher, parseShareRef } from "./publish/index.js";
@@ -194,33 +194,6 @@ program
     console.log(`Deleted ${ref.target} share ${ref.id}.${ref.target === "r2" ? " Edge caches may serve it for up to 5 more minutes." : ""}`);
   });
 
-/** Redact and export each fixture transcript in every mode; returns the written share files. */
-function exportFixtureShares(fx: GeneratedFixtures, outDir: string, log: (line: string) => void): string[] {
-  const sharesDir = join(outDir, "shares");
-  mkdirSync(sharesDir, { recursive: true });
-  const config = loadConfig();
-  const extraKnownSecrets = readSecretsFile(fx.secretsFile);
-  const files: string[] = [];
-  for (const [harness, file] of [["claude-code", fx.claudeFile], ["pi", fx.piFile]] as const) {
-    for (const mode of SHARE_MODES) {
-      const prepared = prepareShare(readFileSync(file, "utf8"), {
-        mode,
-        config,
-        harness,
-        knownSecrets: [],
-        extraKnownSecrets,
-        machine: { homeDir: fx.home, username: fx.username },
-      });
-      const out = join(sharesDir, `${harness}-${mode}.json`);
-      writeFileSync(out, prepared.json);
-      files.push(out);
-      const r = prepared.report;
-      log(`  ${rel(out).padEnd(44)} ${formatBytes(r.bytes).padStart(9)}  ${r.blocked ? "BLOCKED" : r.clean ? "clean" : "needs review"}`);
-    }
-  }
-  return files;
-}
-
 const rel = (p: string) => relative(process.cwd(), p) || ".";
 
 program
@@ -238,7 +211,9 @@ program
     console.log(`Planted fake secrets: ${fx.secrets.length} → ${rel(fx.secretsFile)}`);
     if (opts.shares) {
       console.log("\nShares (redacted with the secrets file):");
-      exportFixtureShares(fx, opts.out, console.log);
+      for (const r of exportFixtureShares(fx, opts.out, loadConfig())) {
+        console.log(`  ${rel(r.file).padEnd(44)} ${formatBytes(r.bytes).padStart(9)}  ${r.status}`);
+      }
       console.log(`\nView them:   agent-share serve ${rel(join(opts.out, "shares"))}/*.json   (or: agent-share demo)`);
     }
     console.log(`Try the CLI: AGENT_SHARE_CLAUDE_PROJECTS=${rel(fx.roots["claude-code"])} AGENT_SHARE_PI_SESSIONS=${rel(fx.roots.pi)} agent-share list`);
@@ -255,7 +230,7 @@ program
   .option("--host <host>", "bind address", "0.0.0.0")
   .action(async (opts: { out: string; seed: number; turns: number; port: number; host: string }) => {
     const fx = generateFixtures({ outDir: opts.out, seed: opts.seed, extraTurns: opts.turns });
-    const files = exportFixtureShares(fx, opts.out, () => {});
+    const files = exportFixtureShares(fx, opts.out, loadConfig()).map((r) => r.file);
     const { url, port } = await startViewerServer({ port: opts.port, files, host: opts.host });
     if (port !== opts.port) console.log(`Port ${opts.port} is in use; using ${port} instead.`);
     console.log(`Generated fake Claude Code + pi sessions (seed ${opts.seed}) in ${rel(opts.out)} — nothing is uploaded.\n`);

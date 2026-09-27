@@ -1,3 +1,4 @@
+import "./styles.css";
 import { formatCost, formatDuration, formatTokens, plural } from "../../src/format.ts";
 import { availableModes, projectSession } from "../../src/modes.ts";
 import {

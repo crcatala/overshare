@@ -32,7 +32,10 @@ export default defineConfig(({ command }) => {
     base: dev ? "/session/" : "./",
     publicDir: false,
     define: { __AGENT_SHARE_SOURCES__: JSON.stringify(sources) },
-    server: { port: 3000, host: true },
+    // Listens on localhost only unless you pass `npm run dev -- --host`. Any Host header is
+    // accepted (e.g. a VPS domain, Tailscale name or tunnel): the dev server only serves
+    // the viewer source and already-redacted local shares.
+    server: { port: 3000, allowedHosts: true },
     build: { outDir: "dist/session", emptyOutDir: true, sourcemap: true, target: "es2022" },
     plugins: [cspPlugin(sources, dev), deployFilesPlugin(sources), localSharesPlugin()],
   };

@@ -221,6 +221,8 @@ npm run dev     # Vite dev server → http://localhost:3000/session/
   exports with `AGENT_SHARE_DEV_SHARES="a.json b.json" npm run dev`.
 - **CSP:** dev only allows inline styles and the HMR WebSocket; builds keep the strict
   policy.
+- **Network:** listens on localhost only; `npm run dev -- --host` exposes it on all
+  interfaces. Any hostname is accepted (VPS domain, Tailscale name, tunnel).
 - `npm run preview:cf` builds and runs the viewer in Cloudflare's local runtime
   (`wrangler dev`) to check `_headers`/`_redirects` exactly as deployed.
 

@@ -69,7 +69,7 @@ export default function agentShare(pi: ExtensionAPI) {
       });
       try {
         const result = JSON.parse(publishRun.stdout) as { viewerUrl: string; url: string };
-        ctx.ui.notify(`Shared (${mode}, redactions: ${counts}):\n${result.viewerUrl}\nGist: ${result.url}`, "info");
+        ctx.ui.notify(`Shared (${mode}, redactions: ${counts}):\n${result.viewerUrl}\nStored at: ${result.url}`, "info");
       } catch {
         ctx.ui.notify(`agent-share publish failed: ${publishRun.stderr.trim().split("\n").at(-1) ?? `exit ${publishRun.code}`}`, "error");
       }

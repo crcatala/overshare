@@ -51,4 +51,10 @@ export class GistPublisher implements Publisher {
       rmSync(dir, { recursive: true, force: true });
     }
   }
+
+  async delete(id: string): Promise<void> {
+    const run = this.opts.run ?? defaultRunner;
+    const res = await run("gh", ["gist", "delete", id, "--yes"]);
+    if (res.code !== 0) throw new Error(`gh gist delete failed: ${res.stderr.trim() || res.stdout.trim()}`);
+  }
 }

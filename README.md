@@ -3,12 +3,12 @@
 Share coding-agent sessions (Claude Code, pi) as **redacted, unlisted links** with a
 static viewer. Transcripts are normalized into one harness-agnostic format
 (`agentshare/1`), redacted locally, projected to a share mode, re-scanned, and only
-then uploaded (currently as a secret GitHub gist).
+then uploaded as a public-by-link file (a secret GitHub gist or a public R2 bucket).
 
 ```
-adapters/            pipeline                                   publish/            viewer/
- claude-code.ts ─┐   parse → stats → project(mode) → redact     gist (now)          static page
- pi.ts          ─┴─► NormalizedSession ─────────► re-scan ────► R2 (later)   ─────► #owner/gistId
+adapters/            pipeline                                   publish/            viewer/ (static)
+ claude-code.ts ─┐   parse → stats → project(mode) → redact     gist                #owner/gistId
+ pi.ts          ─┴─► NormalizedSession ─────────► re-scan ────► public R2 ─────────► #r2:<id>
 ```
 
 Everything is static: the CLI redacts and uploads a public share file, and the viewer
@@ -29,6 +29,7 @@ agent-share report --current                      # what would be shared/redacte
 agent-share export <id> --mode full -o out.json   # redacted share JSON, locally
 agent-share publish --current --mode brief        # review → confirm → secret gist → link
 agent-share serve out.json                        # local viewer: …/session/#local:out.json
+agent-share fixtures && agent-share serve fixtures-out/shares/*.json   # try it with fake sessions
 ```
 
 `serve` listens on port 3000 on all interfaces by default (`--port`, `--host 127.0.0.1`
@@ -102,6 +103,13 @@ included a full `env` dump with a dozen API keys and an age secret key.
 ```json
 {
   "viewerUrl": "https://agent.nub.sh/session/",
+  "target": "gist",
+  "r2": {
+    "accountId": "<cloudflare-account-id>",
+    "bucket": "agent-share",
+    "prefix": "s/",
+    "publicUrl": "https://shares.example.com"
+  },
   "maxToolChars": 20000,
   "redact": {
     "emails": true,
@@ -113,39 +121,106 @@ included a full `env` dump with a dozen API keys and an age secret key.
 }
 ```
 
-`AGENT_SHARE_VIEWER_URL` overrides `viewerUrl`.
+Environment overrides: `AGENT_SHARE_VIEWER_URL`, `AGENT_SHARE_TARGET` (`gist` | `r2`).
+`publish --target r2` overrides the target per run. `--secrets-file <file>` (on
+`report`/`export`/`publish`) adds exact values to redact, as `KEY=VALUE` lines or one
+value per line.
 
-## Storage and the viewer
+## Architecture: static only
 
-`publish` creates a **secret gist** (`gh gist create` without `--public`) containing
-`session.json` and prints `<viewerUrl>#<owner>/<gistId>`. Secret gists are unlisted,
-not private, and GitHub keeps revisions: delete the gist to unpublish.
+There is no backend and no auth. Shares are public-by-link files; the viewer is static
+HTML/JS that fetches them in the browser. Self-hosting means forking this repo,
+tweaking it, and deploying your own copy of the viewer — so you know exactly which code
+renders what you share.
 
-The viewer (`viewer/`) is a static page that reads the share from the URL hash (never
-sent to the server):
+```
+agent-share publish ──upload──► gist  or  public R2 bucket   (your credentials, from your machine)
+                                        ▲
+viewer (static, any host) ──fetch───────┘  …/session/#owner/gistId  or  …/session/#r2:<id>
+```
+
+## Storage targets
+
+**Gist (default).** `publish` creates a *secret* gist (`gh gist create` without
+`--public`) containing `session.json` and prints `<viewerUrl>#<owner>/<gistId>`. Secret
+gists are unlisted, not private, and GitHub keeps revisions.
+
+**Public R2 bucket.** `publish --target r2` uploads `s/<random-id>.json` with the S3 API
+and prints `<viewerUrl>#r2:<id>`. Ids are 128-bit random and public R2 buckets cannot be
+listed, so shares stay unlisted. One-time setup:
+
+1. Create a bucket and enable public access — a custom domain is recommended
+   (`r2.dev` URLs are rate-limited and meant for development).
+2. Allow the viewer's origin to fetch from it (CORS):
+   ```bash
+   cat > cors.json <<'JSON'
+   { "rules": [ { "allowed": { "origins": ["https://agent.example.com"], "methods": ["GET"] } } ] }
+   JSON
+   npx wrangler r2 bucket cors set agent-share --file cors.json
+   ```
+3. Create an R2 API token with *Object Read & Write* on that bucket and export it:
+   `AGENT_SHARE_R2_ACCESS_KEY_ID` / `AGENT_SHARE_R2_SECRET_ACCESS_KEY`
+   (`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` also work).
+4. Add the `r2` section to the CLI config (above) and the matching source to
+   `viewer.config.json` (below), then redeploy the viewer.
+
+After an R2 upload, `publish` fetches the object with the viewer's `Origin` and warns if
+public access or CORS is not set up.
+
+**Deleting.** `agent-share delete <viewer-link | gist URL | r2:<id> | id>` removes a
+share (`gh gist delete`, or an R2 `DELETE`). Anything already fetched or cached (R2
+objects are cached for up to 5 minutes) may linger, so rotate anything that leaked.
+
+## The viewer
+
+A static page that reads the share location from the URL hash (never sent to the
+server):
 
 | hash | source |
 | --- | --- |
 | `#owner/gistId` | `gist.githubusercontent.com` raw URL (no API rate limit) |
 | `#gist:<id>` / `#<id>` | GitHub API (60 req/h per IP unauthenticated) |
+| `#<source>:<id>` | a source from `viewer.config.json`, e.g. `#r2:<id>` |
 | `#local:<name>` | file served by `agent-share serve` |
-| `#url:<path>` | same-origin path (reserved for R2 storage) |
+| `#url:<path>` | same-origin path |
 | `…&view=minimal` | step the view down |
 
 It renders prompts/replies (markdown sanitized with DOMPurify), tool calls with
 lazily-built detail, grouped work, subagent cards, events, and a per-turn **token rail**:
 one column per model response showing prompt size (cache read / cache write / new input,
 scaled to the session's peak context) plus a separate output row, with per-turn and
-cumulative session totals and hover tooltips. A strict CSP allows scripts only from
-its own origin, fetches only to GitHub gist hosts, and blocks remote images.
+cumulative session totals and hover tooltips.
 
-Hosting: the viewer is static files only — `npm run build:viewer` and deploy
-`viewer/dist/` anywhere (e.g. Cloudflare Workers static assets or Pages). Pointing a
-domain at it (such as `agent.nub.sh/session/`) is up to whoever deploys it.
+**Build-time config** — `viewer.config.json` lists extra share sources as URL templates:
 
-Planned: a public R2 bucket as a second storage target — the CLI uploads `session.json`
-under an unguessable id and the viewer fetches it directly from the bucket's public URL.
-No backend or auth is involved in either case.
+```json
+{ "sources": { "r2": "https://shares.example.com/s/{id}.json" } }
+```
+
+The template must equal the CLI's `r2.publicUrl` + `r2.prefix` + `{id}.json`. Each
+source's origin is added to the Content-Security-Policy; the viewer only ever fetches
+from GitHub gist hosts and the sources you list. (`$AGENT_SHARE_VIEWER_CONFIG` points
+the build at a different file.)
+
+**Build output** (`npm run build:viewer` → `viewer/dist/`): `session/` (the viewer),
+`_headers` (CSP with `frame-ancestors 'none'`, `noindex`, `no-referrer`, `nosniff`),
+`_redirects` (`/` → `/session/`) and `robots.txt`. Any static host works; Cloudflare
+reads `_headers`/`_redirects` natively.
+
+### Deploying to Cloudflare
+
+`wrangler.jsonc` defines an assets-only Worker (no Worker code, no bindings):
+
+```bash
+npx wrangler login          # once
+npm run deploy              # builds the viewer and deploys it
+# → https://agent-share-viewer.<your-subdomain>.workers.dev/session/
+```
+
+Custom domains (e.g. `agent.example.com`) are attached to the Worker in the Cloudflare
+dashboard; nothing in this repo assumes a domain. Set the CLI's `viewerUrl` to wherever
+you deployed (`https://…/session/`). `npm run dev:viewer` runs it locally with
+`wrangler dev`.
 
 ## Integrations
 
@@ -186,3 +261,23 @@ npm run typecheck   # CLI + viewer
 npm run build       # dist/ + viewer/dist/
 npm start -- report --current   # run from source via tsx
 ```
+
+### Fake sessions for testing
+
+`agent-share fixtures` (or `npm run fixtures`) writes realistic, deterministic Claude
+Code and pi transcripts — plus redacted shares in every mode — that exercise the whole
+viewer (thinking, all tool kinds, errors, diffs, images, subagents, slash commands,
+skills, interrupts, API errors, compaction, model changes, rewinds/branches, queued
+prompts, a truncated build log) and every redaction layer (an `env` dump, `.env`, keys
+in each detector's format, a PEM key, a JWT, and a format-less token that only
+`--secrets-file` catches). Planted credentials are random fakes.
+
+```bash
+agent-share fixtures --out fixtures-out --seed 1 [--turns 30]
+agent-share serve fixtures-out/shares/*.json                       # browse them
+agent-share report fixtures-out/claude/projects/*/*.jsonl --mode full --secrets-file fixtures-out/secrets.env
+AGENT_SHARE_CLAUDE_PROJECTS=fixtures-out/claude/projects agent-share list
+```
+
+Transcripts use your home directory and username by default (so home-path redaction
+applies); pass `--home`/`--user` to change them.

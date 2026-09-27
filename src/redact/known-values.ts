@@ -103,6 +103,23 @@ export function collectKnownSecrets(sources: KnownValueSources = {}): KnownSecre
   return [...out.values()].sort((a, b) => b.value.length - a.value.length);
 }
 
+/**
+ * Read extra secret values from a file: dotenv-style `KEY=VALUE` lines (the key becomes
+ * the label) or one bare value per line. Blank lines and `#` comments are ignored.
+ */
+export function readSecretsFile(path: string): KnownSecret[] {
+  const out: KnownSecret[] = [];
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const m = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(trimmed);
+    const label = m ? m[1]! : "secret";
+    const value = (m ? m[2]! : trimmed).trim().replace(/^(['"])(.*)\1$/, "$2");
+    if (value.length >= 4) out.push({ value, label, source: "secrets-file" });
+  }
+  return out;
+}
+
 function walkJson(v: unknown, path: string[], visit: (path: string[], value: string) => void): void {
   if (typeof v === "string") {
     const key = path.at(-1) ?? "";

@@ -3,9 +3,18 @@
   "version": "0.1.0",
   "description": "Share coding-agent session transcripts (Claude Code, pi) with redaction, share modes, and a static viewer",
   "type": "module",
-  "bin": { "agent-share": "./dist/cli.js" },
-  "files": ["dist", "viewer/dist", "integrations", "README.md"],
-  "engines": { "node": ">=22" },
+  "bin": {
+    "agent-share": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "viewer/dist",
+    "integrations",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json && node viewer/build.mjs",
     "build:viewer": "node viewer/build.mjs",
@@ -27,5 +36,10 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crcatala/agent-share-session.git"
+  },
+  "homepage": "https://github.com/crcatala/agent-share-session#readme"
 }

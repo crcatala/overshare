@@ -11,13 +11,15 @@ adapters/            pipeline                                   publish/        
  pi.ts          ─┴─► NormalizedSession ─────────► re-scan ────► R2 (later)   ─────► #owner/gistId
 ```
 
-Standalone package: `cd tools/agent-share && npm install` — nothing depends on the
-surrounding repository, so it can be extracted to its own repo as-is.
+Everything is static: the CLI redacts and uploads a public share file, and the viewer
+is a plain static page that reads it. There is no backend and no auth — fork it, tweak
+it, and deploy your own viewer if you want to own the code you share through.
 
 ## Quick start
 
 ```bash
-cd tools/agent-share
+git clone https://github.com/crcatala/agent-share-session.git
+cd agent-share-session
 npm install
 npm run build
 npm link                       # puts `agent-share` on PATH
@@ -137,10 +139,13 @@ scaled to the session's peak context) plus a separate output row, with per-turn 
 cumulative session totals and hover tooltips. A strict CSP allows scripts only from
 its own origin, fetches only to GitHub gist hosts, and blocks remote images.
 
-Hosting at `agent.nub.sh/session/`: `npm run build:viewer` and deploy `viewer/dist/`
-(e.g. Cloudflare Pages). For R2, add a `Publisher` in `src/publish/` that uploads
-`session.json` under an unguessable id and returns `…/session/#url:/s/<id>.json`, then
-add the R2 origin to the CSP `connect-src` if it differs.
+Hosting: the viewer is static files only — `npm run build:viewer` and deploy
+`viewer/dist/` anywhere (e.g. Cloudflare Workers static assets or Pages). Pointing a
+domain at it (such as `agent.nub.sh/session/`) is up to whoever deploys it.
+
+Planned: a public R2 bucket as a second storage target — the CLI uploads `session.json`
+under an unguessable id and the viewer fetches it directly from the bucket's public URL.
+No backend or auth is involved in either case.
 
 ## Integrations
 

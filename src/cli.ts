@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError, Option } from "commander";
-import { loadConfig } from "./config.js";
+import { SHARE_TARGETS, loadConfig, type ShareTarget } from "./config.js";
+import { exportFixtureShares, generateFixtures } from "./fixtures/index.js";
 import { formatBytes, formatTokens } from "./format.js";
 import { prepareShare, type PreparedShare } from "./pipeline.js";
-import { GistPublisher } from "./publish/gist.js";
+import { accessWarnings, createPublisher, parseShareRef, preflightWarnings } from "./publish/index.js";
+import { readSecretsFile } from "./redact/known-values.js";
 import { formatReport } from "./report.js";
 import { defaultRoots, listSessions, resolveSession, type SessionRef } from "./resolve.js";
 import { SHARE_MODES, totalTokens, type HarnessName, type ShareMode } from "./schema.js";
@@ -20,6 +23,7 @@ interface SessionOptions {
   harness?: HarnessName;
   leaf?: string;
   mode: ShareMode;
+  secretsFile?: string[];
 }
 
 const parseMode = (value: string): ShareMode => {
@@ -33,14 +37,16 @@ function withSessionOptions(cmd: Command, defaultMode: ShareMode): Command {
     .option("-c, --current", "use the current session (Claude Code: $CLAUDE_CODE_SESSION_ID; else newest for this directory)")
     .addOption(new Option("--harness <name>", "restrict to one harness").choices(["claude-code", "pi"]))
     .option("--leaf <entryId>", "export the branch ending at this entry (tree-shaped sessions)")
-    .option("-m, --mode <mode>", "share mode: full | brief | minimal", parseMode, defaultMode);
+    .option("-m, --mode <mode>", "share mode: full | brief | minimal", parseMode, defaultMode)
+    .option("--secrets-file <file...>", "extra values to redact: KEY=VALUE lines or one value per line");
 }
 
 function prepare(arg: string | undefined, opts: SessionOptions): { ref: SessionRef; prepared: PreparedShare } {
   const ref = resolveSession(arg, { current: opts.current, harness: opts.harness });
   const config = loadConfig();
   const raw = readFileSync(ref.path, "utf8");
-  const prepared = prepareShare(raw, { mode: opts.mode, config, harness: ref.harness, leafId: opts.leaf });
+  const extraKnownSecrets = (opts.secretsFile ?? []).flatMap((f) => readSecretsFile(f, (msg) => console.error(`warning: ${msg}`)));
+  const prepared = prepareShare(raw, { mode: opts.mode, config, harness: ref.harness, leafId: opts.leaf, extraKnownSecrets });
   return { ref, prepared };
 }
 
@@ -98,50 +104,134 @@ withSessionOptions(program.command("export"), "full")
     console.error(`\nWrote ${opts.output} (${formatBytes(prepared.report.bytes)})`);
   });
 
+const parseTarget = (value: string): ShareTarget => {
+  if (!(SHARE_TARGETS as readonly string[]).includes(value)) throw new InvalidArgumentError(`expected one of ${SHARE_TARGETS.join(", ")}`);
+  return value as ShareTarget;
+};
+
 withSessionOptions(program.command("publish"), "brief")
-  .description("redact, review and publish a session to a secret gist")
+  .description("redact, review and publish a session (secret gist or public R2 bucket)")
+  .option("-t, --target <target>", "where to store the share: gist | r2 (default from config)", parseTarget)
   .option("-y, --yes", "skip confirmation when the report is clean")
   .option("--allow-findings", "with --yes: publish even though secrets were redacted (only after reviewing the report)")
   .option("--json", "print the publish result as JSON")
-  .action(async (arg: string | undefined, opts: SessionOptions & { yes?: boolean; allowFindings?: boolean; json?: boolean }) => {
-    const { prepared } = prepare(arg, opts);
-    const { report } = prepared;
-    console.error(formatReport(report, { color: !!process.stderr.isTTY && !process.env.NO_COLOR }));
-    if (report.blocked) {
-      console.error("\nRefusing to publish: the final re-scan found unredacted secrets.");
-      process.exitCode = EXIT.blocked;
-      return;
-    }
-    const autoOk = opts.yes && (report.clean || opts.allowFindings);
-    if (!autoOk) {
-      if (opts.yes && !report.clean) console.error("\n--yes only applies to clean reports (add --allow-findings after reviewing).");
-      if (!process.stdin.isTTY) {
-        console.error("Not publishing: review the report and re-run interactively or with --yes.");
-        process.exitCode = report.clean ? EXIT.declined : EXIT.needsReview;
+  .action(
+    async (arg: string | undefined, opts: SessionOptions & { target?: ShareTarget; yes?: boolean; allowFindings?: boolean; json?: boolean }) => {
+      const config = loadConfig();
+      const target = opts.target ?? config.target;
+      // Fail on missing target configuration before doing any work.
+      const publisher = createPublisher(config, target);
+      const warnings = preflightWarnings(config, target);
+      for (const w of warnings) console.error(`warning: ${w}`);
+      const { prepared } = prepare(arg, opts);
+      const { report } = prepared;
+      console.error(formatReport(report, { color: !!process.stderr.isTTY && !process.env.NO_COLOR }));
+      if (report.blocked) {
+        console.error("\nRefusing to publish: the final re-scan found unredacted secrets.");
+        process.exitCode = EXIT.blocked;
         return;
       }
-      const ok = await confirm(`\nPublish ${formatBytes(report.bytes)} as a secret (unlisted) gist? [y/N] `);
-      if (!ok) {
-        console.error("Not published.");
+      const autoOk = opts.yes && (report.clean || opts.allowFindings);
+      if (!autoOk) {
+        if (opts.yes && !report.clean) console.error("\n--yes only applies to clean reports (add --allow-findings after reviewing).");
+        if (!process.stdin.isTTY) {
+          console.error("Not publishing: review the report and re-run interactively or with --yes.");
+          process.exitCode = report.clean ? EXIT.declined : EXIT.needsReview;
+          return;
+        }
+        const where = target === "gist" ? "a secret (unlisted) gist" : "the public R2 bucket (unlisted id)";
+        const ok = await confirm(`\nPublish ${formatBytes(report.bytes)} to ${where}? [y/N] `);
+        if (!ok) {
+          console.error("Not published.");
+          process.exitCode = EXIT.declined;
+          return;
+        }
+      }
+      const s = prepared.session;
+      const result = await publisher.publish({
+        filename: "session.json",
+        content: prepared.json,
+        description: `agent-share: ${s.title ?? s.source.sessionId} (${s.harness.name}, ${s.mode}, ${formatTokens(totalTokens(s.stats.tokens))} tokens)`,
+      });
+      const postWarnings = await accessWarnings(config, target, result);
+      // Always on stderr (also in --json mode) so wrappers and humans both see them.
+      for (const w of postWarnings) console.error(`warning: ${w}`);
+      warnings.push(...postWarnings);
+      if (opts.json) {
+        console.log(JSON.stringify({ ...result, warnings }, null, 2));
+      } else {
+        console.log(`\nShared: ${result.viewerUrl}`);
+        console.log(`${target === "gist" ? "Gist:  " : "Data:  "} ${result.url}`);
+        console.log(`Local viewer: agent-share serve --open-hash '${result.viewerUrl.split("#")[1] ?? ""}'`);
+      }
+    },
+  );
+
+program
+  .command("delete")
+  .description("delete a published share (viewer link, gist URL, r2:<id>, or id)")
+  .argument("<share>", "share link or id")
+  .option("-t, --target <target>", "target for a bare id that is not a gist id", parseTarget)
+  .option("-y, --yes", "do not ask for confirmation")
+  .action(async (input: string, opts: { target?: ShareTarget; yes?: boolean }) => {
+    const config = loadConfig();
+    const ref = parseShareRef(input, opts.target ?? config.target, config.r2);
+    if (!opts.yes) {
+      if (!process.stdin.isTTY) throw new Error("Refusing to delete without confirmation; pass --yes");
+      if (!(await confirm(`Delete ${ref.target} share ${ref.id}? [y/N] `))) {
+        console.error("Not deleted.");
         process.exitCode = EXIT.declined;
         return;
       }
     }
-    const config = loadConfig();
-    const publisher = new GistPublisher({ viewerUrl: config.viewerUrl });
-    const s = prepared.session;
-    const result = await publisher.publish({
-      filename: "session.json",
-      content: prepared.json,
-      description: `agent-share: ${s.title ?? s.source.sessionId} (${s.harness.name}, ${s.mode}, ${formatTokens(totalTokens(s.stats.tokens))} tokens)`,
-    });
-    if (opts.json) {
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      console.log(`\nShared: ${result.viewerUrl}`);
-      console.log(`Gist:   ${result.url}`);
-      console.log(`Local viewer: agent-share serve --open-hash '${result.viewerUrl.split("#")[1] ?? ""}'`);
+    await createPublisher(config, ref.target).delete(ref.id);
+    console.log(`Deleted ${ref.target} share ${ref.id}.${ref.target === "r2" ? " Edge caches may serve it for up to 5 more minutes." : ""}`);
+  });
+
+const rel = (p: string) => relative(process.cwd(), p) || ".";
+
+program
+  .command("fixtures")
+  .description("generate realistic fake Claude Code + pi sessions (with planted fake secrets) for testing")
+  .option("-o, --out <dir>", "output directory", "fixtures-out")
+  .option("-s, --seed <n>", "random seed (same seed → same output)", (v) => Number.parseInt(v, 10), 1)
+  .option("--turns <n>", "extra generic work turns to append (bigger sessions)", (v) => Number.parseInt(v, 10), 0)
+  .option("--home <dir>", "home directory used inside transcripts (default: yours, so home-path redaction applies)")
+  .option("--user <name>", "username used inside transcripts (default: yours)")
+  .option("--no-shares", "only write transcripts; skip exporting share JSON for the viewer")
+  .action((opts: { out: string; seed: number; turns: number; home?: string; user?: string; shares: boolean }) => {
+    const fx = generateFixtures({ outDir: opts.out, seed: opts.seed, extraTurns: opts.turns, home: opts.home, username: opts.user });
+    console.log(`Transcripts (seed ${opts.seed}):\n  claude-code  ${rel(fx.claudeFile)}\n  pi           ${rel(fx.piFile)}`);
+    console.log(`Planted fake secrets: ${fx.secrets.length} → ${rel(fx.secretsFile)}`);
+    if (opts.shares) {
+      console.log("\nShares (redacted with the secrets file):");
+      for (const r of exportFixtureShares(fx, opts.out, loadConfig())) {
+        console.log(`  ${rel(r.file).padEnd(44)} ${formatBytes(r.bytes).padStart(9)}  ${r.status}`);
+      }
+      console.log(`\nView them:   agent-share serve ${rel(join(opts.out, "shares"))}/*.json   (or: agent-share demo)`);
     }
+    console.log(`Try the CLI: AGENT_SHARE_CLAUDE_PROJECTS=${rel(fx.roots["claude-code"])} AGENT_SHARE_PI_SESSIONS=${rel(fx.roots.pi)} agent-share list`);
+    console.log(`             agent-share report ${rel(fx.claudeFile)} --mode full --secrets-file ${rel(fx.secretsFile)}`);
+  });
+
+program
+  .command("demo")
+  .description("generate fake sessions and open them in the local viewer (nothing is uploaded)")
+  .option("-o, --out <dir>", "output directory for the generated fixtures", "fixtures-out")
+  .option("-s, --seed <n>", "random seed", (v) => Number.parseInt(v, 10), 1)
+  .option("--turns <n>", "extra generic work turns (bigger sessions)", (v) => Number.parseInt(v, 10), 0)
+  .option("-p, --port <port>", "port", (v) => Number.parseInt(v, 10), 3000)
+  .option("--host <host>", "bind address", "0.0.0.0")
+  .action(async (opts: { out: string; seed: number; turns: number; port: number; host: string }) => {
+    const fx = generateFixtures({ outDir: opts.out, seed: opts.seed, extraTurns: opts.turns });
+    const files = exportFixtureShares(fx, opts.out, loadConfig()).map((r) => r.file);
+    const { url, port } = await startViewerServer({ port: opts.port, files, host: opts.host });
+    if (port !== opts.port) console.log(`Port ${opts.port} is in use; using ${port} instead.`);
+    console.log(`Generated fake Claude Code + pi sessions (seed ${opts.seed}) in ${rel(opts.out)} — nothing is uploaded.\n`);
+    console.log(`All sessions:  ${url}`);
+    console.log(`Claude Code:   ${url}#local:claude-code-full.json`);
+    console.log(`pi:            ${url}#local:pi-full.json`);
+    console.log("\nCtrl-C to stop.");
   });
 
 program
@@ -155,7 +245,7 @@ program
   .action(async (files: string[], opts: { port: number; host: string; strictPort?: boolean; openHash?: string }) => {
     const { url, port, localNames } = await startViewerServer({ port: opts.port, files, host: opts.host, strictPort: opts.strictPort });
     if (port !== opts.port) console.log(`Port ${opts.port} is in use; using ${port} instead.`);
-    console.log(`Viewer: ${url}`);
+    console.log(`Viewer: ${url}${localNames.length ? "  (lists the local files)" : ""}`);
     for (const name of localNames) console.log(`  ${url}#local:${name}`);
     if (opts.openHash) console.log(`  ${url}#${opts.openHash}`);
     console.log("Ctrl-C to stop.");

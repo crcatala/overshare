@@ -1,3 +1,4 @@
+import "./styles.css";
 import { formatCost, formatDuration, formatTokens, plural } from "../../src/format.ts";
 import { availableModes, projectSession } from "../../src/modes.ts";
 import {
@@ -164,6 +165,7 @@ function renderHeader(s: NormalizedSession, view: ShareMode): HTMLElement {
     { class: "session-header" },
     h("div", { class: "header-top" }, h("h1", {}, s.title ?? "Agent session"), h("div", { class: "header-actions" }, switcher, themeBtn)),
     h("p", { class: "meta" }, meta.join(" · ")),
+    state.source?.kind === "local" ? h("p", { class: "fine" }, h("a", { href: "#" }, "← All local sessions")) : null,
     tiles,
     files ? h("p", { class: "meta" }, `Files: ${st.files.read} read · ${st.files.edited} edited · ${st.files.written} written`) : null,
     toolBars,
@@ -365,8 +367,59 @@ function setView(mode: ShareMode): void {
   render();
 }
 
+interface LocalShare {
+  name: string;
+  title?: string;
+  harness?: string;
+  mode?: string;
+  turns?: number;
+  error?: string;
+}
+
+/** `agent-share serve` exposes ./local/index.json; on a deployed viewer it simply 404s. */
+async function showLocalPicker(): Promise<boolean> {
+  let shares: LocalShare[];
+  try {
+    const res = await fetch("./local/index.json", { cache: "no-store" });
+    if (!res.ok) return false;
+    shares = (await res.json()) as LocalShare[];
+  } catch {
+    return false;
+  }
+  if (!Array.isArray(shares) || shares.length === 0) return false;
+  document.title = "Local sessions · Agent Session";
+  app.replaceChildren(
+    h(
+      "section",
+      { class: "session-header picker" },
+      h("h1", {}, "Local sessions"),
+      h("p", { class: "meta" }, `Served by agent-share serve · ${plural(shares.length, "file")}`),
+      h(
+        "ul",
+        { class: "picker-list" },
+        ...shares.map((s) =>
+          h(
+            "li",
+            {},
+            h("a", { href: `#local:${encodeURIComponent(s.name)}` }, s.title ?? s.name),
+            h(
+              "span",
+              { class: "muted small" },
+              s.error ? ` · ${s.name} · unreadable (${s.error})` : ` · ${[s.name, HARNESS_LABEL[s.harness ?? ""] ?? s.harness, s.mode, s.turns !== undefined ? plural(s.turns, "turn") : ""].filter(Boolean).join(" · ")}`,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  return true;
+}
+
 async function main(): Promise<void> {
-  if (!state.source) return showError("No session in the link.");
+  if (!state.source) {
+    if (await showLocalPicker()) return;
+    return showError("No session in the link.");
+  }
   try {
     const data = (await loadSource(state.source)) as NormalizedSession;
     if (!data || data.schema !== SCHEMA_VERSION) throw new Error(`Unsupported share format (${(data as { schema?: string })?.schema ?? "unknown"}).`);

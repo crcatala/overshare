@@ -16,26 +16,33 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node viewer/build.mjs",
-    "build:viewer": "node viewer/build.mjs",
+    "build": "tsc -p tsconfig.json && vite build",
+    "build:viewer": "vite build",
+    "dev": "vite",
+    "demo": "npm run build:viewer && tsx src/cli.ts demo",
+    "fixtures": "tsx src/cli.ts fixtures",
+    "deploy": "npm run build:viewer && wrangler deploy",
+    "preview:cf": "npm run build:viewer && wrangler dev",
     "prepack": "npm run build",
     "test": "vitest run --config vitest.config.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p viewer/tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p viewer/tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "start": "tsx src/cli.ts"
   },
   "license": "MIT",
   "dependencies": {
     "@sanity-labs/secret-scan": "^1.1.0",
+    "aws4fetch": "^1.0.20",
     "commander": "^14.0.2"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
     "dompurify": "^3.4.0",
-    "esbuild": "^0.28.0",
     "marked": "^18.0.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vite": "^8.3.1",
+    "vitest": "^4.0.18",
+    "wrangler": "^4.142.0"
   },
   "repository": {
     "type": "git",

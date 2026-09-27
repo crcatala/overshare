@@ -19,6 +19,8 @@ export interface PrepareOptions {
   machine?: { homeDir?: string; username?: string; hostname?: string };
   /** Pre-collected known secrets; collected from this machine when omitted. */
   knownSecrets?: KnownSecret[];
+  /** Additional exact values to treat as secrets (e.g. from --secrets-file). */
+  extraKnownSecrets?: KnownSecret[];
   now?: Date;
 }
 
@@ -63,8 +65,10 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
     username: opts.machine?.username ?? safeUsername(),
     hostname: opts.machine?.hostname ?? osHostname(),
   };
-  const knownSecrets =
-    opts.knownSecrets ?? collectKnownSecrets({ home: machine.homeDir, projectDir: full.project?.cwd });
+  const knownSecrets = [
+    ...(opts.knownSecrets ?? collectKnownSecrets({ home: machine.homeDir, projectDir: full.project?.cwd })),
+    ...(opts.extraKnownSecrets ?? []),
+  ].sort((a, b) => b.value.length - a.value.length);
   const { redact } = opts.config;
   const redactor = new Redactor({
     ...machine,

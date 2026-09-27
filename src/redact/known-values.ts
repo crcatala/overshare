@@ -103,6 +103,47 @@ export function collectKnownSecrets(sources: KnownValueSources = {}): KnownSecre
   return [...out.values()].sort((a, b) => b.value.length - a.value.length);
 }
 
+/** Values shorter than this would redact common substrings everywhere, so they are skipped. */
+const MIN_SECRET_LENGTH = 4;
+const ENV_NAME_KEY = /^[A-Z_][A-Z0-9_]*$/;
+
+/**
+ * Read extra secret values from a file: `KEY=VALUE` lines (the key becomes the label) or
+ * one bare value per line. Blank lines and `#` comments are ignored.
+ *
+ * Only env-style keys (`UPPER_SNAKE`) are split at `=`. Anything else — a base64 value
+ * ending in `==`, or a password like `abc=def` — is redacted as a whole line (and, when
+ * long enough, also the part after `=`), so a bare secret is never dropped or partly
+ * revealed. Skipped lines are reported via `warn`.
+ */
+export function readSecretsFile(path: string, warn: (message: string) => void = () => {}): KnownSecret[] {
+  const out: KnownSecret[] = [];
+  const unquote = (v: string) => v.trim().replace(/^(['"])(.*)\1$/, "$2");
+  readFileSync(path, "utf8")
+    .split("\n")
+    .forEach((line, i) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) return;
+      const withoutExport = trimmed.replace(/^export\s+/, "");
+      const eq = withoutExport.indexOf("=");
+      const key = eq > 0 ? withoutExport.slice(0, eq).trim() : "";
+      if (ENV_NAME_KEY.test(key)) {
+        const value = unquote(withoutExport.slice(eq + 1));
+        if (value.length >= MIN_SECRET_LENGTH) out.push({ value, label: key, source: "secrets-file" });
+        else warn(`${path}:${i + 1}: value for ${key} is shorter than ${MIN_SECRET_LENGTH} characters; skipped`);
+        return;
+      }
+      const value = unquote(trimmed);
+      if (value.length >= MIN_SECRET_LENGTH) out.push({ value, label: "secret", source: "secrets-file" });
+      else warn(`${path}:${i + 1}: value is shorter than ${MIN_SECRET_LENGTH} characters; skipped`);
+      // Ambiguous `name=value` (e.g. a lowercase key): also redact the part after `=` on its
+      // own. Over-redacting a substring is harmless; missing a password is not.
+      const after = eq > 0 ? unquote(withoutExport.slice(eq + 1)) : "";
+      if (after.length >= 8 && after !== value) out.push({ value: after, label: key || "secret", source: "secrets-file" });
+    });
+  return out;
+}
+
 function walkJson(v: unknown, path: string[], visit: (path: string[], value: string) => void): void {
   if (typeof v === "string") {
     const key = path.at(-1) ?? "";

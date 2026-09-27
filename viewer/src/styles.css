@@ -603,3 +603,20 @@ pre.add {
   font-size: 13px;
   color: var(--muted);
 }
+/* Nested grids default to an `auto` column sized to their widest child (e.g. a long
+   code line); pin them to the available width so wide content scrolls instead. */
+.turn-main,
+.tool-body,
+.subagent,
+.diff {
+  grid-template-columns: minmax(0, 1fr);
+}
+.picker-list {
+  margin: 16px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+}
+.picker-list a {
+  font-weight: 600;
+}

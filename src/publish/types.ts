@@ -16,13 +16,15 @@ export interface PublishResult {
 }
 
 /**
- * A storage backend for share payloads. Implementations: `gist` (now); R2 later
- * (`agent.nub.sh`), which only needs to store `session.json` under an unguessable
- * id and return a viewer URL the viewer knows how to load.
+ * Where share payloads are stored. Storage is always public-by-link and static:
+ * `gist` (secret GitHub gist) and `r2` (public Cloudflare R2 bucket). A publisher
+ * stores `session.json` under an unguessable id and returns a viewer URL.
  */
 export interface Publisher {
   readonly name: string;
   publish(payload: PublishPayload): Promise<PublishResult>;
+  /** Remove a previously published share by id. */
+  delete(id: string): Promise<void>;
 }
 
 export interface CommandResult {

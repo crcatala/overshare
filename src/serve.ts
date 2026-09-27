@@ -40,6 +40,7 @@ export async function startViewerServer(
   if (!existsSync(join(dist, "session", "index.html"))) throw new Error(`Viewer not built at ${dist} — run \`npm run build:viewer\``);
   const local = new Map<string, string>();
   for (const f of opts.files ?? []) local.set(basename(f), resolve(f));
+  const index = JSON.stringify(localIndex(local));
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -51,6 +52,11 @@ export async function startViewerServer(
     if (!path.startsWith("/session/")) return void res.writeHead(404).end("not found");
     path = path.slice("/session/".length);
     let file: string | undefined;
+    if (path === "local/index.json" && !local.has("index.json")) {
+      // Lets the viewer show a picker when opened without a share in the hash.
+      res.writeHead(200, { "Content-Type": MIME[".json"]!, "Cache-Control": "no-store" });
+      return void res.end(index);
+    }
     if (path.startsWith("local/")) {
       file = local.get(path.slice("local/".length));
     } else {
@@ -95,5 +101,26 @@ function listen(server: Server, port: number, host: string): Promise<number> {
     server.once("error", onError);
     server.once("listening", onListening);
     server.listen(port, host);
+  });
+}
+
+export interface LocalShareSummary {
+  name: string;
+  title?: string;
+  harness?: string;
+  mode?: string;
+  turns?: number;
+  error?: string;
+}
+
+/** Summaries of the served share files, for the viewer's local picker. */
+function localIndex(local: Map<string, string>): LocalShareSummary[] {
+  return [...local].map(([name, file]) => {
+    try {
+      const s = JSON.parse(readFileSync(file, "utf8")) as { title?: string; harness?: { name?: string }; mode?: string; stats?: { turns?: number } };
+      return { name, title: s.title, harness: s.harness?.name, mode: s.mode, turns: s.stats?.turns };
+    } catch (err) {
+      return { name, error: (err as Error).message };
+    }
   });
 }

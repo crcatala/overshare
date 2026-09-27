@@ -611,3 +611,12 @@ pre.add {
 .diff {
   grid-template-columns: minmax(0, 1fr);
 }
+.picker-list {
+  margin: 16px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+}
+.picker-list a {
+  font-weight: 600;
+}

@@ -24,7 +24,8 @@
     "start": "tsx src/cli.ts",
     "deploy": "npm run build:viewer && wrangler deploy",
     "dev:viewer": "npm run build:viewer && wrangler dev",
-    "fixtures": "tsx src/cli.ts fixtures"
+    "fixtures": "tsx src/cli.ts fixtures",
+    "demo": "npm run build:viewer && tsx src/cli.ts demo"
   },
   "license": "MIT",
   "dependencies": {

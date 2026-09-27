@@ -29,7 +29,7 @@ agent-share report --current                      # what would be shared/redacte
 agent-share export <id> --mode full -o out.json   # redacted share JSON, locally
 agent-share publish --current --mode brief        # review → confirm → secret gist → link
 agent-share serve out.json                        # local viewer: …/session/#local:out.json
-agent-share fixtures && agent-share serve fixtures-out/shares/*.json   # try it with fake sessions
+agent-share demo                                  # fake sessions in the local viewer, nothing uploaded
 ```
 
 `serve` listens on port 3000 on all interfaces by default (`--port`, `--host 127.0.0.1`
@@ -271,6 +271,17 @@ skills, interrupts, API errors, compaction, model changes, rewinds/branches, que
 prompts, a truncated build log) and every redaction layer (an `env` dump, `.env`, keys
 in each detector's format, a PEM key, a JWT, and a format-less token that only
 `--secrets-file` catches). Planted credentials are random fakes.
+
+Quickest way to look at the viewer locally — generates the fixtures, exports shares in
+every mode, and serves them (nothing is uploaded):
+
+```bash
+npm run demo          # or: agent-share demo [--seed 2] [--turns 30] [--port 3000]
+# All sessions: http://localhost:3000/session/   ← picker listing every local share
+```
+
+Opening the viewer without a share in the link shows that picker whenever it is served
+by `agent-share serve`/`demo` (it reads `./local/index.json`; deployed viewers have none).
 
 ```bash
 agent-share fixtures --out fixtures-out --seed 1 [--turns 30]

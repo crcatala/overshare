@@ -4,7 +4,7 @@ import { join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError, Option } from "commander";
 import { SHARE_TARGETS, loadConfig, type ShareTarget } from "./config.js";
-import { generateFixtures } from "./fixtures/index.js";
+import { generateFixtures, type GeneratedFixtures } from "./fixtures/index.js";
 import { formatBytes, formatTokens } from "./format.js";
 import { prepareShare, type PreparedShare } from "./pipeline.js";
 import { createPublisher, parseShareRef } from "./publish/index.js";
@@ -194,6 +194,35 @@ program
     console.log(`Deleted ${ref.target} share ${ref.id}.${ref.target === "r2" ? " Edge caches may serve it for up to 5 more minutes." : ""}`);
   });
 
+/** Redact and export each fixture transcript in every mode; returns the written share files. */
+function exportFixtureShares(fx: GeneratedFixtures, outDir: string, log: (line: string) => void): string[] {
+  const sharesDir = join(outDir, "shares");
+  mkdirSync(sharesDir, { recursive: true });
+  const config = loadConfig();
+  const extraKnownSecrets = readSecretsFile(fx.secretsFile);
+  const files: string[] = [];
+  for (const [harness, file] of [["claude-code", fx.claudeFile], ["pi", fx.piFile]] as const) {
+    for (const mode of SHARE_MODES) {
+      const prepared = prepareShare(readFileSync(file, "utf8"), {
+        mode,
+        config,
+        harness,
+        knownSecrets: [],
+        extraKnownSecrets,
+        machine: { homeDir: fx.home, username: fx.username },
+      });
+      const out = join(sharesDir, `${harness}-${mode}.json`);
+      writeFileSync(out, prepared.json);
+      files.push(out);
+      const r = prepared.report;
+      log(`  ${rel(out).padEnd(44)} ${formatBytes(r.bytes).padStart(9)}  ${r.blocked ? "BLOCKED" : r.clean ? "clean" : "needs review"}`);
+    }
+  }
+  return files;
+}
+
+const rel = (p: string) => relative(process.cwd(), p) || ".";
+
 program
   .command("fixtures")
   .description("generate realistic fake Claude Code + pi sessions (with planted fake secrets) for testing")
@@ -205,35 +234,35 @@ program
   .option("--no-shares", "only write transcripts; skip exporting share JSON for the viewer")
   .action((opts: { out: string; seed: number; turns: number; home?: string; user?: string; shares: boolean }) => {
     const fx = generateFixtures({ outDir: opts.out, seed: opts.seed, extraTurns: opts.turns, home: opts.home, username: opts.user });
-    const rel = (p: string) => relative(process.cwd(), p) || ".";
     console.log(`Transcripts (seed ${opts.seed}):\n  claude-code  ${rel(fx.claudeFile)}\n  pi           ${rel(fx.piFile)}`);
     console.log(`Planted fake secrets: ${fx.secrets.length} → ${rel(fx.secretsFile)}`);
     if (opts.shares) {
-      const sharesDir = join(opts.out, "shares");
-      mkdirSync(sharesDir, { recursive: true });
-      const config = loadConfig();
-      const extraKnownSecrets = readSecretsFile(fx.secretsFile);
       console.log("\nShares (redacted with the secrets file):");
-      for (const [harness, file] of [["claude-code", fx.claudeFile], ["pi", fx.piFile]] as const) {
-        for (const mode of SHARE_MODES) {
-          const prepared = prepareShare(readFileSync(file, "utf8"), {
-            mode,
-            config,
-            harness,
-            knownSecrets: [],
-            extraKnownSecrets,
-            machine: { homeDir: fx.home, username: fx.username },
-          });
-          const out = join(sharesDir, `${harness}-${mode}.json`);
-          writeFileSync(out, prepared.json);
-          const r = prepared.report;
-          console.log(`  ${rel(out).padEnd(44)} ${formatBytes(r.bytes).padStart(9)}  ${r.blocked ? "BLOCKED" : r.clean ? "clean" : "needs review"}`);
-        }
-      }
-      console.log(`\nView them:   agent-share serve ${rel(sharesDir)}/*.json`);
+      exportFixtureShares(fx, opts.out, console.log);
+      console.log(`\nView them:   agent-share serve ${rel(join(opts.out, "shares"))}/*.json   (or: agent-share demo)`);
     }
     console.log(`Try the CLI: AGENT_SHARE_CLAUDE_PROJECTS=${rel(fx.roots["claude-code"])} AGENT_SHARE_PI_SESSIONS=${rel(fx.roots.pi)} agent-share list`);
     console.log(`             agent-share report ${rel(fx.claudeFile)} --mode full --secrets-file ${rel(fx.secretsFile)}`);
+  });
+
+program
+  .command("demo")
+  .description("generate fake sessions and open them in the local viewer (nothing is uploaded)")
+  .option("-o, --out <dir>", "output directory for the generated fixtures", "fixtures-out")
+  .option("-s, --seed <n>", "random seed", (v) => Number.parseInt(v, 10), 1)
+  .option("--turns <n>", "extra generic work turns (bigger sessions)", (v) => Number.parseInt(v, 10), 0)
+  .option("-p, --port <port>", "port", (v) => Number.parseInt(v, 10), 3000)
+  .option("--host <host>", "bind address", "0.0.0.0")
+  .action(async (opts: { out: string; seed: number; turns: number; port: number; host: string }) => {
+    const fx = generateFixtures({ outDir: opts.out, seed: opts.seed, extraTurns: opts.turns });
+    const files = exportFixtureShares(fx, opts.out, () => {});
+    const { url, port } = await startViewerServer({ port: opts.port, files, host: opts.host });
+    if (port !== opts.port) console.log(`Port ${opts.port} is in use; using ${port} instead.`);
+    console.log(`Generated fake Claude Code + pi sessions (seed ${opts.seed}) in ${rel(opts.out)} — nothing is uploaded.\n`);
+    console.log(`All sessions:  ${url}`);
+    console.log(`Claude Code:   ${url}#local:claude-code-full.json`);
+    console.log(`pi:            ${url}#local:pi-full.json`);
+    console.log("\nCtrl-C to stop.");
   });
 
 program
@@ -247,7 +276,7 @@ program
   .action(async (files: string[], opts: { port: number; host: string; strictPort?: boolean; openHash?: string }) => {
     const { url, port, localNames } = await startViewerServer({ port: opts.port, files, host: opts.host, strictPort: opts.strictPort });
     if (port !== opts.port) console.log(`Port ${opts.port} is in use; using ${port} instead.`);
-    console.log(`Viewer: ${url}`);
+    console.log(`Viewer: ${url}${localNames.length ? "  (lists the local files)" : ""}`);
     for (const name of localNames) console.log(`  ${url}#local:${name}`);
     if (opts.openHash) console.log(`  ${url}#${opts.openHash}`);
     console.log("Ctrl-C to stop.");

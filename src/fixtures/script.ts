@@ -355,7 +355,7 @@ function currencyTest(): string {
 /** A long build log (~30k chars) so full-mode truncation is exercised. */
 function bigBuildLog(rng: Rng): string {
   const lines = ["> acme-billing-api@2.3.1 build", "> tsc -p tsconfig.build.json --verbose", ""];
-  for (let i = 0; i < 420; i++) {
+  for (let i = 0; i < 570; i++) {
     lines.push(`[${String(i).padStart(3, "0")}] Building project '/src/${rng.pick(["invoices", "customers", "lib", "webhooks", "reports"])}/${rng.token(8, "abcdefghijklmnopqrstuvwxyz")}.ts'...`);
   }
   lines.push("", "Found 0 errors. Watching for file changes.");

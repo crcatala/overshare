@@ -1,0 +1,14 @@
+// Static-assets-only Worker: serves the viewer (viewer/dist) with no Worker code,
+// no backend and no bindings. `npm run deploy` publishes it to
+// https://<name>.<your-subdomain>.workers.dev; point a custom domain at it in the
+// Cloudflare dashboard if you want one (e.g. agent.example.com → /session/).
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "agent-share-viewer",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./viewer/dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none"
+  }
+}

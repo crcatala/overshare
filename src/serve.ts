@@ -37,7 +37,7 @@ export async function startViewerServer(
   opts: ServeOptions,
 ): Promise<{ server: Server; url: string; port: number; localNames: string[] }> {
   const dist = viewerDistDir();
-  if (!existsSync(join(dist, "index.html"))) throw new Error(`Viewer not built at ${dist} — run \`npm run build:viewer\``);
+  if (!existsSync(join(dist, "session", "index.html"))) throw new Error(`Viewer not built at ${dist} — run \`npm run build:viewer\``);
   const local = new Map<string, string>();
   for (const f of opts.files ?? []) local.set(basename(f), resolve(f));
 
@@ -54,8 +54,9 @@ export async function startViewerServer(
     if (path.startsWith("local/")) {
       file = local.get(path.slice("local/".length));
     } else {
-      const candidate = normalize(join(dist, path || "index.html"));
-      if (candidate.startsWith(dist) && existsSync(candidate) && statSync(candidate).isFile()) file = candidate;
+      const viewerDir = join(dist, "session");
+      const candidate = normalize(join(viewerDir, path || "index.html"));
+      if (candidate.startsWith(viewerDir) && existsSync(candidate) && statSync(candidate).isFile()) file = candidate;
     }
     if (!file) return void res.writeHead(404).end("not found");
     res.writeHead(200, { "Content-Type": MIME[extname(file)] ?? "application/octet-stream", "Cache-Control": "no-store" });

@@ -4,14 +4,22 @@
  *   #gist:<gistId>        gist via the GitHub API (60 req/h/IP unauthenticated)
  *   #<32-hex gistId>      same as gist:
  *   #local:<name>         file served by `agent-share serve` at ./local/<name>
- *   #url:<path>           same-origin path (future R2 storage on agent.nub.sh)
+ *   #url:<path>           same-origin path
+ *   #<source>:<id>        a source configured at build time in viewer.config.json,
+ *                         e.g. #r2:<id> → https://shares.example.com/s/<id>.json
  * Extra `&key=value` params follow the source, e.g. `&view=minimal`.
  */
 export type Source =
   | { kind: "raw-gist"; owner: string; id: string }
   | { kind: "api-gist"; id: string }
   | { kind: "local"; name: string }
-  | { kind: "url"; path: string };
+  | { kind: "url"; path: string }
+  | { kind: "configured"; source: string; id: string };
+
+/** Share sources baked in by viewer/build.mjs from viewer.config.json. */
+declare const __AGENT_SHARE_SOURCES__: Record<string, string>;
+const SOURCES: Record<string, string> = typeof __AGENT_SHARE_SOURCES__ === "undefined" ? {} : __AGENT_SHARE_SOURCES__;
+const SHARE_ID = /^[A-Za-z0-9_-]{8,128}$/;
 
 export interface HashState {
   source?: Source;
@@ -27,6 +35,10 @@ export function parseHash(hash: string): HashState {
   if (src.startsWith("local:")) source = { kind: "local", name: src.slice(6) };
   else if (src.startsWith("url:")) source = { kind: "url", path: src.slice(4) };
   else if (src.startsWith("gist:")) source = { kind: "api-gist", id: src.slice(5) };
+  else if (/^[a-z][a-z0-9-]*:/.test(src)) {
+    const at = src.indexOf(":");
+    source = { kind: "configured", source: src.slice(0, at), id: src.slice(at + 1) };
+  }
   else if (/^[\w-]+\/[0-9a-f]{20,}$/i.test(src)) {
     const [owner, id] = src.split("/") as [string, string];
     source = { kind: "raw-gist", owner, id };
@@ -44,7 +56,9 @@ export function formatHash(state: HashState): string {
         ? `gist:${s.id}`
         : s.kind === "local"
           ? `local:${s.name}`
-          : `url:${s.path}`;
+          : s.kind === "configured"
+            ? `${s.source}:${s.id}`
+            : `url:${s.path}`;
   const params = state.params.toString();
   return `#${head}${params ? `&${params}` : ""}`;
 }
@@ -60,6 +74,13 @@ export async function loadSource(source: Source): Promise<unknown> {
     case "local":
       url = `./local/${encodeURIComponent(source.name)}`;
       break;
+    case "configured": {
+      const template = SOURCES[source.source];
+      if (!template) throw new Error(`This viewer has no "${source.source}" share source configured (see viewer.config.json).`);
+      if (!SHARE_ID.test(source.id)) throw new Error("Invalid share id.");
+      url = template.replace("{id}", encodeURIComponent(source.id));
+      break;
+    }
     case "url":
       if (/^[a-z]+:/i.test(source.path) || source.path.startsWith("//")) throw new Error("Only same-origin paths are allowed for #url:");
       url = source.path;

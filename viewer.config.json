@@ -1,0 +1,4 @@
+{
+  "_comment": "Build-time viewer config. Add share sources the viewer may load (#<name>:<id>), e.g. a public R2 bucket: \"sources\": { \"r2\": \"https://shares.example.com/s/{id}.json\" }. Must match the CLI's r2.publicUrl + r2.prefix.",
+  "sources": {}
+}

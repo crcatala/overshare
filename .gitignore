@@ -8,3 +8,5 @@ coverage/
 # Local exports and share payloads can contain session content.
 out/
 *.share.json
+fixtures-out/
+.wrangler/

@@ -24,6 +24,16 @@ export function append(el: Element, children: Child[]): void {
   }
 }
 
+// Only marked's code-block language classes survive. Any other class would let transcript
+// markdown borrow the viewer's own styles and draw a fake "You" prompt or tool call.
+const CODE_LANGUAGE_CLASS = /^language-[\w+#.-]+$/;
+
+DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
+  if (data.attrName !== "class") return;
+  data.attrValue = data.attrValue.split(/\s+/).filter((c) => CODE_LANGUAGE_CLASS.test(c)).join(" ");
+  if (!data.attrValue) data.keepAttr = false;
+});
+
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   if (node.tagName === "A") {
     node.setAttribute("target", "_blank");
@@ -33,13 +43,25 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
 
 marked.setOptions({ gfm: true, breaks: false });
 
+/**
+ * Transcripts are untrusted. Beyond DOMPurify's script/URL filtering: no styling hooks,
+ * no ids/names (they would shadow the viewer's own elements, e.g. #tooltip or #turn-3),
+ * and no form controls or dialogs (fake "paste your token here" boxes).
+ */
+const SANITIZE_OPTIONS = {
+  FORBID_TAGS: ["style", "form", "input", "button", "iframe", "textarea", "select", "option", "optgroup", "datalist", "dialog"],
+  FORBID_ATTR: ["style", "id", "name"],
+};
+
+/** Sanitize rendered markdown HTML (exported for tests). */
+export function sanitizeHtml(html: string): string {
+  return DOMPurify.sanitize(html, SANITIZE_OPTIONS);
+}
+
 /** Render untrusted markdown to sanitized HTML. */
 export function markdown(text: string): HTMLElement {
   const div = h("div", { class: "md" });
-  div.innerHTML = DOMPurify.sanitize(marked.parse(text, { async: false }) as string, {
-    FORBID_TAGS: ["style", "form", "input", "button", "iframe"],
-    FORBID_ATTR: ["style"],
-  });
+  div.innerHTML = sanitizeHtml(marked.parse(text, { async: false }) as string);
   return div;
 }
 

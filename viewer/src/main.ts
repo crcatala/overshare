@@ -16,7 +16,7 @@ import {
 } from "../../src/schema.ts";
 import { h, lazyDetails, markdown } from "./dom.ts";
 import { buildScale, railLegend, renderRail, type RailScale } from "./rail.ts";
-import { formatHash, loadSource, parseHash, type HashState } from "./source.ts";
+import { formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
 
 const app = document.getElementById("app") as HTMLElement;
 const HARNESS_LABEL: Record<string, string> = { "claude-code": "Claude Code", pi: "pi" };
@@ -32,6 +32,7 @@ const EVENT_ICON: Record<string, string> = {
 };
 
 let shared: NormalizedSession | undefined;
+let provenance: Provenance | undefined;
 let state: HashState = parseHash(location.hash);
 
 // ---------- theme ----------
@@ -76,6 +77,17 @@ function formatDate(iso?: string): string | undefined {
   if (!iso) return undefined;
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? undefined : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+/** Where the share was fetched from; everything else in the header is the sharer's own claim. */
+function renderProvenance(p: Provenance): HTMLElement {
+  return h(
+    "p",
+    { class: "fine provenance" },
+    "Loaded from ",
+    p.href ? h("a", { href: p.href, target: "_blank", rel: "noopener noreferrer" }, p.label) : p.label,
+    " · the transcript is shown as published and isn't verified",
+  );
 }
 
 function renderHeader(s: NormalizedSession, view: ShareMode): HTMLElement {
@@ -176,6 +188,7 @@ function renderHeader(s: NormalizedSession, view: ShareMode): HTMLElement {
       s.generator ? ` · ${formatDate(s.generator.sharedAt) ?? ""} via ${s.generator.name} ${s.generator.version}` : "",
       redParts.length ? ` · redacted: ${redParts.join(", ")}` : " · no redactions",
     ),
+    provenance ? renderProvenance(provenance) : null,
     s.responses.length ? railLegend() : null,
   );
 }
@@ -421,9 +434,11 @@ async function main(): Promise<void> {
     return showError("No session in the link.");
   }
   try {
-    const data = (await loadSource(state.source)) as NormalizedSession;
+    const loaded = await loadSource(state.source);
+    const data = loaded.data as NormalizedSession;
     if (!data || data.schema !== SCHEMA_VERSION) throw new Error(`Unsupported share format (${(data as { schema?: string })?.schema ?? "unknown"}).`);
     shared = data;
+    provenance = loaded.provenance;
     render();
   } catch (err) {
     showError(err instanceof Error ? err.message : String(err));

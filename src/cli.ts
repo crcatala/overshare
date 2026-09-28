@@ -12,7 +12,7 @@ import { readSecretsFile } from "./redact/known-values.js";
 import { formatReport } from "./report.js";
 import { defaultRoots, listSessions, resolveSession, type SessionRef } from "./resolve.js";
 import { SHARE_MODES, totalTokens, type HarnessName, type ShareMode } from "./schema.js";
-import { startViewerServer } from "./serve.js";
+import { DEFAULT_HOST, startViewerServer } from "./serve.js";
 import { TOOL_VERSION } from "./version.js";
 
 /** Exit codes, stable for wrappers (skill / pi extension). */
@@ -221,7 +221,7 @@ program
   .option("-s, --seed <n>", "random seed", (v) => Number.parseInt(v, 10), 1)
   .option("--turns <n>", "extra generic work turns (bigger sessions)", (v) => Number.parseInt(v, 10), 0)
   .option("-p, --port <port>", "port", (v) => Number.parseInt(v, 10), 3000)
-  .option("--host <host>", "bind address", "0.0.0.0")
+  .option("--host <host>", "bind address (0.0.0.0 to expose on your network)", DEFAULT_HOST)
   .action(async (opts: { out: string; seed: number; turns: number; port: number; host: string }) => {
     const fx = generateFixtures({ outDir: opts.out, seed: opts.seed, extraTurns: opts.turns });
     const files = exportFixtureShares(fx, opts.out, loadConfig()).map((r) => r.file);
@@ -239,7 +239,7 @@ program
   .description("serve the viewer locally (optionally with local share files)")
   .argument("[files...]", "share JSON files to expose as #local:<name>")
   .option("-p, --port <port>", "port", (v) => Number.parseInt(v, 10), 3000)
-  .option("--host <host>", "bind address (use 127.0.0.1 to restrict to this machine)", "0.0.0.0")
+  .option("--host <host>", "bind address (0.0.0.0 to expose on your network)", DEFAULT_HOST)
   .option("--strict-port", "fail if the port is in use instead of trying the next one")
   .option("--open-hash <hash>", "print a URL for this hash (e.g. owner/gistId)")
   .action(async (files: string[], opts: { port: number; host: string; strictPort?: boolean; openHash?: string }) => {

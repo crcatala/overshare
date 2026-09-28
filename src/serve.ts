@@ -17,6 +17,12 @@ export function viewerDistDir(): string {
   return fileURLToPath(new URL("../viewer/dist/", import.meta.url));
 }
 
+/**
+ * Loopback only by default: the server hands out share files to anyone who can reach
+ * it. `--host 0.0.0.0` opts in to exposing it on the network.
+ */
+export const DEFAULT_HOST = "127.0.0.1";
+
 /** How many successive ports to try when the requested one is taken. */
 export const PORT_ATTEMPTS = 20;
 
@@ -68,7 +74,7 @@ export async function startViewerServer(
     res.end(readFileSync(file));
   });
 
-  const host = opts.host ?? "0.0.0.0";
+  const host = opts.host ?? DEFAULT_HOST;
   const attempts = opts.strictPort ? 1 : PORT_ATTEMPTS;
   for (let i = 0; i < attempts; i++) {
     const candidate = opts.port + i;

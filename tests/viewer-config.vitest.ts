@@ -44,6 +44,25 @@ describe("viewer build config", () => {
   });
 });
 
+describe("viewer build", () => {
+  // The CSP is the only thing that stops shares from loading remote images, and a build
+  // without it still looks and works the same, so check the real build output.
+  it("ships the CSP in index.html ahead of any script", async () => {
+    const { build } = await import("vite");
+    const result = await build({ configFile: join(import.meta.dirname, "..", "vite.config.ts"), logLevel: "silent", build: { write: false } });
+    const outputs = (Array.isArray(result) ? result : [result]) as { output: { fileName: string; source?: unknown }[] }[];
+    const source = String(outputs.flatMap((o) => o.output).find((f) => f.fileName === "index.html")?.source ?? "");
+    const csp = source.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)"/)?.[1];
+
+    expect(source).not.toContain("{{CSP}}");
+    expect(csp).toBe(contentSecurityPolicy(loadViewerConfig().sources));
+    expect(csp?.split("; ")).toEqual(
+      expect.arrayContaining(["default-src 'none'", "script-src 'self'", "style-src 'self'", "img-src 'self' data:", "base-uri 'none'", "form-action 'none'"]),
+    );
+    expect(source.indexOf("Content-Security-Policy")).toBeLessThan(source.indexOf("<script"));
+  }, 30_000);
+});
+
 describe("viewer share links", () => {
   afterEach(() => {
     delete (globalThis as Record<string, unknown>).__AGENT_SHARE_SOURCES__;

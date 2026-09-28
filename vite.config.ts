@@ -52,10 +52,16 @@ function cspPlugin(sources: Record<string, string>, dev: boolean): Plugin {
 }
 
 function deployFilesPlugin(sources: Record<string, string>): Plugin {
+  let write = true;
   return {
     name: "agent-share:deploy-files",
     apply: "build",
+    configResolved(config) {
+      write = config.build.write;
+    },
     closeBundle() {
+      // In-memory builds (tests) must not touch viewer/dist.
+      if (!write) return;
       for (const [name, content] of Object.entries(deployFiles(sources) as Record<string, string>)) {
         writeFileSync(join(viewerRoot, "dist", name), content);
       }

@@ -192,7 +192,9 @@ Transcripts are untrusted: anyone can make a gist and send a link to your viewer
 header says where the share was loaded from (for gists, the owner as GitHub reports it)
 and that the content isn't verified. Markdown is sanitized with DOMPurify and may not
 carry classes (other than code-block languages), ids, form controls or dialogs, so it
-can't imitate the viewer's own UI; the CSP blocks scripts and remote images.
+can't imitate the viewer's own UI. Remote images, video and audio are never loaded: they
+show as a "remote image not loaded (host)" note instead, and the CSP (checked against the
+real build by the tests) blocks scripts and remote requests as a second layer.
 
 It renders prompts/replies, tool calls with
 lazily-built detail, grouped work, subagent cards, events, and a per-turn **token rail**:

@@ -65,6 +65,51 @@ describe("markdown sanitizer", () => {
     expect(markdown(html).innerHTML).not.toMatch(forbidden);
   });
 
+  it("replaces remote images with a note naming the host (no request is made)", () => {
+    const md = markdown("![build status](https://tracker.test/pixel.png?who=reader)");
+    expect(md.querySelector("img")).toBeNull();
+    expect(md.querySelector(".remote-blocked")?.textContent).toBe("remote image “build status” not loaded (tracker.test)");
+  });
+
+  it.each([
+    ['<img src="https://t.test/a.png">', "image"],
+    ['<video src="https://t.test/v.mp4" poster="https://t.test/p.png"></video>', "video"],
+    ['<video poster="https://t.test/p.png"></video>', "video"],
+    ['<audio src="https://t.test/a.mp3"></audio>', "audio"],
+    ['<svg><image href="https://t.test/a.png"></image></svg>', "image"],
+    ['<svg><image xlink:href="https://t.test/a.png"></image></svg>', "image"],
+    ['<picture><source srcset="https://t.test/a.png"><img src="https://t.test/b.png"></picture>', "image"],
+    ['<img src="//t.test/a.png">', "image"],
+  ])("drops remote media %s", (html, kind) => {
+    const out = sanitizeHtml(html);
+    expect(out).not.toContain("t.test/");
+    expect(out).toContain(`remote ${kind} not loaded (t.test)`);
+  });
+
+  it("drops remote sources that have no placeholder (srcset, svg <use>, background)", () => {
+    const out = sanitizeHtml(
+      '<img srcset="data:image/png;base64,AA 1x, https://t.test/2x.png 2x"><svg><use href="https://t.test/s.svg#i"></use></svg><table background="https://t.test/bg.png"><tr><td>x</td></tr></table>',
+    );
+    expect(out).not.toContain("t.test");
+    expect(out).toContain("<img>"); // srcset is always dropped; the element stays
+  });
+
+  it("keeps data: and same-origin images, and leaves links alone", () => {
+    const out = sanitizeHtml('<img src="data:image/png;base64,AAAA"><img src="/session/logo.png"><img src="./x.png"><a href="https://t.test/page">page</a>');
+    expect(out).toContain('src="data:image/png;base64,AAAA"');
+    expect(out).toContain('src="/session/logo.png"');
+    expect(out).toContain('src="./x.png"');
+    expect(out).toContain('href="https://t.test/page"');
+    expect(out).not.toContain("remote-blocked");
+  });
+
+  it("does not let a share forge the blocked marker", () => {
+    const out = sanitizeHtml('<p data-remote-blocked="evil.test">hi</p><img src="data:image/png;base64,AA" data-remote-blocked="evil.test">');
+    expect(out).not.toContain("data-remote-blocked");
+    expect(out).not.toContain("not loaded");
+    expect(out).toContain("<img");
+  });
+
   it("opens links in a new tab without opener or referrer", () => {
     const a = markdown("[x](https://x.test)").querySelector("a")!;
     expect(a.target).toBe("_blank");

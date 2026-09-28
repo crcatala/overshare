@@ -1,4 +1,4 @@
-import DOMPurify from "dompurify";
+import DOMPurify, { type Config } from "dompurify";
 import { marked } from "marked";
 
 type Child = Node | string | number | false | null | undefined;
@@ -34,11 +34,48 @@ DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
   if (!data.attrValue) data.keepAttr = false;
 });
 
+/**
+ * Attributes that make the browser fetch a URL as soon as the element exists ("*" applies
+ * to every element). Links only load when clicked, so <a href> is left alone.
+ */
+const AUTO_LOAD_ATTRS: Record<string, string[]> = {
+  "*": ["src", "srcset", "poster", "background"],
+  image: ["href", "xlink:href"],
+  use: ["href", "xlink:href"],
+  feimage: ["href", "xlink:href"],
+};
+const BLOCKED_ATTR = "data-remote-blocked";
+
+/** The host a URL would be fetched from, or undefined for data: and same-origin URLs. */
+function remoteHost(value: string): string | undefined {
+  try {
+    const url = new URL(value.trim(), document.baseURI);
+    return url.protocol === "data:" || url.origin === location.origin ? undefined : url.host || url.protocol;
+  } catch {
+    return "an invalid URL";
+  }
+}
+
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   if (node.tagName === "A") {
     node.setAttribute("target", "_blank");
     node.setAttribute("rel", "noopener noreferrer nofollow");
   }
+  // Remote media would tell the share's author (or whatever host a quoted URL points at)
+  // who opened it and when, and can carry data out in its URL. The CSP blocks these too;
+  // dropping them here keeps that true without it and lets us show a placeholder.
+  const tag = node.nodeName.toLowerCase();
+  let blocked: string | undefined;
+  for (const attr of [...AUTO_LOAD_ATTRS["*"]!, ...(AUTO_LOAD_ATTRS[tag] ?? [])]) {
+    const value = node.getAttribute(attr);
+    if (value === null) continue;
+    // srcset lists several URLs (and data: URLs contain commas); nothing we render needs it.
+    const host = remoteHost(attr === "srcset" ? (value.trim().split(/\s+/)[0] ?? "") : value);
+    if (host || attr === "srcset") node.removeAttribute(attr);
+    blocked ??= host;
+  }
+  // Set after attribute filtering; ALLOW_DATA_ATTR: false keeps shares from forging it.
+  if (blocked) node.setAttribute(BLOCKED_ATTR, blocked);
 });
 
 marked.setOptions({ gfm: true, breaks: false });
@@ -48,21 +85,43 @@ marked.setOptions({ gfm: true, breaks: false });
  * no ids/names (they would shadow the viewer's own elements, e.g. #tooltip or #turn-3),
  * and no form controls or dialogs (fake "paste your token here" boxes).
  */
-const SANITIZE_OPTIONS = {
+const SANITIZE_OPTIONS: Config = {
   FORBID_TAGS: ["style", "form", "input", "button", "iframe", "textarea", "select", "option", "optgroup", "datalist", "dialog"],
   FORBID_ATTR: ["style", "id", "name"],
+  ALLOW_DATA_ATTR: false,
 };
 
-/** Sanitize rendered markdown HTML (exported for tests). */
+const MEDIA_KIND: Record<string, string> = { img: "image", image: "image", video: "video", audio: "audio" };
+
+/**
+ * Sanitize into a fragment (no serialize/re-parse round trip), then swap media whose
+ * remote source was dropped for a visible note, so readers know something was there.
+ */
+function sanitize(html: string): DocumentFragment {
+  const fragment = DOMPurify.sanitize(html, { ...SANITIZE_OPTIONS, RETURN_DOM_FRAGMENT: true });
+  for (const el of fragment.querySelectorAll(`[${BLOCKED_ATTR}]`)) {
+    const kind = MEDIA_KIND[el.nodeName.toLowerCase()];
+    const host = el.getAttribute(BLOCKED_ATTR)!;
+    el.removeAttribute(BLOCKED_ATTR);
+    if (!kind) continue;
+    const alt = el.getAttribute("alt");
+    el.replaceWith(
+      h("span", { class: "remote-blocked", title: "Shared sessions never load remote content" }, `remote ${kind}${alt ? ` “${alt}”` : ""} not loaded (${host})`),
+    );
+  }
+  return fragment;
+}
+
+/** Sanitize rendered markdown HTML to a string (for tests). */
 export function sanitizeHtml(html: string): string {
-  return DOMPurify.sanitize(html, SANITIZE_OPTIONS);
+  const div = document.createElement("div");
+  div.append(sanitize(html));
+  return div.innerHTML;
 }
 
 /** Render untrusted markdown to sanitized HTML. */
 export function markdown(text: string): HTMLElement {
-  const div = h("div", { class: "md" });
-  div.innerHTML = sanitizeHtml(marked.parse(text, { async: false }) as string);
-  return div;
+  return h("div", { class: "md" }, sanitize(marked.parse(text, { async: false }) as string));
 }
 
 /** A <details> whose body is built only when first opened (keeps huge sessions light). */

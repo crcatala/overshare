@@ -14,7 +14,7 @@ import {
   type ToolStep,
   type Turn,
 } from "../../src/schema.ts";
-import { h, lazyDetails, markdown } from "./dom.ts";
+import { h, lazyDetails, markdown, provenanceLine } from "./dom.ts";
 import { buildScale, railLegend, renderRail, type RailScale } from "./rail.ts";
 import { formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
 
@@ -77,17 +77,6 @@ function formatDate(iso?: string): string | undefined {
   if (!iso) return undefined;
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? undefined : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
-/** Where the share was fetched from; everything else in the header is the sharer's own claim. */
-function renderProvenance(p: Provenance): HTMLElement {
-  return h(
-    "p",
-    { class: "fine provenance" },
-    "Loaded from ",
-    p.href ? h("a", { href: p.href, target: "_blank", rel: "noopener noreferrer" }, p.label) : p.label,
-    " · the transcript is shown as published and isn't verified",
-  );
 }
 
 function renderHeader(s: NormalizedSession, view: ShareMode): HTMLElement {
@@ -188,7 +177,7 @@ function renderHeader(s: NormalizedSession, view: ShareMode): HTMLElement {
       s.generator ? ` · ${formatDate(s.generator.sharedAt) ?? ""} via ${s.generator.name} ${s.generator.version}` : "",
       redParts.length ? ` · redacted: ${redParts.join(", ")}` : " · no redactions",
     ),
-    provenance ? renderProvenance(provenance) : null,
+    provenance ? provenanceLine(provenance) : null,
     s.responses.length ? railLegend() : null,
   );
 }
@@ -429,6 +418,10 @@ async function showLocalPicker(): Promise<boolean> {
 }
 
 async function main(): Promise<void> {
+  // Forget the previous share first: if this load fails, a later same-source hash change
+  // (e.g. &view=brief) would otherwise re-render the old share under the new link.
+  shared = undefined;
+  provenance = undefined;
   if (!state.source) {
     if (await showLocalPicker()) return;
     return showError("No session in the link.");

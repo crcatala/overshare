@@ -45,8 +45,8 @@ describe("viewer build config", () => {
 });
 
 describe("viewer build", () => {
-  // The CSP is the only thing that stops shares from loading remote images, and a build
-  // without it still looks and works the same, so check the real build output.
+  // The CSP is what blocks scripts and remote requests the sanitizer doesn't know about,
+  // and a build without it still looks and works the same, so check the real build output.
   it("ships the CSP in index.html ahead of any script", async () => {
     const { build } = await import("vite");
     const result = await build({ configFile: join(import.meta.dirname, "..", "vite.config.ts"), logLevel: "silent", build: { write: false } });

@@ -1,5 +1,6 @@
 import DOMPurify, { type Config } from "dompurify";
 import { marked } from "marked";
+import type { Provenance } from "./source.ts";
 
 type Child = Node | string | number | false | null | undefined;
 type Attrs = Record<string, string | number | boolean | undefined | EventListener>;
@@ -34,17 +35,15 @@ DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
   if (!data.attrValue) data.keepAttr = false;
 });
 
-/**
- * Attributes that make the browser fetch a URL as soon as the element exists ("*" applies
- * to every element). Links only load when clicked, so <a href> is left alone.
- */
-const AUTO_LOAD_ATTRS: Record<string, string[]> = {
-  "*": ["src", "srcset", "poster", "background"],
-  image: ["href", "xlink:href"],
-  use: ["href", "xlink:href"],
-  feimage: ["href", "xlink:href"],
-};
+const SVG_NS = "http://www.w3.org/2000/svg";
 const BLOCKED_ATTR = "data-remote-blocked";
+
+/**
+ * SVG presentation attributes that take url(). With no CSP, Chrome fetches cross-origin
+ * references from all of these except filter (kept here in case other engines do).
+ */
+const SVG_CSS_URL_ATTRS = ["fill", "stroke", "filter", "mask", "clip-path", "marker-start", "marker-mid", "marker-end", "cursor"];
+const COLOR_FUNCTIONS = new Set(["rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color"]);
 
 /** The host a URL would be fetched from, or undefined for data: and same-origin URLs. */
 function remoteHost(value: string): string | undefined {
@@ -56,6 +55,20 @@ function remoteHost(value: string): string | undefined {
   }
 }
 
+/**
+ * Whether a CSS value could fetch something. Allowlist, not a url( search: only colour
+ * functions and url(#local-id) pass, and any backslash fails, because CSS escapes can
+ * spell url( (Chrome fetches fill="\75 rl(https://…)").
+ */
+function cssCanFetch(value: string): boolean {
+  if (value.includes("\\")) return true;
+  for (const [, fn = "", next = ""] of value.matchAll(/([\w-]*)\(\s*['"]?\s*(.?)/g)) {
+    const name = fn.toLowerCase();
+    if (name === "url" ? next !== "#" : !COLOR_FUNCTIONS.has(name)) return true;
+  }
+  return false;
+}
+
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   if (node.tagName === "A") {
     node.setAttribute("target", "_blank");
@@ -63,16 +76,30 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   }
   // Remote media would tell the share's author (or whatever host a quoted URL points at)
   // who opened it and when, and can carry data out in its URL. The CSP blocks these too;
-  // dropping them here keeps that true without it and lets us show a placeholder.
-  const tag = node.nodeName.toLowerCase();
+  // dropping them here keeps that true without it and lets us show a note instead.
+  const svg = node.namespaceURI === SVG_NS;
   let blocked: string | undefined;
-  for (const attr of [...AUTO_LOAD_ATTRS["*"]!, ...(AUTO_LOAD_ATTRS[tag] ?? [])]) {
+  // The element's own source: without it there is nothing to show, so it gets a note.
+  // In SVG, href on anything but a link is a resource reference (<image>, <use>, <feImage>).
+  for (const attr of svg && node.nodeName.toLowerCase() !== "a" ? ["src", "href", "xlink:href"] : ["src"]) {
     const value = node.getAttribute(attr);
-    if (value === null) continue;
-    // srcset lists several URLs (and data: URLs contain commas); nothing we render needs it.
-    const host = remoteHost(attr === "srcset" ? (value.trim().split(/\s+/)[0] ?? "") : value);
-    if (host || attr === "srcset") node.removeAttribute(attr);
+    const host = value === null ? undefined : remoteHost(value);
+    if (!host) continue;
+    node.removeAttribute(attr);
     blocked ??= host;
+  }
+  // Secondary sources: dropping them leaves the element (and any valid src) as it is.
+  for (const attr of ["poster", "background"]) {
+    const value = node.getAttribute(attr);
+    if (value !== null && remoteHost(value)) node.removeAttribute(attr);
+  }
+  // srcset lists several URLs (and data: URLs contain commas); nothing we render needs it.
+  node.removeAttribute("srcset");
+  if (svg) {
+    for (const attr of SVG_CSS_URL_ATTRS) {
+      const value = node.getAttribute(attr);
+      if (value !== null && cssCanFetch(value)) node.removeAttribute(attr);
+    }
   }
   // Set after attribute filtering; ALLOW_DATA_ATTR: false keeps shares from forging it.
   if (blocked) node.setAttribute(BLOCKED_ATTR, blocked);
@@ -91,18 +118,24 @@ const SANITIZE_OPTIONS: Config = {
   ALLOW_DATA_ATTR: false,
 };
 
-const MEDIA_KIND: Record<string, string> = { img: "image", image: "image", video: "video", audio: "audio" };
+const MEDIA_KIND: Record<string, string> = { img: "image", video: "video", audio: "audio" };
 
 /**
- * Sanitize into a fragment (no serialize/re-parse round trip), then swap media whose
- * remote source was dropped for a visible note, so readers know something was there.
+ * Sanitize into a fragment (no serialize/re-parse round trip), then swap images, video
+ * and audio whose remote source was dropped for a visible note, so readers know
+ * something was there. SVG elements that lost their source are removed.
  */
 function sanitize(html: string): DocumentFragment {
   const fragment = DOMPurify.sanitize(html, { ...SANITIZE_OPTIONS, RETURN_DOM_FRAGMENT: true });
   for (const el of fragment.querySelectorAll(`[${BLOCKED_ATTR}]`)) {
-    const kind = MEDIA_KIND[el.nodeName.toLowerCase()];
     const host = el.getAttribute(BLOCKED_ATTR)!;
     el.removeAttribute(BLOCKED_ATTR);
+    // An HTML note wouldn't render inside <svg>, and the element has nothing left to draw.
+    if (el.namespaceURI === SVG_NS) {
+      el.remove();
+      continue;
+    }
+    const kind = MEDIA_KIND[el.nodeName.toLowerCase()];
     if (!kind) continue;
     const alt = el.getAttribute("alt");
     el.replaceWith(
@@ -122,6 +155,17 @@ export function sanitizeHtml(html: string): string {
 /** Render untrusted markdown to sanitized HTML. */
 export function markdown(text: string): HTMLElement {
   return h("div", { class: "md" }, sanitize(marked.parse(text, { async: false }) as string));
+}
+
+/** Where the share was fetched from; everything else in the header is the sharer's own claim. */
+export function provenanceLine(p: Provenance): HTMLElement {
+  return h(
+    "p",
+    { class: "fine provenance" },
+    "Loaded from ",
+    p.href ? h("a", { href: p.href, target: "_blank", rel: "noopener noreferrer" }, p.label) : p.label,
+    " · the transcript is shown as published and isn't verified",
+  );
 }
 
 /** A <details> whose body is built only when first opened (keeps huge sessions light). */

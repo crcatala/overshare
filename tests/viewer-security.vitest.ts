@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 (globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {
   r2: "https://shares.example.com/s/{id}.json",
 };
-const { markdown, sanitizeHtml } = await import("../viewer/src/dom.ts");
+const { markdown, provenanceLine, sanitizeHtml } = await import("../viewer/src/dom.ts");
 const { loadSource, sameOriginUrl } = await import("../viewer/src/source.ts");
 
 const BASE = "https://agent.example.com/session/";
@@ -74,32 +74,80 @@ describe("markdown sanitizer", () => {
   it.each([
     ['<img src="https://t.test/a.png">', "image"],
     ['<video src="https://t.test/v.mp4" poster="https://t.test/p.png"></video>', "video"],
-    ['<video poster="https://t.test/p.png"></video>', "video"],
     ['<audio src="https://t.test/a.mp3"></audio>', "audio"],
-    ['<svg><image href="https://t.test/a.png"></image></svg>', "image"],
-    ['<svg><image xlink:href="https://t.test/a.png"></image></svg>', "image"],
     ['<picture><source srcset="https://t.test/a.png"><img src="https://t.test/b.png"></picture>', "image"],
     ['<img src="//t.test/a.png">', "image"],
-  ])("drops remote media %s", (html, kind) => {
+  ])("replaces remote media with a note: %s", (html, kind) => {
     const out = sanitizeHtml(html);
     expect(out).not.toContain("t.test/");
     expect(out).toContain(`remote ${kind} not loaded (t.test)`);
   });
 
-  it("drops remote sources that have no placeholder (srcset, svg <use>, background)", () => {
+  it("drops secondary remote sources but keeps the element and any valid src", () => {
     const out = sanitizeHtml(
-      '<img srcset="data:image/png;base64,AA 1x, https://t.test/2x.png 2x"><svg><use href="https://t.test/s.svg#i"></use></svg><table background="https://t.test/bg.png"><tr><td>x</td></tr></table>',
+      '<img src="data:image/png;base64,AAAA" srcset="https://t.test/2x.png 2x">' +
+        '<video src="/session/demo.mp4" poster="https://t.test/p.png"></video>' +
+        '<table background="https://t.test/bg.png"><tbody><tr><td>x</td></tr></tbody></table>',
     );
     expect(out).not.toContain("t.test");
-    expect(out).toContain("<img>"); // srcset is always dropped; the element stays
+    expect(out).not.toContain("not loaded");
+    expect(out).toContain('<img src="data:image/png;base64,AAAA">');
+    expect(out).toContain('<video src="/session/demo.mp4"></video>');
+  });
+
+  it.each([
+    '<svg><image href="https://t.test/a.png"></image></svg>',
+    '<svg><image xlink:href="https://t.test/a.png"></image></svg>',
+    '<svg><use href="https://t.test/s.svg#i"></use></svg>',
+    '<svg><filter><feImage href="https://t.test/f.png"></feImage></filter></svg>',
+  ])("removes SVG elements whose remote source was dropped (a note wouldn't render there): %s", (html) => {
+    const svg = markdown(html).querySelector("svg")!;
+    expect(svg.innerHTML).not.toContain("t.test");
+    expect(svg.children).toHaveLength(html.includes("<filter>") ? 1 : 0);
+    expect(svg.querySelector(".remote-blocked")).toBeNull();
+  });
+
+  it.each([
+    ["fill", "url(https://t.test/p.svg#g)"],
+    ["stroke", "url('https://t.test/p.svg#g')"],
+    ["mask", 'url( "//t.test/m.svg#m" )'],
+    ["clip-path", "url(/x.svg#c)"],
+    ["marker-start", "url(https://t.test/k.svg#k)"],
+    ["marker-mid", "URL(https://t.test/k.svg#k)"],
+    ["marker-end", "url(https://t.test/k.svg#k)"],
+    ["filter", "url(https://t.test/f.svg#f)"],
+    ["cursor", "url(https://t.test/c.png), auto"],
+    ["fill", "\\75 rl(https://t.test/p.svg#g)"], // CSS escape for "u": Chrome still fetches it
+    ["fill", "red url(https://t.test/p.svg#g)"],
+    ["cursor", "image-set('https://t.test/c.png' 1x), auto"],
+  ])("drops SVG %s=%s", (attr, value) => {
+    const html = `<svg><rect width="1" height="1" ${attr}="${value.replaceAll('"', "&quot;")}"></rect></svg>`;
+    expect(markdown(html).querySelector("rect")!.hasAttribute(attr)).toBe(false);
+  });
+
+  it.each([
+    ["fill", "url(#grad)"],
+    ["stroke", "url('#grad') red"],
+    ["fill", "rgb(10, 20, 30)"],
+    ["stroke", "oklch(0.7 0.1 200)"],
+    ["fill", "none"],
+    ["mask", "url( #m )"],
+  ])("keeps SVG %s=%s", (attr, value) => {
+    const html = `<svg><rect width="1" height="1" ${attr}="${value}"></rect></svg>`;
+    expect(markdown(html).querySelector("rect")!.getAttribute(attr)).toBe(value);
   });
 
   it("keeps data: and same-origin images, and leaves links alone", () => {
-    const out = sanitizeHtml('<img src="data:image/png;base64,AAAA"><img src="/session/logo.png"><img src="./x.png"><a href="https://t.test/page">page</a>');
+    const out = sanitizeHtml(
+      '<img src="data:image/png;base64,AAAA"><img src="/session/logo.png"><img src="./x.png"><a href="https://t.test/page">page</a>' +
+        '<svg><a href="https://t.test/svg-link"><text>t</text></a><image href="data:image/png;base64,AAAA"></image></svg>',
+    );
     expect(out).toContain('src="data:image/png;base64,AAAA"');
     expect(out).toContain('src="/session/logo.png"');
     expect(out).toContain('src="./x.png"');
     expect(out).toContain('href="https://t.test/page"');
+    expect(out).toContain('href="https://t.test/svg-link"');
+    expect(out).toContain('<image href="data:image/png;base64,AAAA">');
     expect(out).not.toContain("remote-blocked");
   });
 
@@ -114,6 +162,24 @@ describe("markdown sanitizer", () => {
     const a = markdown("[x](https://x.test)").querySelector("a")!;
     expect(a.target).toBe("_blank");
     expect(a.rel).toBe("noopener noreferrer nofollow");
+  });
+});
+
+describe("provenance line", () => {
+  it("links to the gist and says the transcript isn't verified", () => {
+    const line = provenanceLine({ label: "GitHub gist by @octo", href: "https://gist.github.com/octo/abc" });
+    expect(line.textContent).toBe("Loaded from GitHub gist by @octo · the transcript is shown as published and isn't verified");
+    const a = line.querySelector("a")!;
+    expect(a.textContent).toBe("GitHub gist by @octo");
+    expect(a.getAttribute("href")).toBe("https://gist.github.com/octo/abc");
+    expect(a.target).toBe("_blank");
+    expect(a.rel).toBe("noopener noreferrer");
+  });
+
+  it("is plain text when there is nothing to link to, even if the label looks like HTML", () => {
+    const line = provenanceLine({ label: '<img src=x onerror="alert(1)"> share on x.test' });
+    expect(line.querySelector("a, img")).toBeNull();
+    expect(line.textContent).toContain('<img src=x onerror="alert(1)"> share on x.test');
   });
 });
 

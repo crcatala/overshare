@@ -32,10 +32,11 @@ agent-share serve out.json                        # local viewer: …/session/#l
 agent-share demo                                  # fake sessions in the local viewer, nothing uploaded
 ```
 
-`serve` listens on port 3000 on all interfaces by default (`--port`, `--host 127.0.0.1`
-to keep it local). If the port is taken it tries 3001, 3002, … (up to 20 ports);
-`--strict-port` fails instead. It serves the viewer and any share files you pass it — only
-redacted exports — to anyone who can reach the port.
+`serve` (and `demo`) listen on 127.0.0.1:3000 by default, so only this machine can
+reach them. `--host 0.0.0.0` exposes them on your network (e.g. to open the viewer from
+another device), and `--port` picks the port. If the port is taken it tries 3001, 3002, …
+(up to 20 ports); `--strict-port` fails instead. The server hands the viewer and any share
+files you pass it — only redacted exports — to anyone who can reach the port.
 
 `<session>` is a file path, a session id, or an id prefix. `--current` uses
 `$CLAUDE_CODE_SESSION_ID` inside Claude Code, otherwise the newest session for the
@@ -187,7 +188,17 @@ server):
 | `#url:<path>` | same-origin path |
 | `…&view=minimal` | step the view down |
 
-It renders prompts/replies (markdown sanitized with DOMPurify), tool calls with
+Transcripts are untrusted: anyone can make a gist and send a link to your viewer. The
+header says where the share was loaded from (for gists, the owner as GitHub reports it)
+and that the content isn't verified. Markdown is sanitized with DOMPurify and may not
+carry classes (other than code-block languages), ids, form controls or dialogs, so it
+can't imitate the viewer's own UI. Remote sources are dropped before anything renders:
+images, video and audio show a "remote image not loaded (host)" note instead, and SVG
+resource references (`<image>`, `<use>`, `url()` in `fill`, `mask`, `cursor`, …) are
+removed. The CSP (checked against the real build by the tests) blocks scripts and remote
+requests as a second layer.
+
+It renders prompts/replies, tool calls with
 lazily-built detail, grouped work, subagent cards, events, and a per-turn **token rail**:
 one column per model response showing prompt size (cache read / cache write / new input,
 scaled to the session's peak context) plus a separate output row, with per-turn and

@@ -67,6 +67,13 @@ describe("cli", { timeout: 30_000 }, () => {
     expect(withFile.stdout).not.toContain(custom);
   });
 
+  it.each(["serve", "demo"])("%s binds to 127.0.0.1 by default and documents --host 0.0.0.0", (command) => {
+    const r = cli([command, "--help"]);
+    expect(r.status).toBe(0);
+    // Commander wraps help text to the terminal width.
+    expect(r.stdout.replace(/\s+/g, " ")).toContain('--host <host> bind address (0.0.0.0 to expose on your network) (default: "127.0.0.1")');
+  });
+
   it("delete refuses to run without confirmation when there is no TTY", () => {
     const r = cli(["delete", "https://agent.nub.sh/session/#octo/5260b8cf9b1baae31a40717ac1ab5f08"], { PATH: "/nonexistent" });
     expect(r.status).toBe(1);

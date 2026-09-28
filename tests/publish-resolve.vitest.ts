@@ -110,6 +110,26 @@ describe("startViewerServer", () => {
   });
 });
 
+describe("serve bind address", () => {
+  it("listens on loopback only unless a host is given", async () => {
+    const { startViewerServer } = await import("../src/serve.js");
+    const local = await startViewerServer({ port: 0 });
+    try {
+      expect(local.server.address()).toMatchObject({ address: "127.0.0.1" });
+      expect(local.url).toBe(`http://127.0.0.1:${local.port}/session/`);
+    } finally {
+      local.server.close();
+    }
+    const all = await startViewerServer({ port: 0, host: "0.0.0.0" });
+    try {
+      expect(all.server.address()).toMatchObject({ address: "0.0.0.0" });
+      expect(all.url).toBe(`http://localhost:${all.port}/session/`);
+    } finally {
+      all.server.close();
+    }
+  });
+});
+
 describe("local share index", () => {
   it("lists served share files for the viewer's picker", async () => {
     const { mkdtempSync, writeFileSync } = await import("node:fs");

@@ -143,6 +143,9 @@ a {
   font-size: 12.5px;
   margin: 12px 0 0;
 }
+.fine.provenance {
+  margin-top: 4px;
+}
 .tiles {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
@@ -328,6 +331,14 @@ pre {
   max-width: 100%;
   margin: 0;
   white-space: pre;
+}
+.md .remote-blocked {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 0.85em;
 }
 .md :not(pre) > code {
   background: var(--code-bg);

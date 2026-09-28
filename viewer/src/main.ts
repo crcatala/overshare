@@ -14,9 +14,9 @@ import {
   type ToolStep,
   type Turn,
 } from "../../src/schema.ts";
-import { h, lazyDetails, markdown } from "./dom.ts";
+import { h, lazyDetails, markdown, provenanceLine } from "./dom.ts";
 import { buildScale, railLegend, renderRail, type RailScale } from "./rail.ts";
-import { formatHash, loadSource, parseHash, type HashState } from "./source.ts";
+import { formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
 
 const app = document.getElementById("app") as HTMLElement;
 const HARNESS_LABEL: Record<string, string> = { "claude-code": "Claude Code", pi: "pi" };
@@ -32,6 +32,7 @@ const EVENT_ICON: Record<string, string> = {
 };
 
 let shared: NormalizedSession | undefined;
+let provenance: Provenance | undefined;
 let state: HashState = parseHash(location.hash);
 
 // ---------- theme ----------
@@ -176,6 +177,7 @@ function renderHeader(s: NormalizedSession, view: ShareMode): HTMLElement {
       s.generator ? ` · ${formatDate(s.generator.sharedAt) ?? ""} via ${s.generator.name} ${s.generator.version}` : "",
       redParts.length ? ` · redacted: ${redParts.join(", ")}` : " · no redactions",
     ),
+    provenance ? provenanceLine(provenance) : null,
     s.responses.length ? railLegend() : null,
   );
 }
@@ -416,14 +418,20 @@ async function showLocalPicker(): Promise<boolean> {
 }
 
 async function main(): Promise<void> {
+  // Forget the previous share first: if this load fails, a later same-source hash change
+  // (e.g. &view=brief) would otherwise re-render the old share under the new link.
+  shared = undefined;
+  provenance = undefined;
   if (!state.source) {
     if (await showLocalPicker()) return;
     return showError("No session in the link.");
   }
   try {
-    const data = (await loadSource(state.source)) as NormalizedSession;
+    const loaded = await loadSource(state.source);
+    const data = loaded.data as NormalizedSession;
     if (!data || data.schema !== SCHEMA_VERSION) throw new Error(`Unsupported share format (${(data as { schema?: string })?.schema ?? "unknown"}).`);
     shared = data;
+    provenance = loaded.provenance;
     render();
   } catch (err) {
     showError(err instanceof Error ? err.message : String(err));

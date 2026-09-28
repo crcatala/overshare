@@ -1,29 +1,10 @@
 import DOMPurify, { type Config } from "dompurify";
 import { marked } from "marked";
+import { asciiTable } from "./asciitable.ts";
+import { h } from "./el.ts";
 import type { Provenance } from "./source.ts";
 
-type Child = Node | string | number | false | null | undefined;
-type Attrs = Record<string, string | number | boolean | undefined | EventListener>;
-
-/** Tiny element builder. Strings become text nodes (never HTML). */
-export function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs = {}, ...children: Child[]): HTMLElementTagNameMap[K] {
-  const el = document.createElement(tag);
-  for (const [key, value] of Object.entries(attrs)) {
-    if (value === undefined || value === false) continue;
-    if (key.startsWith("on") && typeof value === "function") el.addEventListener(key.slice(2), value as EventListener);
-    else if (key === "class") el.className = String(value);
-    else el.setAttribute(key, value === true ? "" : String(value));
-  }
-  append(el, children);
-  return el;
-}
-
-export function append(el: Element, children: Child[]): void {
-  for (const c of children) {
-    if (c === false || c === null || c === undefined) continue;
-    el.append(typeof c === "string" || typeof c === "number" ? document.createTextNode(String(c)) : c);
-  }
-}
+export { append, h } from "./el.ts";
 
 // Only marked's code-block language classes survive. Any other class would let transcript
 // markdown borrow the viewer's own styles and draw a fake "You" prompt or tool call.
@@ -152,9 +133,33 @@ export function sanitizeHtml(html: string): string {
   return div.innerHTML;
 }
 
+/**
+ * Viewer presentation added after sanitizing (so these classes are ours, never the
+ * share's): tables become text grids that re-wrap to the width, and code blocks get a
+ * language label.
+ */
+function present(fragment: DocumentFragment): DocumentFragment {
+  for (const table of fragment.querySelectorAll("table")) {
+    // Nested tables (raw HTML) stay inside their parent's cell text.
+    if (table.parentElement?.closest("table")) continue;
+    // The grid keeps the table inside it (for screen readers), so swap via a placeholder.
+    const spot = document.createComment("");
+    table.replaceWith(spot);
+    spot.replaceWith(asciiTable(table));
+  }
+  for (const pre of fragment.querySelectorAll("pre")) {
+    if (pre.closest(".atable")) continue;
+    const lang = pre.querySelector(":scope > code")?.className.match(/language-([\w+#.-]+)/)?.[1];
+    const block = h("div", { class: "codeblock" }, lang ? h("span", { class: "codeblock-lang", "aria-hidden": "true" }, lang) : null);
+    pre.replaceWith(block);
+    block.append(pre);
+  }
+  return fragment;
+}
+
 /** Render untrusted markdown to sanitized HTML. */
 export function markdown(text: string): HTMLElement {
-  return h("div", { class: "md" }, sanitize(marked.parse(text, { async: false }) as string));
+  return h("div", { class: "md" }, present(sanitize(marked.parse(text, { async: false }) as string)));
 }
 
 /** Where the share was fetched from; everything else in the header is the sharer's own claim. */

@@ -57,7 +57,7 @@ describe("viewer build", () => {
     expect(source).not.toContain("{{CSP}}");
     expect(csp).toBe(contentSecurityPolicy(loadViewerConfig().sources));
     expect(csp?.split("; ")).toEqual(
-      expect.arrayContaining(["default-src 'none'", "script-src 'self'", "style-src 'self'", "img-src 'self' data:", "base-uri 'none'", "form-action 'none'"]),
+      expect.arrayContaining(["default-src 'none'", "script-src 'self'", "style-src 'self'", "img-src 'self' data:", "font-src 'self'", "base-uri 'none'", "form-action 'none'"]),
     );
     expect(source.indexOf("Content-Security-Policy")).toBeLessThan(source.indexOf("<script"));
   }, 30_000);

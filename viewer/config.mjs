@@ -33,6 +33,8 @@ export function contentSecurityPolicy(sources, { header = false, dev = false } =
     "script-src 'self'",
     dev ? "style-src 'self' 'unsafe-inline'" : "style-src 'self'",
     "img-src 'self' data:",
+    // The viewer's own bundled fonts (no remote font hosts).
+    "font-src 'self'",
     `connect-src 'self' ${origins.join(" ")}${dev ? " ws: wss:" : ""}`,
     "base-uri 'none'",
     "form-action 'none'",

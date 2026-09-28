@@ -1,0 +1,22 @@
+@import "@fontsource-variable/ibm-plex-sans/wght.css";
+@import "@fontsource-variable/ibm-plex-sans/wght-italic.css";
+/*
+ * JetBrains Mono (OFL, see ../fonts/JetBrainsMono-OFL.txt), subset to Latin plus the
+ * punctuation, arrows, box-drawing, block and geometric characters the viewer draws
+ * with — the stock web subsets leave box drawing out, and text tables only line up
+ * when every character comes from one font.
+ */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url("../fonts/jetbrains-mono-wght.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: italic;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url("../fonts/jetbrains-mono-italic-wght.woff2") format("woff2");
+}

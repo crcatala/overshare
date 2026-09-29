@@ -294,10 +294,6 @@ button.theme::before {
   left: 0;
   right: 0;
   height: var(--mb-h);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
@@ -313,6 +309,17 @@ button.theme::before {
   transform: none;
   opacity: 1;
   pointer-events: auto;
+}
+/* Spans the rails: its edges line up with the rails' outer edges when they're docked,
+   and with the overlay rails' 12px inset when they aren't. */
+.mb-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  margin: 0 auto;
+  padding: 0 12px;
+  max-width: calc(var(--content-w) + 2 * (var(--rail-w) + var(--rail-gap)) + 24px);
 }
 .mb-title {
   appearance: none;
@@ -1059,6 +1066,30 @@ pre.diff > span {
   display: grid;
   gap: 3px;
 }
+.chart-row {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.chart-row .cols {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* The top of each row's scale (the session's largest prompt / output). */
+.chart-axis {
+  flex: none;
+  width: 6ch;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.chart-note {
+  margin: 6px 0 0;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.4;
+}
 .cols {
   display: flex;
   align-items: flex-end;
@@ -1130,39 +1161,6 @@ button.col {
   border-radius: 2px;
   display: inline-block;
 }
-.chart-blocks {
-  gap: 0;
-  line-height: 1.15;
-  font-size: 15px;
-}
-.spark {
-  display: flex;
-  flex-wrap: nowrap;
-  overflow: hidden;
-}
-.spark-c {
-  appearance: none;
-  border: 0;
-  background: none;
-  padding: 0;
-  font: inherit;
-  line-height: inherit;
-  width: 1ch;
-  flex: none;
-  cursor: default;
-}
-button.spark-c {
-  cursor: pointer;
-}
-.spark-ctx .spark-c {
-  color: var(--seg-cache-read);
-}
-.spark-out .spark-c {
-  color: var(--seg-output);
-}
-.chart-blocks.has-on .spark-c:not(.on) {
-  opacity: 0.45;
-}
 .bars {
   display: grid;
   gap: 1px;
@@ -1190,11 +1188,6 @@ button.spark-c {
   border-radius: 1px;
   background: var(--accent);
   opacity: 0.8;
-}
-.bar-t {
-  color: var(--accent);
-  white-space: nowrap;
-  letter-spacing: -1px;
 }
 .bars-n {
   text-align: right;
@@ -1227,47 +1220,80 @@ button.spark-c {
   color: var(--ink-2);
 }
 
-/* ---------- variant switcher (evaluation aid) ---------- */
-.vswitch {
-  position: fixed;
-  z-index: 30;
-  bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-2) 92%, transparent);
-  backdrop-filter: blur(8px);
-  box-shadow: var(--shadow);
-  font: 12px / 1.4 "JetBrains Mono", monospace;
+/* ---------- settings menu ---------- */
+button.settings svg {
+  display: block;
 }
-.vswitch button {
-  appearance: none;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  color: var(--dim);
-  padding: 3px 9px;
-  border-radius: 5px;
-  font: inherit;
-}
-.vswitch button:hover {
+button.settings[aria-expanded="true"] {
   color: var(--ink);
+  background: var(--bg-3);
 }
-.vswitch button[aria-pressed="true"] {
-  background: var(--ink);
-  color: var(--bg);
+.menu {
+  position: fixed;
+  z-index: 60;
+  width: max-content;
+  min-width: 260px;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 4px;
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  font: var(--fs-sm) / 1.4 var(--font-mono);
 }
-.vs-label {
+.menu-head {
+  padding: 6px 8px 4px;
   color: var(--faint);
-  padding: 0 6px 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
-.vswitch .vs-x {
+.menu-item {
+  appearance: none;
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink-2);
+}
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--bg-2);
+  outline: none;
+}
+.menu-check {
+  flex: none;
+  width: 1.5ch;
+  color: var(--accent);
+}
+.menu-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.menu-label {
+  color: var(--ink);
+  font-weight: 600;
+}
+.menu-item[aria-checked="true"] .menu-label {
+  color: var(--accent);
+}
+.menu-blurb {
+  color: var(--dim);
+  font-size: 11px;
+}
+.menu-foot {
+  margin-top: 4px;
+  padding: 6px 8px 4px;
+  border-top: 1px solid var(--line);
   color: var(--faint);
-  padding: 3px 7px;
+  font-size: 11px;
 }
 
 /* ---------- local picker ---------- */
@@ -1351,9 +1377,6 @@ button.spark-c {
     max-width: none;
     flex: 1 1 auto;
   }
-  .vswitch {
-    bottom: 60px;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   * {
@@ -1365,7 +1388,7 @@ button.spark-c {
   .rail,
   .rail-tab,
   .minibar,
-  .vswitch {
+  .menu {
     display: none !important;
   }
 }

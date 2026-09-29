@@ -1,8 +1,8 @@
 /*
  * log — a TUI session log: every entry is a row of time │ role │ text, turns are
  * dashed rules, rails are bordered panes with their title set into the frame, the
- * sticky header is a statusline, charts are block-character sparklines and tables
- * are plain ASCII. Gruvbox colors, square corners.
+ * sticky header is a statusline, and tables are plain ASCII. Gruvbox colors, square
+ * corners.
  */
 :root[data-variant="log"] {
   --bg: light-dark(#fbf1c7, #1d2021);
@@ -73,7 +73,7 @@
 }
 [data-variant="log"] .hdr .facts > div {
   display: grid;
-  grid-template-columns: 10ch minmax(0, 1fr);
+  grid-template-columns: 11ch minmax(0, 1fr);
   gap: 0;
 }
 [data-variant="log"] .hdr .facts dt {
@@ -427,12 +427,9 @@
 [data-variant="log"] .tokens {
   gap: 10px;
 }
-[data-variant="log"] .chart-blocks {
-  font-size: 22px;
-  line-height: 1;
-}
-[data-variant="log"] .bar-t {
-  color: var(--accent);
+[data-variant="log"] .bar {
+  background: var(--accent);
+  opacity: 1;
 }
 [data-variant="log"] .rail-tab {
   background: var(--bg);
@@ -447,9 +444,10 @@
 [data-variant="log"] .minibar {
   background: var(--bg-3);
   border-bottom: 0;
-  padding: 0;
-  gap: 0;
   backdrop-filter: none;
+}
+[data-variant="log"] .mb-inner {
+  gap: 0;
 }
 [data-variant="log"] .minibar button.icon {
   height: var(--mb-h);
@@ -493,11 +491,6 @@
   height: 1px;
   background: var(--accent);
 }
-[data-variant="log"] .vswitch {
-  border-radius: 0;
-  box-shadow: none;
-  border: 1px solid var(--line);
-}
 @media (max-width: 720px) {
   :root[data-variant="log"] {
     --gut-w: 7ch;
@@ -506,6 +499,6 @@
     display: none;
   }
   [data-variant="log"] .hdr .facts > div {
-    grid-template-columns: 10ch minmax(0, 1fr);
+    grid-template-columns: 11ch minmax(0, 1fr);
   }
 }

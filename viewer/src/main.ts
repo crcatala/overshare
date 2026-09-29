@@ -1,5 +1,6 @@
 import "./styles/fonts.css";
 import "./styles/base.css";
+import "./styles/classic.css";
 import "./styles/cli.css";
 import "./styles/timeline.css";
 import "./styles/hybrid.css";
@@ -11,6 +12,7 @@ import { setTableStyle } from "./asciitable.ts";
 import { h } from "./dom.ts";
 import { HARNESS_LABEL, renderHeader, renderMinibar, type Controls } from "./header.ts";
 import { load, save } from "./prefs.ts";
+import { closeMenus, settingsButton, type SettingsOptions } from "./settings.ts";
 import { formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
 import { renderToc } from "./toc.ts";
 import { renderTokenRail } from "./tokens.ts";
@@ -55,10 +57,11 @@ function setVariant(v: Variant): void {
   state.params.set("variant", v.id);
   history.replaceState(null, "", formatHash(state));
   applyVariant(v);
-  save("vswitch-hidden", null);
   if (shared) render({ keepPlace: true });
-  else renderSwitcher();
+  else void main();
 }
+
+const settings: SettingsOptions = { current: currentVariant, onPick: setVariant };
 
 // ---------- rails ----------
 type Side = "left" | "right";
@@ -124,34 +127,6 @@ function rail(side: Side, title: string, glyph: string, body: HTMLElement): HTML
   return [panel, tab];
 }
 
-// ---------- variant switcher (design evaluation aid) ----------
-function renderSwitcher(): void {
-  document.querySelector(".vswitch")?.remove();
-  if (load("vswitch-hidden")) return;
-  const current = currentVariant();
-  const el = h(
-    "div",
-    { class: "vswitch", role: "group", "aria-label": "Design variant" },
-    h("span", { class: "vs-label" }, "variant"),
-    ...VARIANTS.map((v) => h("button", { type: "button", "aria-pressed": String(v.id === current.id), title: v.blurb, onclick: () => setVariant(v) }, v.label)),
-    h(
-      "button",
-      {
-        type: "button",
-        class: "vs-x",
-        "aria-label": "Hide the variant switcher (press v to cycle variants)",
-        title: "Hide (v cycles variants)",
-        onclick: () => {
-          save("vswitch-hidden", "1");
-          el.remove();
-        },
-      },
-      "×",
-    ),
-  );
-  document.body.append(el);
-}
-
 // ---------- rendering ----------
 function showError(message: string): void {
   teardown.abort();
@@ -164,7 +139,6 @@ function showError(message: string): void {
       h("p", { class: "muted" }, "Links look like …/session/#owner/gistId (or #local:name when served locally)."),
     ),
   );
-  renderSwitcher();
 }
 
 function currentView(): ShareMode {
@@ -179,6 +153,7 @@ function render(opts: { keepPlace?: boolean } = {}): void {
   teardown.abort();
   teardown = new AbortController();
   const signal = teardown.signal;
+  closeMenus();
   const variant = currentVariant();
   applyVariant(variant);
   const view = currentView();
@@ -186,8 +161,8 @@ function render(opts: { keepPlace?: boolean } = {}): void {
   document.title = `${session.title ?? "Agent session"} · Agent Session`;
   const keep = opts.keepPlace ? activeTurn?.index : undefined;
 
-  const controls: Controls = { view, setView, toggleTheme, toggleRail, local: state.source?.kind === "local" };
-  const { el: transcript, turns } = renderTranscript(session);
+  const controls: Controls = { view, setView, toggleTheme, toggleRail, settings, local: state.source?.kind === "local" };
+  const { el: transcript, turns } = renderTranscript(session, { inlineThinking: variant.inlineThinking });
   const byIndex = new Map(turns.map((t) => [t.index, t]));
 
   const jump = (id: string, smooth = true) => {
@@ -200,14 +175,13 @@ function render(opts: { keepPlace?: boolean } = {}): void {
     target.classList.add("flash");
   };
   const toc = renderToc(turns, (id) => jump(id));
-  const tokens = renderTokenRail(session, turns, variant, (turn) => jump(`turn-${turn}`));
+  const tokens = renderTokenRail(session, turns, (turn) => jump(`turn-${turn}`));
   const header = renderHeader(session, provenance, controls);
   const minibar = renderMinibar(session, turns, controls);
 
   const end = h("footer", { class: "end" }, h("span", {}, `end of session · ${plural(turns.filter((t) => t.ordinal).length, "prompt")}`));
   const page = h("div", { class: "page" }, header, transcript, end);
   app.replaceChildren(minibar.el, page, ...rail("left", "Contents", "≡", toc.el), ...rail("right", "Tokens", "∑", tokens.el));
-  renderSwitcher();
   updateDock();
 
   // Scroll spy: the active turn is the last one whose top has passed a line near the
@@ -353,7 +327,12 @@ async function showLocalPicker(): Promise<boolean> {
     h(
       "div",
       { class: "page picker" },
-      h("header", { class: "hdr" }, h("div", { class: "hdr-top" }, h("h1", { class: "hdr-title" }, "Local sessions")), h("p", { class: "fine" }, `Served by agent-share serve · ${plural(shares.length, "file")}`)),
+      h(
+        "header",
+        { class: "hdr" },
+        h("div", { class: "hdr-top" }, h("h1", { class: "hdr-title" }, "Local sessions"), h("div", { class: "hdr-actions" }, settingsButton(settings))),
+        h("p", { class: "fine" }, `Served by agent-share serve · ${plural(shares.length, "file")}`),
+      ),
       h(
         "ul",
         { class: "picker-list" },
@@ -368,7 +347,6 @@ async function showLocalPicker(): Promise<boolean> {
       ),
     ),
   );
-  renderSwitcher();
   return true;
 }
 
@@ -379,6 +357,7 @@ async function main(): Promise<void> {
   provenance = undefined;
   activeTurn = undefined;
   applyVariant(currentVariant());
+  closeMenus();
   if (!state.source) {
     if (await showLocalPicker()) return;
     return showError("No session in the link.");

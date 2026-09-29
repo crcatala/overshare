@@ -1,24 +1,22 @@
 /**
  * The token rail: session totals, context size per turn (the turn in view is marked;
- * click a column to jump there), and the in-view turn's responses in detail.
+ * click a column to jump there), and the in-view turn's model calls in detail.
  *
- * Context columns stack cache read / cache write / new input of the turn's largest
- * prompt, scaled to the session peak, so growth and compaction are visible. Output has
- * its own row and scale (it is orders of magnitude smaller). Variants draw columns as
- * DOM bars or as block-character sparklines.
+ * Context columns stack cache read / cache write / new input of a prompt. Both charts
+ * share one scale — the session's largest prompt and largest output — so a turn's calls
+ * can be compared with each other and with the rest of the session (growth and
+ * compaction show). Output has its own row and scale: it is orders of magnitude smaller.
  */
 import { formatCost, formatTokens, plural } from "../../src/format.ts";
 import { contextTokens, totalTokens, type NormalizedSession, type ResponseUsage, type Usage } from "../../src/schema.ts";
 import { h, withTooltip } from "./dom.ts";
 import type { TurnInfo } from "./transcript.ts";
-import type { Variant } from "./variants.ts";
 
 const SEGMENTS: [keyof Usage, string, string][] = [
   ["cacheRead", "seg-cache-read", "cache read"],
   ["cacheWrite", "seg-cache-write", "cache write"],
   ["input", "seg-input", "new input"],
 ];
-const BLOCKS = " ▁▂▃▄▅▆▇█";
 
 interface Column {
   /** Turn indexes this column covers (several when bucketed). */
@@ -58,67 +56,51 @@ function bucket(cols: Column[], max: number): Column[] {
   return out;
 }
 
-function chart(cols: Column[], style: Variant["chart"], opts: { onPick?: (c: Column) => void; label: string; ctxH?: number; outH?: number }) {
-  const peakCtx = Math.max(1, ...cols.map((c) => contextTokens(c.context)));
-  const peakOut = Math.max(1, ...cols.map((c) => c.output));
+interface Scale {
+  context: number;
+  output: number;
+}
+
+function chart(cols: Column[], scale: Scale, opts: { onPick?: (c: Column) => void; label: string; ctxH?: number; outH?: number }) {
   const cells: HTMLElement[] = [];
-  const pick = (c: Column) => (opts.onPick ? () => opts.onPick!(c) : undefined);
-  let el: HTMLElement;
-  if (style === "blocks") {
-    const row = (value: (c: Column) => number, peak: number, cls: string) =>
-      h(
-        "div",
-        { class: `spark ${cls}` },
-        ...cols.map((c) => {
-          const v = value(c);
-          const level = v ? Math.max(1, Math.round((v / peak) * 8)) : 0;
-          const cell = h(opts.onPick ? "button" : "span", { class: "spark-c", type: opts.onPick ? "button" : undefined, onclick: pick(c) }, BLOCKS[level] === " " ? "·" : BLOCKS[level]!);
-          withTooltip(cell, c.tip);
-          cells.push(cell);
-          return cell;
-        }),
-      );
-    el = h("div", { class: "chart chart-blocks", role: "img", "aria-label": opts.label }, row((c) => contextTokens(c.context), peakCtx, "spark-ctx"), row((c) => c.output, peakOut, "spark-out"));
-  } else {
-    const ctxH = opts.ctxH ?? 48;
-    const outH = opts.outH ?? 16;
-    const ctxRow = h("div", { class: "cols" });
-    ctxRow.style.height = `${ctxH}px`;
-    const outRow = h("div", { class: "cols cols-out" });
-    outRow.style.height = `${outH}px`;
-    for (const c of cols) {
-      const ctx = contextTokens(c.context);
-      const col = h(opts.onPick ? "button" : "div", { class: "col", type: opts.onPick ? "button" : undefined, onclick: pick(c), "aria-label": c.tip()[0] });
-      const total = Math.max(ctx ? 2 : 0, Math.round((ctx / peakCtx) * ctxH));
-      for (const [key, cls] of SEGMENTS) {
-        const v = c.context[key] ?? 0;
-        if (!v) continue;
-        const seg = h("div", { class: `seg ${cls}` });
-        seg.style.height = `${Math.max(1, (v / Math.max(1, ctx)) * total)}px`;
-        col.append(seg);
-      }
-      withTooltip(col, c.tip);
-      ctxRow.append(col);
-      const out = h("div", { class: "col" });
-      const bar = h("div", { class: "seg seg-output" });
-      bar.style.height = `${Math.max(c.output ? 2 : 0, Math.round((c.output / peakOut) * outH))}px`;
-      out.append(bar);
-      withTooltip(out, c.tip);
-      outRow.append(out);
-      cells.push(col, out);
+  const ctxH = opts.ctxH ?? 48;
+  const outH = opts.outH ?? 16;
+  const ctxRow = h("div", { class: "cols" });
+  ctxRow.style.height = `${ctxH}px`;
+  const outRow = h("div", { class: "cols cols-out" });
+  outRow.style.height = `${outH}px`;
+  for (const c of cols) {
+    const ctx = contextTokens(c.context);
+    const col = h(opts.onPick ? "button" : "div", { class: "col", type: opts.onPick ? "button" : undefined, onclick: opts.onPick ? () => opts.onPick!(c) : undefined, "aria-label": c.tip()[0] });
+    const total = Math.max(ctx ? 2 : 0, Math.round((Math.min(ctx, scale.context) / scale.context) * ctxH));
+    for (const [key, cls] of SEGMENTS) {
+      const v = c.context[key] ?? 0;
+      if (!v) continue;
+      const seg = h("div", { class: `seg ${cls}` });
+      seg.style.height = `${Math.max(1, (v / Math.max(1, ctx)) * total)}px`;
+      col.append(seg);
     }
-    el = h("div", { class: "chart chart-bars", role: "img", "aria-label": opts.label }, ctxRow, outRow);
+    withTooltip(col, c.tip);
+    ctxRow.append(col);
+    const out = h("div", { class: "col" });
+    const bar = h("div", { class: "seg seg-output" });
+    bar.style.height = `${Math.max(c.output ? 2 : 0, Math.round((Math.min(c.output, scale.output) / scale.output) * outH))}px`;
+    out.append(bar);
+    withTooltip(out, c.tip);
+    outRow.append(out);
+    cells.push(col, out);
   }
+  const el = h(
+    "div",
+    { class: "chart", role: "img", "aria-label": opts.label },
+    h("div", { class: "chart-row" }, ctxRow, h("span", { class: "chart-axis" }, formatTokens(scale.context))),
+    h("div", { class: "chart-row" }, outRow, h("span", { class: "chart-axis" }, formatTokens(scale.output))),
+  );
   const setActive = (turn: number) => {
     cols.forEach((c, i) => {
       const on = c.turns.includes(turn);
-      if (style === "blocks") {
-        cells[i]?.classList.toggle("on", on);
-        cells[i + cols.length]?.classList.toggle("on", on);
-      } else {
-        cells[i * 2]?.classList.toggle("on", on);
-        cells[i * 2 + 1]?.classList.toggle("on", on);
-      }
+      cells[i * 2]?.classList.toggle("on", on);
+      cells[i * 2 + 1]?.classList.toggle("on", on);
     });
     el.classList.toggle("has-on", cols.some((c) => c.turns.includes(turn)));
   };
@@ -141,18 +123,17 @@ function legend(): HTMLElement {
 function responseTip(r: ResponseUsage, i: number, n: number): string[] {
   const u = r.usage;
   return [
-    `Response ${i + 1} of ${n}${r.model ? ` · ${r.model}` : ""}`,
+    `Model call ${i + 1} of ${n}${r.model ? ` · ${r.model}` : ""}`,
     `context ${formatTokens(contextTokens(u))}: cache read ${formatTokens(u.cacheRead)} · write ${formatTokens(u.cacheWrite)} · new ${formatTokens(u.input)}`,
     `output ${formatTokens(u.output)}${u.reasoning ? ` (thinking ${formatTokens(u.reasoning)})` : ""}${u.cost !== undefined ? ` · ${formatCost(u.cost)}` : ""}`,
   ];
 }
 
-export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], variant: Variant, onJump: (turn: number) => void) {
+export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], onJump: (turn: number) => void) {
   const st = session.stats;
   const total = totalTokens(st.tokens);
   const ctxAll = contextTokens(st.tokens);
   const cachedPct = ctxAll ? Math.round((st.tokens.cacheRead / ctxAll) * 100) : 0;
-  const blocks = variant.chart === "blocks";
 
   // Running session totals after each turn.
   const running = new Map<number, { tokens: number; cost?: number }>();
@@ -178,7 +159,10 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], v
       tip: () => [name, `context up to ${formatTokens(contextTokens(peak.usage))} · output ${formatTokens(out)}`, `${plural(t.responses.length, "response")}${t.label ? ` · ${t.label.slice(0, 60)}` : ""}`],
     };
   });
-  const sessionChart = chart(bucket(turnCols, blocks ? 32 : 90), variant.chart, { onPick: (c) => onJump(c.turns[0]!), label: `Context size per turn for ${plural(withResponses.length, "turn")}` });
+  const turnScale: Scale = { context: Math.max(1, ...turnCols.map((c) => contextTokens(c.context))), output: Math.max(1, ...turnCols.map((c) => c.output)) };
+  // Per-call charts share one session-wide scale, so turns can be compared.
+  const callScale: Scale = { context: Math.max(1, ...session.responses.map((r) => contextTokens(r.usage))), output: Math.max(1, ...session.responses.map((r) => r.usage.output)) };
+  const sessionChart = chart(bucket(turnCols, 90), turnScale, { onPick: (c) => onJump(c.turns[0]!), label: `Context size per turn for ${plural(withResponses.length, "turn")}` });
 
   const turnBox = h("div", { class: "rail-turn" });
   const tools = Object.entries(st.tools).sort((a, b) => b[1] - a[1]);
@@ -188,8 +172,8 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], v
         "div",
         { class: "bars" },
         ...tools.slice(0, 12).map(([name, count]) => {
-          const bar = blocks ? h("span", { class: "bar-t" }, "▇".repeat(Math.max(1, Math.round((count / maxTool) * 10)))) : h("span", { class: "bar" });
-          if (!blocks) bar.style.setProperty("--w", `${Math.max(3, (count / maxTool) * 100)}%`);
+          const bar = h("span", { class: "bar" });
+          bar.style.setProperty("--w", `${Math.max(3, (count / maxTool) * 100)}%`);
           return h("div", { class: "bars-row" }, h("span", { class: "bars-name", title: name }, name), h("span", { class: "bars-track" }, bar), h("span", { class: "bars-n" }, String(count)));
         }),
         tools.length > 12 ? h("div", { class: "bars-more" }, `+${plural(tools.length - 12, "more tool")}`) : null,
@@ -213,7 +197,16 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], v
         ["responses", String(session.responses.length)],
       ]),
     ),
-    withResponses.length ? h("section", { class: "rail-sec" }, h("h3", {}, "Context by turn"), sessionChart.el, blocks ? null : legend()) : null,
+    withResponses.length
+      ? h(
+          "section",
+          { class: "rail-sec" },
+          h("h3", {}, "Context by turn"),
+          sessionChart.el,
+          h("p", { class: "chart-note" }, "Largest prompt sent in each turn, and its output below. Click a bar to jump."),
+          legend(),
+        )
+      : null,
     withResponses.length ? h("section", { class: "rail-sec" }, turnBox) : null,
     toolList ? h("section", { class: "rail-sec" }, h("h3", {}, `Tools · ${st.toolCalls}`), toolList) : null,
     files ? h("section", { class: "rail-sec" }, h("h3", {}, "Files"), dl([["read", String(st.files.read)], ["edited", String(st.files.edited)], ["written", String(st.files.written)]])) : null,
@@ -235,10 +228,11 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], v
     const ctxSum = contextTokens(u);
     const run = running.get(t.index);
     const respCols: Column[] = t.responses.map((r, i) => ({ turns: [t.index], context: r.usage, output: r.usage.output, tip: () => responseTip(r, i, n) }));
-    const respChart = chart(bucket(respCols, blocks ? 32 : 60), variant.chart, { label: `Context per response for ${plural(n, "response")}`, ctxH: 36, outH: 12 });
+    const respChart = chart(bucket(respCols, 60), callScale, { label: `Context per model call for ${plural(n, "call")}`, ctxH: 36, outH: 12 });
     turnBox.replaceChildren(
-      h("h3", {}, t.ordinal ? `Turn ${t.ordinal}` : "Start", h("span", { class: "h3-meta" }, plural(n, "response"))),
+      h("h3", {}, t.ordinal ? `Turn ${t.ordinal}` : "Start", h("span", { class: "h3-meta" }, plural(n, "model call"))),
       respChart.el,
+      h("p", { class: "chart-note" }, "One bar per model call in this turn: the prompt it was sent, and its output. Same scale for every turn."),
       dl([
         ["context", `up to ${formatTokens(peak)}`],
         ["cached", ctxSum ? `${Math.round((u.cacheRead / ctxSum) * 100)}%` : undefined],

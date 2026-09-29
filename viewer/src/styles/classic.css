@@ -1,0 +1,320 @@
+/*
+ * classic — after pi's session export: almost no chrome. Everything sits on one text
+ * edge; prompts and tool calls are simply tinted blocks (different tints), thinking is
+ * italic and dimmer, and output previews sit under a bold `$ command`. The palette
+ * mixes cli's warm neutrals and coral accent with log's gruvbox yellows and greens.
+ */
+:root[data-variant="classic"] {
+  --bg: light-dark(#fbf8f1, #181715);
+  --bg-2: light-dark(#f3efe4, #211f1c);
+  --bg-3: light-dark(#e9e3d4, #2c2925);
+  --ink: light-dark(#2a2723, #e6e1d6);
+  --ink-2: light-dark(#4d4840, #c5bfb2);
+  --dim: light-dark(#7f786b, #968f82);
+  --faint: light-dark(#aca493, #625d55);
+  --line: light-dark(#e4ddcd, #2f2c28);
+  --accent: light-dark(#c15f3c, #e38863);
+  --user: var(--ink);
+  --user-bg: light-dark(#eee8da, #2a2622);
+  --tool-bg: light-dark(#edf0e1, #20251f);
+  --tool-err-bg: light-dark(#f8e4dc, #2e201d);
+  --think: light-dark(#877f71, #8a8478);
+  --ok: light-dark(#6a7b28, #a9b665);
+  --err: light-dark(#b3392d, #ea6962);
+  --heading: light-dark(#a3620a, #e9b96c);
+  --code: light-dark(#2d7a64, #89c3ab);
+  --link: light-dark(#2f6db0, #7daea3);
+  --add: var(--ok);
+  --del: var(--err);
+  --add-bg: transparent;
+  --del-bg: transparent;
+  --content-w: 800px;
+  --rail-w: 248px;
+  --rail-gap: 28px;
+  --fs: 13px;
+  --lh: 1.55;
+  --pad: 16px;
+}
+
+/* header: one tinted block, "key: value" rows */
+[data-variant="classic"] .hdr {
+  background: var(--bg-2);
+  border-radius: 4px;
+  padding: 14px var(--pad) 12px;
+  margin-bottom: 16px;
+}
+[data-variant="classic"] .hdr-title {
+  font-size: 1em;
+  color: var(--accent);
+}
+[data-variant="classic"] .hdr .facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(30ch, 1fr));
+  margin: 10px 0 0;
+  clip-path: none;
+}
+[data-variant="classic"] .hdr .facts > div::before {
+  display: none;
+}
+[data-variant="classic"] .hdr .facts > div {
+  display: grid;
+  grid-template-columns: 11ch minmax(0, 1fr);
+  gap: 0;
+}
+[data-variant="classic"] .hdr .facts dt {
+  display: block;
+  order: 0;
+  color: var(--dim);
+}
+[data-variant="classic"] .hdr .facts dt::after {
+  content: ":";
+}
+[data-variant="classic"] .hdr .facts dd {
+  color: var(--ink);
+}
+[data-variant="classic"] .hdr-fine {
+  margin-top: 10px;
+}
+[data-variant="classic"] .hdr-fine .facts {
+  grid-template-columns: 1fr;
+  margin-top: 0;
+}
+[data-variant="classic"] .hdr-fine .facts dd {
+  color: var(--dim);
+}
+[data-variant="classic"] .modes {
+  background: var(--bg);
+}
+
+/* entries: one text edge; blocks are tints, not boxes */
+[data-variant="classic"] .transcript {
+  gap: 14px;
+}
+[data-variant="classic"] .turn {
+  display: grid;
+  gap: 14px;
+  padding: 0;
+}
+[data-variant="classic"] .turn-foot {
+  display: none;
+}
+[data-variant="classic"] .entry {
+  margin: 0;
+  padding: 0 var(--pad);
+}
+[data-variant="classic"] .k-user,
+[data-variant="classic"] .k-tool,
+[data-variant="classic"] .k-group,
+[data-variant="classic"] .k-sub {
+  padding: 12px var(--pad);
+  border-radius: 4px;
+}
+[data-variant="classic"] .k-user {
+  background: var(--user-bg);
+}
+[data-variant="classic"] .k-user .gut {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--faint);
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+[data-variant="classic"] .k-user .gut .who {
+  display: none;
+}
+[data-variant="classic"] .k-tool,
+[data-variant="classic"] .k-group,
+[data-variant="classic"] .k-sub {
+  background: var(--tool-bg);
+}
+[data-variant="classic"] .k-tool.is-error,
+[data-variant="classic"] .k-group.has-error,
+[data-variant="classic"] .k-sub.is-error {
+  background: var(--tool-err-bg);
+}
+
+/* tool lines: `$ command`, or `name path` */
+[data-variant="classic"] .tline {
+  font-weight: 700;
+}
+[data-variant="classic"] .tname {
+  text-transform: lowercase;
+}
+[data-variant="classic"] .targ {
+  color: var(--code);
+}
+[data-variant="classic"] .k-tool[data-action="exec"] .tname {
+  display: none;
+}
+[data-variant="classic"] .k-tool[data-action="exec"] .targ {
+  margin-left: 0;
+  color: var(--ink);
+}
+[data-variant="classic"] .k-tool[data-action="exec"] .targ::before {
+  content: "$ ";
+}
+[data-variant="classic"] .tmeta {
+  font-weight: 400;
+}
+[data-variant="classic"] .tstat.is-error {
+  font-weight: 700;
+}
+[data-variant="classic"] .tprev,
+[data-variant="classic"] .tfull {
+  margin-top: 10px;
+}
+[data-variant="classic"] pre.out {
+  font-size: inherit;
+  color: var(--dim);
+}
+[data-variant="classic"] button.more {
+  font-size: inherit;
+}
+[data-variant="classic"] .tnote {
+  font-size: inherit;
+}
+[data-variant="classic"] .chip {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+}
+[data-variant="classic"] .chip-name {
+  text-transform: lowercase;
+}
+[data-variant="classic"] .chip + .chip::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--faint);
+  font-weight: 400;
+}
+[data-variant="classic"] .chip.is-error {
+  background: none;
+}
+[data-variant="classic"] .chip-think {
+  color: var(--think);
+  font-weight: 400;
+}
+[data-variant="classic"] .sub-desc {
+  font-weight: 400;
+}
+
+/* thinking: just italic, a little dimmer */
+[data-variant="classic"] .k-think .md,
+[data-variant="classic"] .k-think .tname,
+[data-variant="classic"] .k-think .targ {
+  color: var(--think);
+  font-style: italic;
+  font-weight: 400;
+  text-transform: none;
+}
+[data-variant="classic"] .k-think .md :not(pre) > code {
+  color: inherit;
+}
+[data-variant="classic"] .k-event .tline {
+  font-weight: 400;
+}
+[data-variant="classic"] .k-event[data-event="compaction"] .tline,
+[data-variant="classic"] .k-event[data-event="model_change"] .tline {
+  color: var(--code);
+}
+
+/* markdown */
+[data-variant="classic"] .md h1,
+[data-variant="classic"] .md h2,
+[data-variant="classic"] .md h3,
+[data-variant="classic"] .md h4 {
+  margin: 1.2em 0 0.2em;
+}
+[data-variant="classic"] .md :not(pre) > code {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--faint) 22%, transparent);
+}
+[data-variant="classic"] .md li::marker {
+  color: var(--accent);
+}
+[data-variant="classic"] .md blockquote {
+  border-left: 3px solid var(--faint);
+  padding-left: 1.5ch;
+  color: var(--dim);
+  font-style: italic;
+}
+[data-variant="classic"] .codeblock-lang {
+  display: none;
+}
+[data-variant="classic"] .codeblock pre {
+  color: var(--ink-2);
+}
+[data-variant="classic"] .k-user .md p {
+  margin: 0.4em 0;
+}
+
+/* rails: a tinted panel, entries read like pi's tree */
+[data-variant="classic"] .rail {
+  background: var(--bg-2);
+  border-radius: 4px;
+  padding: 10px 10px 12px;
+}
+[data-variant="classic"] .rail-head h2 {
+  padding-left: 4px;
+}
+[data-variant="classic"] .toc-search {
+  background: var(--bg);
+  border-color: transparent;
+}
+[data-variant="classic"] .toc-link {
+  border-radius: 3px;
+}
+[data-variant="classic"] .toc-turn:not(.is-start) > .toc-link .toc-label::before {
+  content: "user: ";
+  color: var(--accent);
+}
+[data-variant="classic"] .toc-turn.on > .toc-link {
+  background: var(--bg-3);
+}
+[data-variant="classic"] .toc-item .toc-glyph {
+  display: none;
+}
+[data-variant="classic"] .toc-item .toc-link {
+  padding-left: calc(2ch + 14px);
+}
+[data-variant="classic"] .toc-k-reply .toc-label::before {
+  content: "assistant: ";
+  color: var(--ok);
+}
+[data-variant="classic"] .toc-k-tools .toc-label::before {
+  content: "[";
+}
+[data-variant="classic"] .toc-k-tools .toc-label::after {
+  content: "]";
+}
+[data-variant="classic"] .toc-k-tools.is-error .toc-label {
+  color: var(--err);
+}
+[data-variant="classic"] .toc-k-subagent .toc-label::before {
+  content: "subagent: ";
+  color: var(--code);
+}
+[data-variant="classic"] .rail-sec + .rail-sec {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+[data-variant="classic"] .rail-tab {
+  background: var(--bg-2);
+}
+
+/* minibar */
+[data-variant="classic"] .minibar {
+  background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+}
+[data-variant="classic"] .mb-name {
+  color: var(--accent);
+}
+@media (max-width: 720px) {
+  :root[data-variant="classic"] {
+    --pad: 12px;
+  }
+  [data-variant="classic"] .hdr .facts > div {
+    grid-template-columns: 11ch minmax(0, 1fr);
+  }
+}

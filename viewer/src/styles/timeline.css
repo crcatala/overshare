@@ -327,9 +327,12 @@
   transform: translate(-50%, -140%);
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 0 8px 0 16px;
   box-shadow: var(--shadow);
   overflow: hidden;
+}
+[data-variant="timeline"] .mb-inner {
+  max-width: none;
+  padding: 0 8px 0 16px;
 }
 :root[data-variant="timeline"][data-compact="true"] .minibar {
   transform: translate(-50%, 0);

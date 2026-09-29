@@ -187,7 +187,7 @@ server):
 | `#local:<name>` | file served by `agent-share serve` |
 | `#url:<path>` | same-origin path |
 | `…&view=minimal` | step the view down |
-| `…&variant=log` | pick a design variant (`cli`, `timeline`, `hybrid`, `log`) |
+| `…&variant=log` | pick a design variant (`classic`, `cli`, `timeline`, `hybrid`, `log`) |
 
 Transcripts are untrusted: anyone can make a gist and send a link to your viewer. The
 header says where the share was loaded from (for gists, the owner as GitHub reports it)
@@ -212,28 +212,32 @@ Around the transcript, without pushing it off-center:
 - **Contents rail** (left): one row per prompt with its time and tool count; "all" adds
   the replies, tool runs and events inside each turn. Filter with `/`, click to jump; the
   turn in view is highlighted.
-- **Token rail** (right): session totals, context size per turn (stacked cache read /
-  cache write / new input of the turn's largest prompt, scaled to the session peak, with
-  output on its own row) — the turn in view is marked and columns jump to their turn —
-  then that turn's responses in detail, tool counts and files.
+- **Token rail** (right): session totals; *context by turn* — the largest prompt sent in
+  each turn (stacked cache read / cache write / new input) with its output on a row below;
+  the turn in view is marked and bars jump to their turn — then *the turn in view*, one
+  bar per model call on the same session-wide scale (so turns can be compared), tool
+  counts and files. Each chart labels the top of its scale.
 - **Header**: title, agent/model/project/date, key stats, where the share was loaded
-  from and that it isn't verified. Once it scrolls away a one-line **minibar** takes over
-  with the turn in view, reading progress and the controls.
+  from and that it isn't verified, and the controls (view mode, theme, settings). Once it
+  scrolls away a one-line **minibar** takes over with the turn in view, reading progress
+  and the controls; it spans the window, with its contents lined up with the rails.
 
 Both rails collapse (`«`/`»`, or `[` and `]`) and stay collapsed per browser. When the
 window is too narrow to fit them beside the column they become overlays opened from the
 minibar or the corner buttons. Keys: `j`/`k` next/previous prompt, `[`/`]` rails, `/`
 filter the contents, `v`/`V` cycle design variants.
 
-**Design variants.** Four looks share one DOM, for picking a direction (a switcher sits at
-the bottom of the page; `&variant=` picks one in the link and the choice is remembered):
+**Design variants.** Five looks share one DOM, for picking a direction. Pick one from the
+settings menu (the sliders icon next to the theme toggle), with `v`/`V`, or with
+`&variant=` in the link; the choice is remembered:
 
 | variant | look |
 | --- | --- |
-| `cli` (default) | The agent's own terminal: `❯` prompts on a faint band, `●` tool lines with `└` output, markdown shown with its `##` markers, rounded tables, floating rail panels. |
+| `classic` (default) | After pi's session export: one text edge, prompts and tool calls as tinted blocks (different tints), a bold `$ command` over its output, thinking in dim italics; warm cli/gruvbox palette. |
+| `cli` | The agent's own terminal: `❯` prompts on a faint band, `●` tool lines with `└` output, markdown shown with its `##` markers, rounded tables, floating rail panels. |
 | `timeline` | A vertical line with a node per step; turn numbers and times in a gutter; docs-style rails; the minibar is a floating pill. |
 | `hybrid` | Proportional prose (IBM Plex Sans) for prompts and replies, mono for everything the agent did; tool activity on a quiet hairline; numbered turn rules. |
-| `log` | A TUI log: `time │ role │ text` rows, framed panes with titles set into the border, a statusline, block-character sparklines and plain ASCII tables (gruvbox). |
+| `log` | A TUI log: `time │ role │ text` rows, framed panes with titles set into the border, a statusline and plain ASCII tables (gruvbox). |
 
 **Text tables.** Markdown tables become box-drawn grids sized in characters: columns
 keep their longest word where possible, spare width goes to the columns with the most

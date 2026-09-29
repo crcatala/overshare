@@ -6,6 +6,7 @@ import { formatCost, formatDuration, formatTokens } from "../../src/format.ts";
 import { availableModes } from "../../src/modes.ts";
 import { totalTokens, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
 import { h, provenanceLine, withTooltip } from "./dom.ts";
+import { settingsButton, type SettingsOptions } from "./settings.ts";
 import type { Provenance } from "./source.ts";
 import type { TurnInfo } from "./transcript.ts";
 
@@ -16,6 +17,7 @@ export interface Controls {
   setView: (m: ShareMode) => void;
   toggleTheme: () => void;
   toggleRail: (side: "left" | "right") => void;
+  settings: SettingsOptions;
   local: boolean;
 }
 
@@ -73,7 +75,7 @@ export function renderHeader(s: NormalizedSession, provenance: Provenance | unde
       "div",
       { class: "hdr-top" },
       h("h1", { class: "hdr-title" }, s.title ?? "Agent session"),
-      h("div", { class: "hdr-actions" }, modeSwitch(s, c), iconButton("Toggle color theme", "", c.toggleTheme, "theme")),
+      h("div", { class: "hdr-actions" }, modeSwitch(s, c), iconButton("Toggle color theme", "", c.toggleTheme, "theme"), settingsButton(c.settings)),
     ),
     facts("facts-meta", [
       ["agent", harness],
@@ -108,20 +110,26 @@ export function renderMinibar(s: NormalizedSession, turns: TurnInfo[], c: Contro
   const where = h("span", { class: "mb-where" });
   const label = h("span", { class: "mb-label" });
   const progress = h("div", { class: "mb-progress", "aria-hidden": "true" });
+  // The bar spans the window; its contents line up with the rails' outer edges.
   const el = h(
     "div",
     { class: "minibar", role: "navigation", "aria-label": "Session" },
-    iconButton("Toggle contents", "≡", () => c.toggleRail("left"), "mb-left"),
+    h(
+      "div",
+      { class: "mb-inner" },
+      iconButton("Toggle contents", "≡", () => c.toggleRail("left"), "mb-left"),
     h(
       "button",
       { type: "button", class: "mb-title", title: "Back to top", onclick: () => window.scrollTo({ top: 0, behavior: "smooth" }) },
       h("span", { class: "mb-name" }, s.title ?? "Agent session"),
     ),
-    h("span", { class: "mb-turn" }, where, label),
-    h("span", { class: "mb-spacer" }),
-    modeSwitch(s, c),
-    iconButton("Toggle color theme", "", c.toggleTheme, "theme"),
-    iconButton("Toggle token rail", "∑", () => c.toggleRail("right"), "mb-right"),
+      h("span", { class: "mb-turn" }, where, label),
+      h("span", { class: "mb-spacer" }),
+      modeSwitch(s, c),
+      iconButton("Toggle color theme", "", c.toggleTheme, "theme"),
+      settingsButton(c.settings),
+      iconButton("Toggle token rail", "∑", () => c.toggleRail("right"), "mb-right"),
+    ),
     progress,
   );
   const setActive = (t: TurnInfo | undefined) => {

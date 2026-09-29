@@ -52,7 +52,12 @@ export function clock(iso?: string): string | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 }
 
-interface Ctx {
+export interface TranscriptOptions {
+  /** Show thinking text in full instead of a one-line preview that opens. */
+  inlineThinking?: boolean;
+}
+
+interface Ctx extends TranscriptOptions {
   cwd?: string;
   byTurn: Map<number, ResponseUsage[]>;
 }
@@ -268,9 +273,14 @@ function renderGroup(g: ToolGroupStep, id: string, ctx: Ctx): HTMLElement {
   return el;
 }
 
-function renderThinking(t: ThinkingStep, id: string): HTMLElement {
+function renderThinking(t: ThinkingStep, id: string, ctx: Ctx): HTMLElement {
   const el = entry("think", id, "think", t.timestamp);
   const meta = [t.blocks > 1 ? `${t.blocks} blocks` : "", t.tokens ? `${formatTokens(t.tokens)} tok` : t.chars ? `${formatTokens(t.chars)} chars` : ""].filter(Boolean).join(" · ");
+  if (ctx.inlineThinking && t.text) {
+    el.classList.add("inline");
+    el.querySelector(".body")!.append(markdown(t.text));
+    return el;
+  }
   expandable(el, toolLine("thinking", t.text ? firstLine(t.text, 140) : "", meta), { build: t.text ? () => markdown(t.text ?? "") : undefined });
   return el;
 }
@@ -313,7 +323,7 @@ function renderStep(step: Step, id: string, ctx: Ctx): HTMLElement {
     case "text":
       return entry("text", id, "agent", step.timestamp, markdown(step.text));
     case "thinking":
-      return renderThinking(step, id);
+      return renderThinking(step, id, ctx);
     case "tool":
       return renderTool(step, id, ctx);
     case "toolGroup":
@@ -423,8 +433,8 @@ export function responsesByTurn(session: NormalizedSession): Map<number, Respons
   return byTurn;
 }
 
-export function renderTranscript(session: NormalizedSession): { el: HTMLElement; turns: TurnInfo[] } {
-  const ctx: Ctx = { cwd: session.project?.cwd, byTurn: responsesByTurn(session) };
+export function renderTranscript(session: NormalizedSession, opts: TranscriptOptions = {}): { el: HTMLElement; turns: TurnInfo[] } {
+  const ctx: Ctx = { ...opts, cwd: session.project?.cwd, byTurn: responsesByTurn(session) };
   const turns: TurnInfo[] = [];
   let ordinal = 0;
   const sections = session.turns

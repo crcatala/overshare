@@ -1004,6 +1004,13 @@ pre.diff > span {
   -webkit-box-orient: vertical;
   overflow-wrap: anywhere;
 }
+/* Filter hits take the variant's accent, so they follow the variant and light/dark on their own. */
+.toc-hit {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  color: var(--ink);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
+}
 .toc-meta {
   color: var(--faint);
   font-size: 11px;
@@ -1025,6 +1032,11 @@ pre.diff > span {
 }
 .toc-item .toc-label {
   -webkit-line-clamp: 1;
+}
+/* Must follow the rule above: a hit past the clamp would be invisible, and its row is there because of it. */
+.toc-label:has(.toc-hit),
+.toc-item .toc-label:has(.toc-hit) {
+  -webkit-line-clamp: none;
 }
 .toc-glyph {
   flex: none;

@@ -9,7 +9,7 @@ import { plural } from "../../src/format.ts";
 import { projectSession } from "../../src/modes.ts";
 import { SCHEMA_VERSION, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
 import { beacon } from "./beacon.ts";
-import { clearHits, pulseHits, showHits } from "./findhits.ts";
+import { clearHits, pulseHits, refreshHits, showHits } from "./findhits.ts";
 import { relayoutTables, releaseTables, setTableStyle } from "./asciitable.ts";
 import { h, hideTooltip, toast } from "./dom.ts";
 import { attribution } from "./attribution.ts";
@@ -21,6 +21,7 @@ import type { ShareOptions } from "./share.ts";
 import { formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
 import { stepPrompt, typing, variantKeyStep, wheelMovesPage } from "./nav.ts";
 import { fetchLocalShares, renderPicker } from "./picker.ts";
+import { buildIndex } from "./search.ts";
 import { renderToc } from "./toc.ts";
 import { renderTokenRail } from "./tokens.ts";
 import { renderTranscript, type TurnInfo } from "./transcript.ts";
@@ -289,12 +290,17 @@ function render(opts: { keepPlace?: boolean; turn?: number } = {}): void {
   const toc = renderToc(
     turns,
     (id, hit) => {
-      if (hit) showHits(hit.ids, hit.tokens);
+      if (hit) showHits(hit.ids, hit.tokens, { reveal: hit.reveal, count: hit.count });
       else clearHits();
       jump(id);
     },
-    { detail: settings.toc, onDetail: (d) => update({ toc: d }), onClear: clearHits },
+    // The index is built from `session`, the redacted share projected to this view: only text it can show is found.
+    { detail: settings.toc, onDetail: (d) => update({ toc: d }), onClear: clearHits, index: () => buildIndex(session) },
   );
+  // Opening or closing an entry moves its text between the preview and the full view; the outlines follow.
+  transcript.addEventListener("click", (e) => {
+    if ((e.target as Element).closest("button.tline, button.more")) refreshHits();
+  });
   const tokens = renderTokenRail(
     session,
     turns,

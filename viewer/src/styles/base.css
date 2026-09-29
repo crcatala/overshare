@@ -1061,6 +1061,86 @@ pre.diff > span {
 .toc-item .toc-label:has(.toc-hit) {
   -webkit-line-clamp: none;
 }
+/* Search excerpts: a stretch of context per hit, on lines of its own, two at most. Several get a mark each, so separate hits read as separate. */
+.toc-xline {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+/* A single stretch runs on after the row's lead ("assistant:", a source chip) like any label. */
+.toc-x:not(.is-multi) .toc-xline {
+  display: inline;
+}
+.toc-x.is-multi .toc-xline {
+  border-left: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  padding-left: 6px;
+}
+.toc-x.is-multi .toc-xline + .toc-xline {
+  margin-top: 2px;
+}
+.toc-xmore {
+  display: block;
+  color: var(--faint);
+  font-size: 10.5px;
+}
+.toc-src {
+  font-size: 10.5px;
+  color: var(--faint);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+.toc-item.toc-k-found .toc-glyph::before {
+  content: "⌕";
+}
+.toc-more button {
+  appearance: none;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  padding: 1px 6px 3px calc(2ch + 14px + 1ch + 8px);
+  font-size: 11px;
+  color: var(--faint);
+}
+.toc-more button:hover {
+  color: var(--ink);
+}
+.toc-status {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 6px;
+  flex: none;
+  font-size: 11px;
+  color: var(--faint);
+}
+.toc-scope {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: none;
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.toc-scope::before {
+  content: "+ ";
+}
+.toc-scope[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--bg-3);
+  border-color: var(--accent);
+}
+.toc-scope[aria-pressed="true"]::before {
+  content: "✓ ";
+}
+.toc-extra {
+  color: var(--accent);
+}
 .toc-glyph {
   flex: none;
   width: 1ch;

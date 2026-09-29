@@ -1,13 +1,19 @@
 /**
  * The contents rail: one row per prompt (with its time and tool count), optionally the
- * replies, tool runs and events inside each turn. Filterable; the turn in view is
+ * replies, tool runs and events inside each turn. Searchable; the turn in view is
  * highlighted and kept visible. Rows are buttons, not #links: the URL hash names the
  * share, so the viewer scrolls itself.
+ *
+ * The search matches the rail's own labels, and, given an index, the whole transcript:
+ * an entry whose text matches but whose label doesn't gets a snippet row under its turn.
+ * The detail setting is also the search's scope: "prompts" searches the prompts only,
+ * "all" everything, so the rail never shows rows the setting says it hides.
  */
 import { plural } from "../../src/format.ts";
 import { append, h } from "./dom.ts";
 import { fold, hitRanges, MIN_HIGHLIGHT, matchesAll, queryTokens, splitByRanges } from "./filter.ts";
-import type { TurnInfo } from "./transcript.ts";
+import { excerpt, outputOnlyTurns, search as searchIndex, type Excerpt, type SearchDoc, type SearchHit } from "./search.ts";
+import { promptId, type TurnInfo } from "./transcript.ts";
 import type { TocDetail } from "./viewsettings.ts";
 
 export interface TocOptions {
@@ -15,7 +21,15 @@ export interface TocOptions {
   onDetail: (d: TocDetail) => void;
   /** The filter's words changed or were cleared. */
   onClear?: () => void;
+  /** The full-text index, built on first use. Without it the search matches labels only. */
+  index?: () => readonly SearchDoc[];
 }
+
+const SCOPE_TITLE = "Also search what tools returned: command output, file contents, subagent results";
+const WIDEN_TITLE = "Search everything, not just the prompts: replies, thinking, tool calls, events";
+
+/** Snippet rows shown per turn before a "+N more" opener. */
+const SNIPPETS_PER_TURN = 3;
 
 /** A label the filter can match and highlight: the rail's text for a prompt, reply or tool run. */
 interface Label {
@@ -27,27 +41,73 @@ interface Label {
 
 const labelOf = (el: HTMLElement, text: string): Label => ({ el, text, folded: fold(text), marked: false });
 
-/** Redraws a label with the tokens highlighted, or plain when there are none. Touches the DOM only when it changes. */
-function paint(label: Label, tokens: readonly string[]): void {
-  const ranges = hitRanges(label.text, tokens.filter((t) => t.length >= MIN_HIGHLIGHT));
-  if (!ranges.length && !label.marked) return;
-  label.marked = ranges.length > 0;
-  // One wrapper child: the label is a -webkit-box, which drops a whitespace-only text node
-  // between two marks, so "USD fallback" would read "USDfallback".
-  const pieces = splitByRanges(label.text, ranges).map((p) => (p.hit ? h("mark", { class: "toc-hit" }, p.text) : p.text));
-  label.el.replaceChildren(ranges.length ? h("span", {}, ...pieces) : label.text);
+/**
+ * The hits with a little context each, one stretch per line, then "+N more matches". More
+ * than one stretch gets a mark per line, so separate hits read as separate. `lead` starts
+ * the first line (a snippet's source). One wrapper child: the label is a -webkit-box, which
+ * drops a whitespace-only text node between two marks, so "USD fallback" would read "USDfallback".
+ */
+function excerptEl(ex: Excerpt, lead?: Node): HTMLElement {
+  return h(
+    "span",
+    { class: `toc-x${ex.stretches.length > 1 ? " is-multi" : ""}` },
+    ...ex.stretches.map((s, i) =>
+      // The line is clamped (a -webkit-box too): its pieces get a wrapper of their own.
+      h(
+        "span",
+        { class: "toc-xline" },
+        h("span", {}, ...(i === 0 && lead ? [lead, " "] : []), ...splitByRanges(s.text, s.ranges).map((p) => (p.hit ? h("mark", { class: "toc-hit" }, p.text) : p.text))),
+      ),
+    ),
+    ex.more ? h("span", { class: "toc-xmore" }, `+${plural(ex.more, "more match", "more matches")}`) : null,
+  );
 }
 
-/** What a click on a matching row hands the viewer: the words to outline, and the transcript ids to look for them in. */
+/**
+ * Redraws a label with the tokens highlighted, or plain when there are none. A long label
+ * shows only the stretches around its hits. Touches the DOM only when it changes.
+ */
+function paint(label: Label, tokens: readonly string[]): void {
+  const hit = hitRanges(label.text, tokens.filter((t) => t.length >= MIN_HIGHLIGHT)).length > 0;
+  if (!hit && !label.marked) return;
+  label.marked = hit;
+  label.el.replaceChildren(hit ? excerptEl(excerpt(label.text, tokens)) : label.text);
+}
+
+/**
+ * What a click on a matching row hands the viewer: the words to outline, and the transcript
+ * ids to look for them in. `reveal`: the words may be in a collapsed part of the entry
+ * (a snippet row matched its full text), so open it if they are not visible.
+ */
 export interface TocHit {
   ids: string[];
   tokens: string[];
+  reveal?: boolean;
+  /** How many hits the entry's text holds, so an entry showing fewer can be opened. */
+  count?: number;
 }
 
 interface Row {
   el: HTMLElement;
   own: Label;
-  items: { el: HTMLElement; label: Label }[];
+  items: { el: HTMLElement; label: Label; ids: string[] }[];
+  /** Snippet rows for entries that matched on text their labels don't show. */
+  found: HTMLElement;
+}
+
+/** "Bash output" and the like, then the stretches around the hits. The whole row is one link to the entry, and hands over how many hits it holds. */
+function snippetRow(hit: SearchHit, tokens: readonly string[], onClick: (count: number) => void): HTMLElement {
+  const ex = excerpt(hit.field.text, tokens, { markdown: hit.field.markdown });
+  return h(
+    "li",
+    { class: "toc-item toc-k-found" },
+    h(
+      "button",
+      { type: "button", class: "toc-link", onclick: () => onClick(ex.total), title: `${hit.field.source}: ${ex.stretches.map((s) => s.text).join("  ")}` },
+      h("span", { class: "toc-glyph", "aria-hidden": "true" }),
+      h("span", { class: "toc-label" }, excerptEl(ex, h("span", { class: "toc-src" }, hit.field.source))),
+    ),
+  );
 }
 
 /**
@@ -57,6 +117,15 @@ interface Row {
 export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) => void, opts: TocOptions) {
   let detail = opts.detail;
   let tokens: string[] = [];
+  /** Whether the full-text search also looks in tool output. Off by default: see search.ts. */
+  let output = false;
+  let index: readonly SearchDoc[] | undefined;
+  const docs = () => (index ??= opts.index?.() ?? []);
+  let hasOutput: boolean | undefined;
+  /** Turns whose snippet list was opened past the first few, for the current words. */
+  const opened = new Set<number>();
+  /** The words and scope the snippet rows were last drawn for: they are rebuilt only when these change. */
+  let drawn = "";
   const rows = new Map<number, Row>();
   const jump = (label: Label, id: string, ids = [id]) => onJump(id, tokens.length && matchesAll(label.folded, tokens) ? { ids, tokens } : undefined);
 
@@ -89,39 +158,154 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
                   { class: `toc-item toc-k-${i.kind}${i.error ? " is-error" : ""}` },
                   h("button", { type: "button", class: "toc-link", onclick: () => jump(label, i.id, i.ids), title: i.label }, h("span", { class: "toc-glyph", "aria-hidden": "true" }), labelEl),
                 );
-                items.push({ el: item, label });
+                items.push({ el: item, label, ids: i.ids ?? [i.id] });
                 return item;
               }),
             )
           : null,
       );
-      rows.set(t.index, { el, own, items });
+      const found = h("ol", { class: "toc-sub toc-found", hidden: true });
+      el.append(found);
+      rows.set(t.index, { el, own, items, found });
       return el;
     }),
   );
   const empty = h("p", { class: "toc-empty", hidden: true }, "No matches");
 
-  // A turn stays when its own label or any of its items matches. Each label is matched on its
-  // own, so the words that made a row appear are the words highlighted in it.
+  const count = h("span", { class: "toc-count" });
+  const extra = h("span", { class: "toc-extra" });
+  const scope = h(
+    "button",
+    {
+      type: "button",
+      class: "toc-scope toc-output",
+      "aria-pressed": "false",
+      title: SCOPE_TITLE,
+      onclick: () => {
+        output = !output;
+        opts.onClear?.();
+        apply();
+      },
+    },
+    "tool output",
+    extra,
+  );
+  const wider = h("span", { class: "toc-extra" });
+  const widen = h(
+    "button",
+    {
+      type: "button",
+      class: "toc-scope toc-widen",
+      "aria-pressed": "false",
+      title: WIDEN_TITLE,
+      onclick: () => setDetail("all"),
+    },
+    "replies & tools",
+    wider,
+  );
+  const status = h("div", { class: "toc-status", hidden: true }, count, widen, opts.index ? scope : null);
+
+  const drawFound = (row: Row, turn: number, hits: SearchHit[]) => {
+    const shown = opened.has(turn) ? hits : hits.slice(0, SNIPPETS_PER_TURN);
+    const rest = hits.length - shown.length;
+    const more =
+      rest > 0
+        ? h(
+            "li",
+            { class: "toc-more" },
+            h(
+              "button",
+              {
+                type: "button",
+                onclick: () => {
+                  opened.add(turn);
+                  drawFound(row, turn, hits);
+                },
+              },
+              `+${rest} more in this turn`,
+            ),
+          )
+        : null;
+    row.found.replaceChildren(...shown.map((hit) => snippetRow(hit, tokens, (count) => onJump(hit.doc.id, { ids: [hit.doc.id], tokens, reveal: true, count }))));
+    if (more) row.found.append(more);
+    row.found.hidden = !hits.length;
+  };
+
+  // A turn stays when its own label or any of its items matches, or, with an index, when any
+  // of its entries holds every word. Each label is matched on its own, so the words that made
+  // a row appear are the words highlighted in it; an entry that matched on text its label
+  // doesn't show gets a snippet row instead. With detail "prompts", only the prompt counts:
+  // its label and its text. What the rest would add is offered, not shown.
   const apply = () => {
+    const prompts = detail === "prompts";
+    const key = tokens.length ? `${detail}:${output}:${tokens.join(" ")}` : "";
+    const redraw = key !== drawn;
+    if (redraw) opened.clear();
+    drawn = key;
+    const byTurn = new Map<number, SearchHit[]>();
+    if (tokens.length && opts.index) {
+      for (const hit of searchIndex(docs(), tokens, output)) {
+        const list = byTurn.get(hit.doc.turn) ?? [];
+        list.push(hit);
+        byTurn.set(hit.doc.turn, list);
+      }
+    }
     let shown = 0;
-    for (const row of rows.values()) {
-      let match = !tokens.length;
+    let entries = 0;
+    let rest = 0;
+    for (const [turn, row] of rows) {
       const own = tokens.length > 0 && matchesAll(row.own.folded, tokens);
       paint(row.own, own ? tokens : []);
+      // Entries a highlighted label already explains don't need a snippet too.
+      const explained = new Set<string>();
+      if (own) explained.add(promptId(turn));
+      let items = false;
       for (const item of row.items) {
-        const hit = tokens.length > 0 && matchesAll(item.label.folded, tokens);
+        const matched = tokens.length > 0 && matchesAll(item.label.folded, tokens);
+        const hit = matched && !prompts;
+        items ||= matched;
         paint(item.label, hit ? tokens : []);
-        // Without a filter, sub-items follow the detail setting; with one, matching items show.
-        item.el.hidden = tokens.length ? !hit : detail === "prompts";
-        match ||= hit;
+        // Sub-items follow the detail setting; with a query, the matching ones show.
+        item.el.hidden = prompts || (tokens.length > 0 && !hit);
+        if (hit) for (const id of item.ids) explained.add(id);
       }
-      match ||= own;
+      const all = byTurn.get(turn) ?? [];
+      const hits = prompts ? all.filter((hit) => hit.doc.id === promptId(turn)) : all;
+      entries += hits.length;
+      const match = !tokens.length || own || hits.length > 0 || (!prompts && items);
+      // What "all" would add to this view: a turn only its replies and tools match.
+      if (prompts && !match && (items || all.length > 0)) rest++;
+      if (redraw) drawFound(row, turn, hits.filter((hit) => !explained.has(hit.doc.id)));
       row.el.hidden = !match;
       if (match) shown++;
     }
     empty.hidden = shown > 0;
+    status.hidden = !tokens.length;
+    if (tokens.length) {
+      count.textContent = plural(shown, "turn");
+      count.title = opts.index ? `${plural(entries, "entry", "entries")} hold every word` : "";
+      wider.textContent = rest ? ` +${rest}` : "";
+      widen.title = rest ? `${plural(rest, "more turn")} ${rest === 1 ? "matches" : "match"} in replies and tools: search everything` : WIDEN_TITLE;
+      widen.hidden = !prompts;
+      const more = opts.index && !output && !prompts ? outputOnlyTurns(docs(), tokens, new Set([...rows].filter(([, r]) => !r.el.hidden).map(([t]) => t))) : 0;
+      extra.textContent = more ? ` +${more}` : "";
+      scope.title = more ? `${plural(more, "more turn")} ${more === 1 ? "matches" : "match"} in tool output: command output, file contents, subagent results` : SCOPE_TITLE;
+      scope.setAttribute("aria-pressed", String(output));
+      // Brief and minimal views keep no tool output: nothing to switch on.
+      hasOutput ??= docs().some((d) => d.fields.some((f) => f.output));
+      // Tool output is one step past "all": offered once replies and tools are searched.
+      scope.hidden = prompts || !hasOutput;
+    }
     for (const b of seg.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.detail === detail));
+    search.placeholder = `${opts.index ? "Search" : "Filter"}${prompts ? " prompts" : ""}…`;
+    search.setAttribute("aria-label", prompts ? `${opts.index ? "Search" : "Filter"} the prompts` : opts.index ? "Search the session" : "Filter the outline");
+  };
+
+  const setDetail = (d: TocDetail) => {
+    detail = d;
+    opts.onDetail(d);
+    opts.onClear?.();
+    apply();
   };
 
   const seg = h(
@@ -133,17 +317,16 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
         {
           type: "button",
           "data-detail": d,
-          onclick: () => {
-            detail = d;
-            opts.onDetail(d);
-            apply();
-          },
+          onclick: () => setDetail(d),
         },
         d,
       ),
     ),
   );
-  const search = h("input", { type: "search", class: "toc-search", placeholder: "Filter…", "aria-label": "Filter the outline", spellcheck: "false", autocomplete: "off" });
+  // Its placeholder and label follow the detail setting (see apply).
+  const search = h("input", { type: "search", class: "toc-search", spellcheck: "false", autocomplete: "off" });
+  // Folding the whole session takes a moment on a big one: do it before the first keystroke.
+  search.addEventListener("focus", () => void docs(), { once: true });
   // Typing is coalesced to one pass per frame: the pass is cheap, but marks are DOM writes.
   let frame = 0;
   search.addEventListener("input", () => {
@@ -187,6 +370,6 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
   };
 
   const prompts = turns.filter((t) => t.ordinal).length;
-  const el = h("div", { class: "toc" }, h("div", { class: "toc-tools" }, search, seg), scroller, h("div", { class: "toc-foot" }, `${plural(prompts, "prompt")} · `, h("kbd", {}, "j"), "/", h("kbd", {}, "k"), " to step"));
+  const el = h("div", { class: "toc" }, h("div", { class: "toc-tools" }, search, seg), status, scroller, h("div", { class: "toc-foot" }, `${plural(prompts, "prompt")} · `, h("kbd", {}, "j"), "/", h("kbd", {}, "k"), " to step"));
   return { el, setActive, focusSearch: () => search.focus() };
 }

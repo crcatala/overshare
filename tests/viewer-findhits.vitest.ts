@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** Outlining a clicked filter result's words in the transcript. */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { clearHits, pulseHits, showHits } from "../viewer/src/findhits.ts";
+import { clearHits, pulseHits, refreshHits, showHits } from "../viewer/src/findhits.ts";
 import { h } from "../viewer/src/el.ts";
 
 const entry = (id: string, ...body: (Node | string)[]) => h("div", { class: "entry", id }, h("div", { class: "gut", "aria-hidden": "true" }, "tool"), h("div", { class: "body" }, ...body));
@@ -139,5 +139,76 @@ describe("pulseHits", () => {
     expect(root.querySelector(".find-hit.is-new")).toBeNull();
     pulseHits();
     expect(root.querySelectorAll(".find-hit.is-new")).toHaveLength(2);
+  });
+});
+
+describe("revealing collapsed text", () => {
+  /** A tool entry like the transcript's: a summary button, a preview, and a full view built on open. */
+  const collapsed = (id: string, summary: string, previewText: string, fullText: string) => {
+    const full = h("div", { class: "tfull", hidden: true });
+    const prev = h("div", { class: "tprev" }, h("pre", {}, previewText));
+    const button = h("button", { type: "button", class: "tline", "aria-expanded": "false" }, summary);
+    button.addEventListener("click", () => {
+      const open = button.getAttribute("aria-expanded") !== "true";
+      if (open && !full.childNodes.length) full.append(h("pre", {}, fullText));
+      button.setAttribute("aria-expanded", String(open));
+      full.hidden = !open;
+      prev.hidden = open;
+    });
+    return entry(id, button, prev, full);
+  };
+  // What the viewer does: a click that opens or closes an entry refreshes the outlines.
+  const follow = (e: Event) => {
+    if ((e.target as Element).closest("button.tline")) refreshHits();
+  };
+  beforeEach(() => root.addEventListener("click", follow));
+
+  it("opens the entry when a word is only in its collapsed output, and outlines it there", () => {
+    root.append(collapsed("t", "npm test", "3 passed", "3 passed\n1 failed: ECONNREFUSED"));
+    showHits(["t"], ["econnrefused"], { reveal: true });
+    expect(root.querySelector("#t .tline")!.getAttribute("aria-expanded")).toBe("true");
+    expect(hits()).toEqual(["ECONNREFUSED"]);
+    expect(root.querySelector("#t .tfull .find-hit")).not.toBeNull();
+  });
+
+  it("leaves the entry closed when every word is already in view", () => {
+    root.append(collapsed("t", "npm test", "3 passed", "3 passed\nmore"));
+    showHits(["t"], ["passed"], { reveal: true });
+    expect(root.querySelector("#t .tline")!.getAttribute("aria-expanded")).toBe("false");
+    expect(hits()).toEqual(["passed"]);
+  });
+
+  it("opens the entry when it shows fewer hits than it holds, though every word is in view", () => {
+    // A written file: the path shows the word, the collapsed content holds it again.
+    root.append(collapsed("w", "src/currency.ts", "12 lines", "const currency = 'USD';\nexport { currency };"));
+    showHits(["w"], ["currency"], { reveal: true, count: 3 });
+    expect(root.querySelector("#w .tline")!.getAttribute("aria-expanded")).toBe("true");
+    expect(hits()).toEqual(["currency", "currency", "currency"]);
+  });
+
+  it("opens only when asked", () => {
+    root.append(collapsed("t", "npm test", "3 passed", "ECONNREFUSED"));
+    showHits(["t"], ["econnrefused"]);
+    expect(root.querySelector("#t .tline")!.getAttribute("aria-expanded")).toBe("false");
+    expect(hits()).toEqual([]);
+  });
+
+  it("moves the outlines into the full view when the reader opens the entry, and back when closed", () => {
+    root.append(collapsed("t", "npm test", "hook ok", "hook ok\nhook again"));
+    showHits(["t"], ["hook"]);
+    expect(hits()).toEqual(["hook"]);
+    root.querySelector<HTMLElement>("#t .tline")!.click();
+    expect(hits()).toEqual(["hook", "hook"]);
+    expect(root.querySelector("#t .tprev .find-hit")).toBeNull();
+    root.querySelector<HTMLElement>("#t .tline")!.click();
+    expect(hits()).toEqual(["hook"]);
+  });
+
+  it("does nothing on open once the outlines are cleared", () => {
+    root.append(collapsed("t", "npm test", "hook ok", "hook ok"));
+    showHits(["t"], ["hook"]);
+    clearHits();
+    root.querySelector<HTMLElement>("#t .tline")!.click();
+    expect(hits()).toEqual([]);
   });
 });

@@ -5,9 +5,14 @@ import type { TurnInfo } from "../viewer/src/transcript.ts";
 
 (globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
 const { renderToc } = await import("../viewer/src/toc.ts");
+const { fold } = await import("../viewer/src/filter.ts");
+type SearchDoc = import("../viewer/src/search.ts").SearchDoc;
 
-/** The detail setting lives with the viewer's settings; a rail under test keeps it in a variable. */
-const opts = (onClear = () => {}) => ({ detail: "prompts" as const, onDetail: () => {}, onClear });
+/**
+ * The detail setting lives with the viewer's settings; a rail under test keeps it in a variable.
+ * "all" by default: it searches everything, which is what most of these tests are about.
+ */
+const opts = (onClear = () => {}, detail: "prompts" | "all" = "all") => ({ detail, onDetail: () => {}, onClear });
 
 const turn = (index: number, label: string, items: TurnInfo["items"] = []): TurnInfo => ({
   index,
@@ -191,7 +196,8 @@ describe("rail filter", () => {
     await type("");
     expect(hits()).toEqual([]);
     expect(visible()).toHaveLength(3);
-    expect([...toc.el.querySelectorAll<HTMLElement>(".toc-item")].every((i) => i.hidden)).toBe(true);
+    // With detail "all", every item shows again.
+    expect([...toc.el.querySelectorAll<HTMLElement>(".toc-item")].every((i) => !i.hidden)).toBe(true);
   });
 
   it("clears on Escape without waiting for a frame", async () => {
@@ -208,6 +214,16 @@ describe("rail filter", () => {
     expect(hits()).toEqual([]);
   });
 
+  it("shows only the stretch around the hit in a long label", async () => {
+    const long = renderToc([turn(0, `/implement ${"spec text ".repeat(12)}the needle ${"more text ".repeat(12)}`)], () => {}, opts());
+    document.body.append(long.el);
+    const box = long.el.querySelector<HTMLInputElement>(".toc-search")!;
+    box.value = "needle";
+    box.dispatchEvent(new Event("input"));
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    expect(long.el.querySelector(".toc-label")!.textContent).toBe("…spec text the needle more text more…");
+  });
+
   it("renders labels as text, never as markup", async () => {
     const evil = renderToc([turn(0, "<img src=x onerror=alert(1)> payload")], () => {}, opts());
     document.body.append(evil.el);
@@ -216,7 +232,248 @@ describe("rail filter", () => {
     box.dispatchEvent(new Event("input"));
     await new Promise((r) => requestAnimationFrame(() => r(undefined)));
     expect(evil.el.querySelector("img")).toBeNull();
-    expect(evil.el.querySelector(".toc-label")!.textContent).toBe("<img src=x onerror=alert(1)> payload");
+    // A long label shows only the stretch around the hit, still as text.
+    expect(evil.el.querySelector(".toc-label")!.textContent).toBe("…payload");
+    expect(evil.el.querySelector(".toc-link")!.getAttribute("title")).toBe("<img src=x onerror=alert(1)> payload");
     expect([...evil.el.querySelectorAll(".toc-hit")].map((m) => m.textContent)).toEqual(["payload"]);
   });
 });
+
+describe("full-text search", () => {
+  const doc = (turn: number, id: string, fields: { source: string; text: string; output?: boolean }[]): SearchDoc => {
+    const folded = fields.map((f) => ({ ...f, folded: fold(f.text) }));
+    return { turn, id, fields: folded, inputs: folded.filter((f) => !f.output).map((f) => f.folded).join(" "), all: folded.map((f) => f.folded).join(" ") };
+  };
+  const index: SearchDoc[] = [
+    doc(0, "turn-0-prompt", [{ source: "prompt", text: "Fix the pre-commit hook" }]),
+    doc(0, "a", [{ source: "reply", text: "The hook runs prettier twice, so the second run rewrites the lockfile" }]),
+    doc(0, "b", [
+      { source: "Bash", text: "git commit -m wip" },
+      { source: "Bash output", text: "husky - pre-commit hook exited with code 1 ECONNREFUSED", output: true },
+    ]),
+    doc(1, "c", [{ source: "reply", text: "Done: the search box filters rows" }]),
+    ...[1, 2, 3, 4, 5].map((n) => doc(2, `d${n}`, [{ source: "thinking", text: `step ${n} of the staging deploy` }])),
+  ];
+  let built: number;
+  let rail: ReturnType<typeof renderToc>;
+  const box = () => rail.el.querySelector<HTMLInputElement>(".toc-search")!;
+  const snippets = (row?: number) => [...(row === undefined ? rail.el : rowsOf()[row]!).querySelectorAll<HTMLElement>(".toc-found:not([hidden]) .toc-k-found")].map((li) => li.textContent);
+  const rowsOf = () => [...rail.el.querySelectorAll<HTMLElement>(".toc-turn")];
+  const shownRows = () => rowsOf().filter((r) => !r.hidden).map((r) => r.querySelector(".toc-label")!.textContent);
+  const scope = () => rail.el.querySelector<HTMLButtonElement>(".toc-output")!;
+  async function find(value: string) {
+    box().value = value;
+    box().dispatchEvent(new Event("input"));
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+  }
+
+  beforeEach(() => {
+    built = 0;
+    rail = renderToc(turns, (id, hit) => jumps.push({ id, hit }), {
+      ...opts(() => cleared++),
+      index: () => {
+        built++;
+        return index;
+      },
+    });
+    document.body.append(rail.el);
+  });
+
+  it("builds the index once, on first use", async () => {
+    expect(built).toBe(0);
+    box().dispatchEvent(new Event("focus"));
+    await find("lockfile");
+    await find("lockfile rewrites");
+    expect(built).toBe(1);
+  });
+
+  it("finds a turn by words only its reply body holds, with a snippet saying where", async () => {
+    await find("lockfile");
+    expect(shownRows()).toEqual(["Fix the pre-commit hook"]);
+    expect(snippets()).toEqual(["reply …rewrites the lockfile"]);
+    const marks = [...rail.el.querySelectorAll(".toc-found .toc-hit")].map((m) => m.textContent);
+    expect(marks).toEqual(["lockfile"]);
+  });
+
+  it("leaves out a snippet for an entry whose label already shows the words", async () => {
+    await find("search box");
+    expect(shownRows()).toEqual(["Add a search box"]);
+    expect(snippets()).toEqual([]);
+    await find("prettier");
+    expect(snippets()).toEqual([]);
+  });
+
+  it("jumps to the entry, asking for it to be opened if the words are hidden", async () => {
+    await find("git wip");
+    rail.el.querySelector<HTMLElement>(".toc-k-found .toc-link")!.click();
+    expect(jumps.at(-1)).toEqual({ id: "b", hit: { ids: ["b"], tokens: ["git", "wip"], reveal: true, count: 2 } });
+  });
+
+  it("searches tool output only when switched on, and says how many turns that would add", async () => {
+    await find("econnrefused");
+    expect(shownRows()).toEqual([]);
+    expect(scope().getAttribute("aria-pressed")).toBe("false");
+    expect(scope().textContent).toBe("tool output +1");
+    expect(scope().title).toMatch(/^1 more turn matches in tool output/);
+    scope().click();
+    expect(scope().getAttribute("aria-pressed")).toBe("true");
+    expect(shownRows()).toEqual(["Fix the pre-commit hook"]);
+    expect(snippets()).toEqual(["Bash output …with code 1 ECONNREFUSED"]);
+    expect(scope().textContent).toBe("tool output");
+  });
+
+  it("offers no tool output switch for a view that holds no tool output", async () => {
+    const brief = renderToc(turns, () => {}, { ...opts(), index: () => index.filter((d) => d.id !== "b") });
+    document.body.append(brief.el);
+    const input = brief.el.querySelector<HTMLInputElement>(".toc-search")!;
+    input.value = "hook";
+    input.dispatchEvent(new Event("input"));
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    expect(brief.el.querySelector<HTMLElement>(".toc-output")!.hidden).toBe(true);
+    await find("hook");
+    expect(scope().hidden).toBe(false);
+  });
+
+  it("shows far-apart hits in a long entry as separate lines of one link, and counts the rest", async () => {
+    const long = ["alpha", "beta", "gamma", "delta", "epsilon"].map((w) => `${"filler words ".repeat(8)}needle ${w}`).join(" ");
+    const big = renderToc(turns, (id, hit) => jumps.push({ id, hit }), { ...opts(), index: () => [doc(2, "big", [{ source: "reply", text: long }])] });
+    document.body.append(big.el);
+    const input = big.el.querySelector<HTMLInputElement>(".toc-search")!;
+    input.value = "needle";
+    input.dispatchEvent(new Event("input"));
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    const row = big.el.querySelector<HTMLElement>(".toc-found .toc-k-found")!;
+    expect(row.querySelectorAll(".toc-link")).toHaveLength(1);
+    expect(row.querySelector(".toc-x.is-multi")).not.toBeNull();
+    const lines = [...row.querySelectorAll(".toc-xline")];
+    expect(lines).toHaveLength(2);
+    expect(lines.every((l) => l.querySelector(".toc-hit")?.textContent === "needle")).toBe(true);
+    expect(row.querySelector(".toc-xmore")!.textContent).toBe("+3 more matches");
+    expect(row.textContent!.length).toBeLessThan(long.length / 2);
+    row.querySelector<HTMLElement>(".toc-link")!.click();
+    expect(jumps.at(-1)).toEqual({ id: "big", hit: { ids: ["big"], tokens: ["needle"], reveal: true, count: 5 } });
+  });
+
+  it("shows a few snippets per turn, then opens the rest on request", async () => {
+    await find("staging deploy");
+    expect(snippets(2)).toHaveLength(3);
+    const more = rowsOf()[2]!.querySelector<HTMLButtonElement>(".toc-more button")!;
+    expect(more.textContent).toBe("+2 more in this turn");
+    more.click();
+    expect(snippets(2)).toHaveLength(5);
+    expect(rowsOf()[2]!.querySelector(".toc-more")).toBeNull();
+  });
+
+  it("counts turns and entries while searching, and hides the count otherwise", async () => {
+    const status = rail.el.querySelector<HTMLElement>(".toc-status")!;
+    expect(status.hidden).toBe(true);
+    await find("hook");
+    expect(status.hidden).toBe(false);
+    const count = rail.el.querySelector<HTMLElement>(".toc-count")!;
+    expect(count.textContent).toBe("1 turn");
+    expect(count.title).toBe("2 entries hold every word");
+    await find("");
+    expect(status.hidden).toBe(true);
+    expect(snippets()).toEqual([]);
+  });
+
+  it("says Search, not Filter, when it searches the whole session", () => {
+    expect(box().placeholder).toBe("Search…");
+    expect(search().placeholder).toBe("Filter…");
+  });
+});
+
+describe("the detail setting as the search's scope", () => {
+  const doc = (turn: number, id: string, source: string, text: string, output?: boolean): SearchDoc => {
+    const f = { source, text, folded: fold(text), ...(output ? { output: true } : {}) };
+    return { turn, id, fields: [f], inputs: output ? "" : f.folded, all: f.folded };
+  };
+  const index: SearchDoc[] = [
+    doc(0, "turn-0-prompt", "prompt", "Fix the pre-commit hook. It fails when prettier runs twice on the lockfile"),
+    doc(0, "a", "reply", "The hook runs prettier twice, so the second run rewrites the lockfile"),
+    doc(1, "c", "reply", "Done: the search box filters rows and the lockfile is untouched"),
+    doc(2, "d", "Bash output", "lockfile unchanged", true),
+  ];
+  let details: string[];
+  let rail: ReturnType<typeof renderToc>;
+  const box = () => rail.el.querySelector<HTMLInputElement>(".toc-search")!;
+  const shownRows = () => [...rail.el.querySelectorAll<HTMLElement>(".toc-turn")].filter((r) => !r.hidden).map((r) => r.querySelector(".toc-label")!.textContent);
+  const shownItems = () => [...rail.el.querySelectorAll<HTMLElement>(".toc-item")].filter((i) => !i.hidden && !i.closest("[hidden]"));
+  const widen = () => rail.el.querySelector<HTMLButtonElement>(".toc-widen")!;
+  const output = () => rail.el.querySelector<HTMLButtonElement>(".toc-output")!;
+  const seg = (d: string) => rail.el.querySelector<HTMLButtonElement>(`.toc-seg [data-detail="${d}"]`)!;
+  async function find(value: string) {
+    box().value = value;
+    box().dispatchEvent(new Event("input"));
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+  }
+
+  beforeEach(() => {
+    details = [];
+    rail = renderToc(turns, () => {}, { detail: "prompts", onDetail: (d) => details.push(d), onClear: () => {}, index: () => index });
+    document.body.append(rail.el);
+  });
+
+  it("searches only the prompts with \"prompts\", their full text included", async () => {
+    expect(box().placeholder).toBe("Search prompts…");
+    // "fails" is in the prompt's text, not its label.
+    await find("fails");
+    expect(shownRows()).toEqual(["Fix the pre-commit hook"]);
+    expect(shownItems().map((i) => i.textContent)).toEqual(["prompt …hook. It fails when prettier…"]);
+    // "filters rows" is only in a reply's label, and "untouched" in a reply's text.
+    await find("filters rows");
+    expect(shownRows()).toEqual([]);
+    await find("untouched");
+    expect(shownRows()).toEqual([]);
+  });
+
+  it("shows no reply or tool rows, even ones whose labels match", async () => {
+    await find("prettier");
+    expect(shownRows()).toEqual(["Fix the pre-commit hook"]);
+    expect(shownItems().every((i) => i.classList.contains("toc-k-found") && i.textContent!.startsWith("prompt"))).toBe(true);
+  });
+
+  it("says how many more turns replies and tools would add, and switches to \"all\" on click", async () => {
+    await find("lockfile");
+    expect(shownRows()).toEqual(["Fix the pre-commit hook"]);
+    expect(widen().hidden).toBe(false);
+    expect(widen().textContent).toBe("replies & tools +1");
+    // Tool output is a step further: not offered until replies and tools are searched.
+    expect(output().hidden).toBe(true);
+    widen().click();
+    expect(details).toEqual(["all"]);
+    expect(seg("all").getAttribute("aria-pressed")).toBe("true");
+    expect(box().placeholder).toBe("Search…");
+    expect(shownRows()).toEqual(["Fix the pre-commit hook", "Add a search box"]);
+    expect(widen().hidden).toBe(true);
+    expect(output().hidden).toBe(false);
+    expect(output().textContent).toBe("tool output +1");
+  });
+
+  it("narrows back to the prompts when switched to \"prompts\" mid-search", async () => {
+    seg("all").click();
+    await find("lockfile");
+    expect(shownRows()).toHaveLength(2);
+    seg("prompts").click();
+    expect(shownRows()).toEqual(["Fix the pre-commit hook"]);
+    expect(details).toEqual(["all", "prompts"]);
+  });
+
+  it("offers nothing to add when replies and tools hold no more matches", async () => {
+    await find("fails");
+    expect(widen().textContent).toBe("replies & tools");
+  });
+
+  it("scopes a label-only rail the same way", async () => {
+    const plain = renderToc(turns, () => {}, opts(() => {}, "prompts"));
+    document.body.append(plain.el);
+    const input = plain.el.querySelector<HTMLInputElement>(".toc-search")!;
+    expect(input.placeholder).toBe("Filter prompts…");
+    input.value = "prettier";
+    input.dispatchEvent(new Event("input"));
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    expect([...plain.el.querySelectorAll<HTMLElement>(".toc-turn")].every((r) => r.hidden)).toBe(true);
+    expect(plain.el.querySelector(".toc-widen")!.textContent).toBe("replies & tools +1");
+  });
+});
+

@@ -341,3 +341,12 @@ describe("header mode switch", () => {
     expect(el.querySelector<HTMLButtonElement>(".modes button")?.title).toBe("Shared as brief; full detail was not published");
   });
 });
+
+describe("outline labels", () => {
+  it("caps a command's label like a prompt's: its arguments can be a whole document", () => {
+    const args = "spec ".repeat(1000);
+    const { turns } = renderTranscript(session([{ index: 0, user: { text: `/implement ${args}`, command: { name: "/implement", args } }, steps: [] }]));
+    expect(turns[0]!.label.length).toBeLessThanOrEqual(140);
+    expect(turns[0]!.label.startsWith("/implement spec spec")).toBe(true);
+  });
+});

@@ -23,9 +23,10 @@ let current: { el: HTMLElement; stop: () => void } | undefined;
 
 /**
  * Beacon on `target`, just scrolled to with `block: "start"`; a turn section lights its
- * first entry (normally the prompt).
+ * first entry (normally the prompt). `onShow` runs when the beacon appears, for things that
+ * should pulse with it.
  */
-export function beacon(target: HTMLElement): void {
+export function beacon(target: HTMLElement, onShow?: () => void): void {
   current?.stop();
   const box = target.classList.contains("turn") ? (target.querySelector<HTMLElement>(":scope > .entry") ?? target) : target;
   const host = box.closest<HTMLElement>(".turn");
@@ -53,6 +54,7 @@ export function beacon(target: HTMLElement): void {
     window.removeEventListener("scroll", onScroll);
     host.append(el);
     place();
+    onShow?.();
     timer = window.setTimeout(stop, LIFE_MS);
   };
   const onScroll = () => {

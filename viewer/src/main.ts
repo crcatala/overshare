@@ -9,6 +9,7 @@ import { plural } from "../../src/format.ts";
 import { availableModes, projectSession } from "../../src/modes.ts";
 import { SCHEMA_VERSION, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
 import { beacon } from "./beacon.ts";
+import { clearHits, pulseHits, showHits } from "./findhits.ts";
 import { relayoutTables, releaseTables, setTableStyle } from "./asciitable.ts";
 import { h, hideTooltip } from "./dom.ts";
 import { attribution } from "./attribution.ts";
@@ -213,6 +214,7 @@ function render(opts: { keepPlace?: boolean } = {}): void {
   closeHoverCard();
   hideTooltip();
   releaseTables();
+  clearHits();
   const variant = currentVariant();
   applyVariant(variant);
   const view = currentView();
@@ -227,9 +229,19 @@ function render(opts: { keepPlace?: boolean } = {}): void {
     if (!target) return;
     target.scrollIntoView({ behavior: smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches ? "smooth" : "auto", block: "start" });
     if (!docked()) toggleRail("left", false);
-    beacon(target);
+    beacon(target, pulseHits);
   };
-  const toc = renderToc(turns, (id) => jump(id));
+  // Clicking a filter result outlines the words it matched, wherever they sit in the entry;
+  // they stay until the filter changes or another result is clicked. Other jumps leave them.
+  const toc = renderToc(
+    turns,
+    (id, hit) => {
+      if (hit) showHits(hit.ids, hit.tokens);
+      else clearHits();
+      jump(id);
+    },
+    clearHits,
+  );
   const tokens = renderTokenRail(
     session,
     turns,

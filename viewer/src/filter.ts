@@ -9,6 +9,9 @@
 /** Anything that is not a letter or digit separates words: spaces, hyphens, slashes, dots, ×, … */
 const SEPARATORS = /[^\p{L}\p{N}]+/gu;
 
+/** Shorter words still filter, but highlighting a lone letter would light up half the text. */
+export const MIN_HIGHLIGHT = 2;
+
 /** Lowercased, with each run of separators collapsed to one space. Fold labels once, not per keystroke. */
 export function fold(text: string): string {
   return text.toLowerCase().replace(SEPARATORS, " ").trim();

@@ -6,14 +6,11 @@
  */
 import { plural } from "../../src/format.ts";
 import { append, h } from "./dom.ts";
-import { fold, hitRanges, matchesAll, queryTokens, splitByRanges } from "./filter.ts";
+import { fold, hitRanges, MIN_HIGHLIGHT, matchesAll, queryTokens, splitByRanges } from "./filter.ts";
 import { load, save } from "./prefs.ts";
 import type { TurnInfo } from "./transcript.ts";
 
 type Detail = "prompts" | "all";
-
-/** Shorter words still filter, but a lone letter would light up half the rail. */
-const MIN_HIGHLIGHT = 2;
 
 /** A label the filter can match and highlight: the rail's text for a prompt, reply or tool run. */
 interface Label {
@@ -36,51 +33,64 @@ function paint(label: Label, tokens: readonly string[]): void {
   label.el.replaceChildren(ranges.length ? h("span", {}, ...pieces) : label.text);
 }
 
+/** What a click on a matching row hands the viewer: the words to outline, and the transcript ids to look for them in. */
+export interface TocHit {
+  ids: string[];
+  tokens: string[];
+}
+
 interface Row {
   el: HTMLElement;
   own: Label;
   items: { el: HTMLElement; label: Label }[];
 }
 
-export function renderToc(turns: TurnInfo[], onJump: (id: string) => void) {
+/**
+ * `onJump` also gets the hit when the row was clicked while the filter matched it, so the
+ * viewer can outline the words in the transcript; `onClear` fires when the filter changes.
+ */
+export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) => void, onClear: () => void = () => {}) {
   let detail: Detail = load("toc-detail") === "all" ? "all" : "prompts";
   let tokens: string[] = [];
   const rows = new Map<number, Row>();
+  const jump = (label: Label, id: string, ids = [id]) => onJump(id, tokens.length && matchesAll(label.folded, tokens) ? { ids, tokens } : undefined);
 
   const list = h(
     "ol",
     { class: "toc-list" },
     ...turns.map((t) => {
       const meta = [t.time, t.tools ? plural(t.tools, "tool") : ""].filter(Boolean).join(" · ");
-      const ownLabel = h("span", { class: "toc-label" }, t.label);
+      const ownEl = h("span", { class: "toc-label" }, t.label);
+      const own = labelOf(ownEl, t.label);
       const items: Row["items"] = [];
       const el = h(
         "li",
         { class: `toc-turn${t.ordinal ? "" : " is-start"}${t.command ? " is-cmd" : ""}`, "data-turn": String(t.index) },
         h(
           "button",
-          { type: "button", class: "toc-link", onclick: () => onJump(t.id), title: t.label },
+          { type: "button", class: "toc-link", onclick: () => jump(own, t.id), title: t.label },
           h("span", { class: "toc-n" }, t.ordinal ? String(t.ordinal) : "·"),
-          h("span", { class: "toc-text" }, ownLabel, meta || t.errors ? h("span", { class: "toc-meta" }, meta, t.errors ? h("span", { class: "toc-err" }, ` · ${plural(t.errors, "error")}`) : null) : null),
+          h("span", { class: "toc-text" }, ownEl, meta || t.errors ? h("span", { class: "toc-meta" }, meta, t.errors ? h("span", { class: "toc-err" }, ` · ${plural(t.errors, "error")}`) : null) : null),
         ),
         t.items.length
           ? h(
               "ol",
               { class: "toc-sub" },
               ...t.items.map((i) => {
-                const label = h("span", { class: "toc-label" }, i.label);
+                const labelEl = h("span", { class: "toc-label" }, i.label);
+                const label = labelOf(labelEl, i.label);
                 const item = h(
                   "li",
                   { class: `toc-item toc-k-${i.kind}${i.error ? " is-error" : ""}` },
-                  h("button", { type: "button", class: "toc-link", onclick: () => onJump(i.id), title: i.label }, h("span", { class: "toc-glyph", "aria-hidden": "true" }), label),
+                  h("button", { type: "button", class: "toc-link", onclick: () => jump(label, i.id, i.ids), title: i.label }, h("span", { class: "toc-glyph", "aria-hidden": "true" }), labelEl),
                 );
-                items.push({ el: item, label: labelOf(label, i.label) });
+                items.push({ el: item, label });
                 return item;
               }),
             )
           : null,
       );
-      rows.set(t.index, { el, own: labelOf(ownLabel, t.label), items });
+      rows.set(t.index, { el, own, items });
       return el;
     }),
   );
@@ -133,6 +143,7 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string) => void) {
   let frame = 0;
   search.addEventListener("input", () => {
     tokens = queryTokens(search.value);
+    onClear();
     frame ||= requestAnimationFrame(() => {
       frame = 0;
       apply();
@@ -144,6 +155,7 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string) => void) {
       frame = 0;
       search.value = "";
       tokens = [];
+      onClear();
       apply();
       search.blur();
     }

@@ -29,6 +29,8 @@ const turns = [
 ];
 
 let toc: ReturnType<typeof renderToc>;
+let jumps: { id: string; hit?: { ids: string[]; tokens: string[] } }[];
+let cleared: number;
 const search = () => toc.el.querySelector<HTMLInputElement>(".toc-search")!;
 const rows = () => [...toc.el.querySelectorAll<HTMLElement>(".toc-turn")];
 const visible = () => rows().filter((r) => !r.hidden).map((r) => r.querySelector(".toc-label")!.textContent);
@@ -42,11 +44,63 @@ async function type(value: string) {
 }
 
 beforeEach(() => {
-  toc = renderToc(turns, () => {});
+  jumps = [];
+  cleared = 0;
+  toc = renderToc(
+    turns,
+    (id, hit) => jumps.push({ id, hit }),
+    () => cleared++,
+  );
   document.body.append(toc.el);
 });
 afterEach(() => {
   document.body.replaceChildren();
+});
+
+describe("clicking a result", () => {
+  const link = (row: number, item?: number) => (item === undefined ? rows()[row]!.querySelector<HTMLElement>(":scope > .toc-link")! : rows()[row]!.querySelectorAll<HTMLElement>(".toc-item .toc-link")[item]!);
+
+  it("hands over the words when the clicked label matched", async () => {
+    await type("Search Box");
+    link(1).click();
+    expect(jumps).toEqual([{ id: "t1", hit: { ids: ["t1"], tokens: ["search", "box"] } }]);
+  });
+
+  it("hands over an item's own id", async () => {
+    await type("prettier");
+    link(0, 0).click();
+    expect(jumps).toEqual([{ id: "a", hit: { ids: ["a"], tokens: ["prettier"] } }]);
+  });
+
+  it("hands over every step of a tool run", async () => {
+    const run = renderToc([turn(0, "Run tools", [{ id: "r1", ids: ["r1", "r2", "r3"], kind: "tools", label: "Bash(git) ×3" }])], (id, hit) => jumps.push({ id, hit }));
+    document.body.append(run.el);
+    const box = run.el.querySelector<HTMLInputElement>(".toc-search")!;
+    box.value = "git";
+    box.dispatchEvent(new Event("input"));
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    run.el.querySelector<HTMLElement>(".toc-item .toc-link")!.click();
+    expect(jumps[0]).toEqual({ id: "r1", hit: { ids: ["r1", "r2", "r3"], tokens: ["git"] } });
+  });
+
+  it("hands over nothing for a row that only matched through its items", async () => {
+    await type("prettier");
+    link(0).click();
+    expect(jumps).toEqual([{ id: "t0", hit: undefined }]);
+  });
+
+  it("hands over nothing without a filter", () => {
+    link(2).click();
+    expect(jumps).toEqual([{ id: "t2", hit: undefined }]);
+  });
+
+  it("tells the viewer when the filter changes or is cleared", async () => {
+    await type("sea");
+    await type("search");
+    expect(cleared).toBe(2);
+    search().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(cleared).toBe(3);
+  });
 });
 
 describe("rail filter", () => {

@@ -15,6 +15,7 @@ import { HARNESS_LABEL, renderHeader, renderMinibar, type Controls } from "./hea
 import { load, save } from "./prefs.ts";
 import { closeMenus, settingsButton, type SettingsOptions } from "./settings.ts";
 import { formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
+import { stepPrompt, wheelMovesPage } from "./nav.ts";
 import { renderToc } from "./toc.ts";
 import { renderTokenRail } from "./tokens.ts";
 import { renderTranscript, type TurnInfo } from "./transcript.ts";
@@ -153,6 +154,8 @@ function currentView(): ShareMode {
 }
 
 let activeTurn: TurnInfo | undefined;
+/** The prompt (index among prompts) the last j/k jump went to; see stepPrompt. Dropped once the reader scrolls themselves. */
+let navCursor: number | undefined;
 
 /** What's at the top of the viewport, so a re-render (variant, view mode) can keep it there. */
 type Anchor = { atTop: true } | { atTop: false; id: string; top: number; turnId?: string };
@@ -280,8 +283,13 @@ function render(opts: { keepPlace?: boolean } = {}): void {
     { signal },
   );
   document.addEventListener("keydown", (e) => onKey(e, turns, jump, toc.focusSearch), { signal });
+  // Scrolling by hand (wheel, touch, scrollbar; keys are handled in onKey) makes the last j/k target stale.
+  const dropCursor = () => (navCursor = undefined);
+  for (const type of ["touchmove", "pointerdown"]) window.addEventListener(type, dropCursor, { passive: true, signal });
+  window.addEventListener("wheel", (e) => wheelMovesPage(e.deltaY, window.scrollY, root.scrollHeight - window.innerHeight) && dropCursor(), { passive: true, signal });
 
   activeTurn = undefined;
+  navCursor = undefined;
   if (anchor) {
     // Tables start at a default width until their observer fires; size them now so
     // the heights above the anchor are final before measuring.
@@ -301,22 +309,27 @@ function render(opts: { keepPlace?: boolean } = {}): void {
 
 function onKey(e: KeyboardEvent, turns: TurnInfo[], jump: (id: string) => void, focusSearch: () => void): void {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key !== "j" && e.key !== "k") navCursor = undefined;
   const el = e.target as HTMLElement | null;
   if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
   const prompts = turns.filter((t) => t.ordinal);
   // Where a jump puts a turn's top; "next"/"previous" are relative to that line.
-  const land = (t: TurnInfo) => parseFloat(getComputedStyle(t.el).scrollMarginTop) || 0;
+  const land = parseFloat(getComputedStyle(prompts[0]?.el ?? document.body).scrollMarginTop) || 0;
+  const step = (dir: 1 | -1) => {
+    const tops = prompts.map((t) => t.el.getBoundingClientRect().top);
+    const atBottom = window.scrollY >= root.scrollHeight - window.innerHeight - 1;
+    const to = stepPrompt(dir, tops, land, atBottom, navCursor);
+    if (to === undefined) return;
+    navCursor = to;
+    jump(prompts[to]!.id);
+  };
   switch (e.key) {
-    case "j": {
-      const next = prompts.find((t) => t.el.getBoundingClientRect().top > land(t) + 8);
-      if (next) jump(next.id);
+    case "j":
+      step(1);
       break;
-    }
-    case "k": {
-      const prev = [...prompts].reverse().find((t) => t.el.getBoundingClientRect().top < land(t) - 8);
-      if (prev) jump(prev.id);
+    case "k":
+      step(-1);
       break;
-    }
     case "[":
       toggleRail("left");
       break;
@@ -408,6 +421,7 @@ async function main(): Promise<void> {
   shared = undefined;
   provenance = undefined;
   activeTurn = undefined;
+  navCursor = undefined;
   applyVariant(currentVariant());
   closeMenus();
   if (!state.source) {

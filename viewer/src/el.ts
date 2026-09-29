@@ -22,3 +22,13 @@ export function append(el: Element, children: Child[]): void {
     el.append(typeof c === "string" || typeof c === "number" ? document.createTextNode(String(c)) : c);
   }
 }
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** An SVG element with attributes (icons are drawn inline; the CSP allows no remote images). */
+export function svg(tag: string, attrs: Record<string, string>, ...children: SVGElement[]): SVGElement {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  el.append(...children);
+  return el;
+}

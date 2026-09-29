@@ -3,16 +3,8 @@
  * attached to <body> with fixed positioning, because the minibar it can open from is
  * transformed and blurred (either would trap a fixed child), and in one variant clipped.
  */
-import { h } from "./el.ts";
+import { h, svg } from "./el.ts";
 import { VARIANTS, type Variant } from "./variants.ts";
-
-const SVG_NS = "http://www.w3.org/2000/svg";
-
-function svg(tag: string, attrs: Record<string, string>): SVGElement {
-  const el = document.createElementNS(SVG_NS, tag);
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-  return el;
-}
 
 /** Two horizontal sliders with their knobs: "adjust how this looks". */
 export function slidersIcon(): SVGElement {

@@ -193,12 +193,21 @@ export function lazyDetails(summary: Node, build: () => Node, opts: { open?: boo
 
 const tooltip = () => document.getElementById("tooltip") as HTMLDivElement;
 
-/** Attach a hover/focus tooltip with plain-text lines. */
-export function withTooltip(el: HTMLElement | SVGElement, lines: () => string[]): void {
+/**
+ * Attach a hover/focus tooltip with plain-text lines (the first is the title). By default
+ * it follows the pointer; `anchor` pins it under the element instead, for explanations.
+ */
+export function withTooltip(el: HTMLElement | SVGElement, lines: () => string[], opts: { anchor?: boolean; className?: string } = {}): void {
   const show = (x: number, y: number) => {
     const tip = tooltip();
+    tip.className = `tooltip${opts.className ? ` ${opts.className}` : ""}`;
     tip.replaceChildren(...lines().map((l, i) => h("div", { class: i === 0 ? "tip-title" : "tip-line" }, l)));
     tip.hidden = false;
+    if (opts.anchor) {
+      const r = el.getBoundingClientRect();
+      x = r.left - 12;
+      y = r.bottom - 6;
+    }
     const pad = 12;
     const { width, height } = tip.getBoundingClientRect();
     const left = Math.min(window.innerWidth - width - 8, Math.max(8, x + pad));
@@ -207,7 +216,7 @@ export function withTooltip(el: HTMLElement | SVGElement, lines: () => string[])
     tip.style.top = `${Math.max(8, top)}px`;
   };
   el.addEventListener("pointerenter", (e) => show((e as PointerEvent).clientX, (e as PointerEvent).clientY));
-  el.addEventListener("pointermove", (e) => show((e as PointerEvent).clientX, (e as PointerEvent).clientY));
+  if (!opts.anchor) el.addEventListener("pointermove", (e) => show((e as PointerEvent).clientX, (e as PointerEvent).clientY));
   el.addEventListener("pointerleave", () => (tooltip().hidden = true));
   el.addEventListener("focus", () => {
     const r = el.getBoundingClientRect();

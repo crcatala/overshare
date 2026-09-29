@@ -1084,11 +1084,29 @@ pre.diff > span {
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
-.chart-note {
-  margin: 6px 0 0;
+/* A chart heading with an explanation on hover/focus: a quiet info icon, no underline. */
+.help {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: help;
+  border-radius: 3px;
+}
+.help svg {
+  flex: none;
   color: var(--faint);
-  font-size: 11px;
-  line-height: 1.4;
+  transition: color 0.15s;
+}
+.help:hover svg,
+.help:focus-visible svg {
+  color: var(--ink-2);
+}
+.tooltip.tip-help {
+  max-width: 264px;
+  padding: 8px 10px;
+}
+.tip-help .tip-line + .tip-line {
+  margin-top: 4px;
 }
 .cols {
   display: flex;

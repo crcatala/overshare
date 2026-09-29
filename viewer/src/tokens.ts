@@ -10,6 +10,7 @@
 import { formatCost, formatTokens, plural } from "../../src/format.ts";
 import { contextTokens, totalTokens, type NormalizedSession, type ResponseUsage, type Usage } from "../../src/schema.ts";
 import { h, withTooltip } from "./dom.ts";
+import { svg } from "./el.ts";
 import type { TurnInfo } from "./transcript.ts";
 
 const SEGMENTS: [keyof Usage, string, string][] = [
@@ -107,6 +108,32 @@ function chart(cols: Column[], scale: Scale, opts: { onPick?: (c: Column) => voi
   return { el, setActive };
 }
 
+const CONTEXT_BY_TURN_HELP = [
+  "Top: the largest prompt sent to the model in each turn (cache read, cache write, new input).",
+  "Bottom: the output the turn produced. Click a bar to jump to its turn.",
+];
+const TURN_HELP = ["One bar per model call in this turn: the prompt it was sent (top) and its output (bottom).", "Every turn uses the same scale, so turns can be compared."];
+
+function infoIcon(): SVGElement {
+  return svg(
+    "svg",
+    { viewBox: "0 0 16 16", width: "12", height: "12", fill: "none", stroke: "currentColor", "stroke-width": "1.4", "stroke-linecap": "round", "aria-hidden": "true" },
+    svg("circle", { cx: "8", cy: "8", r: "6.3" }),
+    svg("path", { d: "M8 7.3v3.9" }),
+    svg("circle", { cx: "8", cy: "4.9", r: "0.5", fill: "currentColor", stroke: "none" }),
+  );
+}
+
+let helpIds = 0;
+
+/** A chart heading whose explanation shows on hover/focus (and is read out as a description). */
+function helpHeading(label: string, help: string[], ...extra: (Node | null)[]): HTMLElement {
+  const id = `chart-help-${++helpIds}`;
+  const target = h("span", { class: "help", tabindex: "0", "aria-describedby": id }, label, infoIcon());
+  withTooltip(target, () => [label, ...help], { anchor: true, className: "tip-help" });
+  return h("h3", {}, target, h("span", { class: "sr-only", id }, help.join(" ")), ...extra);
+}
+
 function dl(rows: [string, string | undefined][]): HTMLElement {
   return h("dl", { class: "kv" }, ...rows.filter(([, v]) => v !== undefined && v !== "").flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v!)]));
 }
@@ -201,9 +228,8 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
       ? h(
           "section",
           { class: "rail-sec" },
-          h("h3", {}, "Context by turn"),
+          helpHeading("Context by turn", CONTEXT_BY_TURN_HELP),
           sessionChart.el,
-          h("p", { class: "chart-note" }, "Largest prompt sent in each turn, and its output below. Click a bar to jump."),
           legend(),
         )
       : null,
@@ -230,9 +256,8 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     const respCols: Column[] = t.responses.map((r, i) => ({ turns: [t.index], context: r.usage, output: r.usage.output, tip: () => responseTip(r, i, n) }));
     const respChart = chart(bucket(respCols, 60), callScale, { label: `Context per model call for ${plural(n, "call")}`, ctxH: 36, outH: 12 });
     turnBox.replaceChildren(
-      h("h3", {}, t.ordinal ? `Turn ${t.ordinal}` : "Start", h("span", { class: "h3-meta" }, plural(n, "model call"))),
+      helpHeading(t.ordinal ? `Turn ${t.ordinal}` : "Start", TURN_HELP, h("span", { class: "h3-meta" }, plural(n, "model call"))),
       respChart.el,
-      h("p", { class: "chart-note" }, "One bar per model call in this turn: the prompt it was sent, and its output. Same scale for every turn."),
       dl([
         ["context", `up to ${formatTokens(peak)}`],
         ["cached", ctxSum ? `${Math.round((u.cacheRead / ctxSum) * 100)}%` : undefined],

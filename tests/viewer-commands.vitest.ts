@@ -20,6 +20,41 @@ describe("commandName", () => {
     ["npx -y prettier --check .", "prettier"],
     ["cat a.txt | grep foo", "cat"],
     ["(cd x && make)", "make"],
+    ["env | sort", "env"],
+    ["sudo", "sudo"],
+    // wrappers with options that take a value
+    ["sudo -u root ls", "ls"],
+    ["nice -n 10 make", "make"],
+    ["timeout 10 npm test", "npm"],
+    ["timeout -s KILL 5 node x.js", "node"],
+    ["xargs -n 1 rm", "rm"],
+    ["time -p ls", "ls"],
+    ["env -u FOO git status", "git"],
+    ["command -v git", "command"],
+    // redirections and assignments
+    ["2>&1 ls", "ls"],
+    ["> out.txt echo hi", "echo"],
+    ["<<EOF cat", "cat"],
+    ["python3 - <<'EOF'\nprint(1)\nEOF", "python3"],
+    ['FOO="a b" git status', "git"],
+    ["FOO=$(date +%s) node run.js", "node"],
+    ["echo hi > out.txt", "echo"],
+    ["ls 2>/dev/null | head", "ls"],
+    // several lines and setup commands
+    ["cd app\nnpm test", "npm"],
+    ["cd app &&\nnpm test", "npm"],
+    ["set -e\ngit status", "git"],
+    ["export A=1; make build", "make"],
+    ["cd app", "cd"],
+    ["cd app | cat", "cd"],
+    // shell syntax
+    ["if [ -f x ]; then ls; fi", "ls"],
+    ["for f in *.ts; do wc -l $f; done", "wc"],
+    ["while read l; do echo $l; done < in", "read"],
+    ["! grep -q x file", "grep"],
+    ["# comment\nls", "ls"],
+    ['"git" status', "git"],
+    ["$(which node) x.js", undefined],
   ])("%s → %s", (command, name) => {
     expect(commandName(command)).toBe(name);
   });
@@ -28,6 +63,8 @@ describe("commandName", () => {
     expect(commandName("")).toBeUndefined();
     expect(commandName("   ")).toBeUndefined();
     expect(commandName("FOO=1")).toBeUndefined();
+    expect(commandName("2>&1")).toBeUndefined();
+    expect(commandName("10")).toBeUndefined();
   });
 
   it("shortens very long names", () => {

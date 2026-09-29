@@ -7,6 +7,7 @@ import { SCHEMA_VERSION, type NormalizedSession, type ShareMode, type Step, type
 const { renderTranscript } = await import("../viewer/src/transcript.ts");
 const { renderTokenRail } = await import("../viewer/src/tokens.ts");
 const { renderHeader } = await import("../viewer/src/header.ts");
+const { closeHoverCard } = await import("../viewer/src/popover.ts");
 const { projectSession } = await import("../src/modes.ts");
 const { VARIANTS } = await import("../viewer/src/variants.ts");
 
@@ -105,13 +106,108 @@ describe("token rail tools", () => {
     expect(rows(projectSession(full, "minimal"))).toEqual([[false, "Bash", "3"]]);
   });
 
-  it("sums programs beyond the first few", () => {
+  it("folds programs beyond the first few behind a toggle that expands them", () => {
     const programs = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
     const s = withTools(programs.map((p, i) => shell(`s${i}`, `${p} x`)), { Bash: programs.length });
-    const list = rows(s);
-    expect(list.filter(([sub]) => sub)).toHaveLength(8);
     const { turns } = renderTranscript(s);
-    expect(renderTokenRail(s, turns, () => {}).el.querySelector(".bars-more.bars-sub")?.textContent).toBe("+2 more programs (2 calls)");
+    const rail = renderTokenRail(s, turns, () => {});
+    const subs = () => Array.from(rail.el.querySelectorAll(".bars-sub.bars-row .bars-name"), (n) => n.textContent);
+    const toggle = () => rail.el.querySelector<HTMLButtonElement>("button.bars-toggle")!;
+    expect(subs()).toEqual(["a", "b", "c", "d", "e", "f", "g", "h"]);
+    expect(toggle().textContent).toBe("+2 more");
+    toggle().click();
+    expect(subs()).toEqual(programs);
+    expect(toggle().textContent).toBe("show fewer");
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    toggle().click();
+    expect(subs()).toHaveLength(8);
+  });
+
+  it("shows unnamed shell calls as an 'other' row, expandable with the rest when there are many programs", () => {
+    const few = withTools([shell("a", "git status"), shell("b", "")], { Bash: 2 });
+    const { turns } = renderTranscript(few);
+    const rail = renderTokenRail(few, turns, () => {});
+    expect(Array.from(rail.el.querySelectorAll(".bars-sub.bars-row .bars-name"), (n) => n.textContent)).toEqual(["git", "other"]);
+    expect(rail.el.querySelector("button.bars-toggle")).toBeNull();
+  });
+});
+
+describe("shell calls of a brief group", () => {
+  // The chips, the outline, the rail and the call lists all split a group's shell calls by program,
+  // and must agree on when the group's commands can be attributed.
+  const group = (commands: string[]): Step => ({ kind: "toolGroup", id: "g", calls: [{ name: "Bash", count: 1, errors: 0 }], total: 1, files: { read: [], edited: [], written: [] }, commands, responseIds: [] });
+
+  it.each([
+    ["attributes commands that fit the calls", ["git status"], "Bash(git)", ["git"]],
+    ["does not attribute more commands than calls", ["git status", "ls"], "Bash", []],
+  ])("%s", (_name, commands, chip, railPrograms) => {
+    const s = session([turn(0, [group(commands)])]);
+    s.stats.tools = { Bash: 1 };
+    const { turns, el } = renderTranscript(s);
+    expect(el.querySelector(".chip")?.textContent).toBe(chip);
+    expect(turns[0]!.items[0]!.label).toBe(chip);
+    expect(turns[0]!.calls.some((c) => c.program)).toBe(railPrograms.length > 0);
+    const rail = renderTokenRail(s, turns, () => {});
+    expect(Array.from(rail.el.querySelectorAll(".bars-sub.bars-row .bars-name"), (n) => n.textContent)).toEqual(railPrograms);
+  });
+});
+
+describe("tool call lists", () => {
+  const shell = (id: string, command: string, extra: Partial<Extract<Step, { kind: "tool" }>> = {}): Step => ({ kind: "tool", id, name: "Bash", action: "exec", summary: command, input: { command }, ...extra });
+
+  it("lists each call of a turn with the step it lives in, in order", () => {
+    const { turns, el } = renderTranscript(
+      session([
+        turn(0, [shell("a", "git status"), { kind: "tool", id: "b", name: "Edit", action: "edit", summary: "~/work/app/src/a.ts", input: {} } as Step, shell("c", "npm test", { isError: true }), { kind: "subagent", id: "d", tool: "Agent", agents: ["scout"], description: "find it" } as Step]),
+      ]),
+    );
+    expect(turns[0]!.calls.map((c) => [c.tool, c.program, c.preview, c.error ?? false])).toEqual([
+      ["Bash", "git", "git status", false],
+      ["Edit", undefined, "src/a.ts", false],
+      ["Bash", "npm", "npm test", true],
+      ["Agent", undefined, "find it", false],
+    ]);
+    // Every call points at an entry that exists.
+    for (const c of turns[0]!.calls) expect(el.querySelector(`#${c.id}`)).not.toBeNull();
+  });
+
+  it("lists a brief group's commands one by one and its other tools by count, all pointing at the group", () => {
+    const group: Step = { kind: "toolGroup", id: "g", calls: [{ name: "Bash", count: 3, errors: 0 }, { name: "Read", count: 2, errors: 0 }], total: 5, files: { read: [], edited: [], written: [] }, commands: ["git status", "ls"], responseIds: [] };
+    const { turns, el } = renderTranscript(session([turn(0, [group])]));
+    expect(turns[0]!.calls.map((c) => [c.tool, c.program, c.preview, c.count])).toEqual([
+      ["Bash", "git", "git status", undefined],
+      ["Bash", "ls", "ls", undefined],
+      ["Bash", undefined, "command not kept", 1],
+      ["Read", undefined, "details not kept in this view", 2],
+    ]);
+    const ids = new Set(turns[0]!.calls.map((c) => c.id));
+    expect(ids.size).toBe(1);
+    expect(el.querySelector(`#${[...ids][0]}`)).not.toBeNull();
+  });
+
+  it("gives each rail row a card with its calls, and picking one jumps to its step", () => {
+    const s = session([turn(0, [shell("a", "git status"), shell("b", "git diff"), shell("c", "ls")])]);
+    s.stats.tools = { Bash: 3 };
+    const { turns } = renderTranscript(s);
+    const jumped: string[] = [];
+    const rail = renderTokenRail(s, turns, () => {}, (id) => jumped.push(id));
+    document.body.replaceChildren(rail.el);
+    const row = (name: string) => Array.from(rail.el.querySelectorAll<HTMLElement>(".bars-row")).find((r) => r.querySelector(".bars-name")?.textContent === name)!;
+    // The keyboard opens a card without waiting on a hover.
+    const open = (name: string) => row(name).dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    open("Bash");
+    const items = () => Array.from(document.querySelectorAll<HTMLElement>(".hcard .hc-item .hc-text"), (n) => n.textContent);
+    expect(document.querySelector(".hcard .hc-title")?.textContent).toBe("Bash");
+    expect(document.querySelector(".hcard .hc-count")?.textContent).toBe("3 calls");
+    expect(items()).toEqual(["git status", "git diff", "ls"]);
+    document.querySelector<HTMLElement>(".hcard .hc-item")!.click();
+    expect(jumped).toEqual([turns[0]!.calls[0]!.id]);
+    expect(document.querySelector(".hcard")).toBeNull();
+
+    open("git");
+    expect(document.querySelector(".hcard .hc-title")?.textContent).toBe("Bash(git)");
+    expect(items()).toEqual(["git status", "git diff"]);
+    closeHoverCard();
   });
 });
 

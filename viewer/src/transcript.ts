@@ -7,7 +7,7 @@
  */
 import { formatCost, formatDuration, formatTokens, plural } from "../../src/format.ts";
 import { contextTokens, type EventStep, type NormalizedSession, type ResponseUsage, type Step, type SubagentStep, type ThinkingStep, type ToolGroupStep, type ToolStep, type Turn } from "../../src/schema.ts";
-import { commandName, groupCalls, isExecTool, type CallCount } from "./commands.ts";
+import { commandName, groupCalls, groupShell, isExecTool, type CallCount } from "./commands.ts";
 import { h, markdown } from "./dom.ts";
 import { firstLine, lineDiff, preview, splitLines, trimContext, type DiffLine } from "./text.ts";
 
@@ -18,6 +18,19 @@ export interface OutlineItem {
   kind: OutlineKind;
   label: string;
   error?: boolean;
+}
+
+/** One tool call (or, in a brief/minimal view, one stand-in for several) for the rail's per-tool lists. */
+export interface ToolCall {
+  /** The step to jump to. */
+  id: string;
+  tool: string;
+  /** For shell calls: the program, when it could be named. */
+  program?: string;
+  preview: string;
+  error?: boolean;
+  /** More than one call stood for by this entry (only in views that collapse steps). */
+  count?: number;
 }
 
 export interface TurnInfo {
@@ -32,6 +45,8 @@ export interface TurnInfo {
   tools: number;
   errors: number;
   items: OutlineItem[];
+  /** Every tool call in the turn, in order. */
+  calls: ToolCall[];
   responses: ResponseUsage[];
 }
 
@@ -433,6 +448,39 @@ function outline(turn: Turn, stepIds: string[]): { items: OutlineItem[]; tools: 
   return { items, tools, errors };
 }
 
+/**
+ * The turn's tool calls, one per call where the steps are individual (full view). Brief
+ * groups keep their shell commands, so those are listed one by one; other tools of a group
+ * are known only by count, so they stand as one entry that jumps to the group.
+ */
+function toolCalls(turn: Turn, stepIds: string[], ctx: Ctx): ToolCall[] {
+  const out: ToolCall[] = [];
+  turn.steps.forEach((step, i) => {
+    const id = stepIds[i]!;
+    if (step.kind === "tool") {
+      const input = (step.input ?? {}) as Record<string, unknown>;
+      const program = isExecTool(step.name) ? commandName(str(input.command) ?? str(input.cmd) ?? step.summary) : undefined;
+      out.push({ id, tool: step.name, ...(program ? { program } : {}), preview: rel(ctx, step.summary) || step.name, ...(step.isError || step.result?.isError ? { error: true } : {}) });
+    } else if (step.kind === "subagent") {
+      out.push({ id, tool: step.tool, preview: step.description ?? step.agents.join(", ") ?? step.tool, ...(step.isError ? { error: true } : {}) });
+    } else if (step.kind === "toolGroup") {
+      const shell = groupShell(step);
+      for (const c of step.calls) {
+        let rest = c.count;
+        if (c === shell?.call) {
+          for (const command of shell.commands) {
+            const program = commandName(command);
+            out.push({ id, tool: c.name, ...(program ? { program } : {}), preview: rel(ctx, command) });
+          }
+          rest -= shell.commands.length;
+        }
+        if (rest > 0) out.push({ id, tool: c.name, preview: c === shell?.call ? "command not kept" : "details not kept in this view", count: rest, ...(c.errors ? { error: true } : {}) });
+      }
+    }
+  });
+  return out;
+}
+
 export function responsesByTurn(session: NormalizedSession): Map<number, ResponseUsage[]> {
   const byTurn = new Map<number, ResponseUsage[]>();
   for (const r of session.responses) {
@@ -474,6 +522,7 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
         tools: o.tools,
         errors: o.errors,
         items: o.items,
+        calls: toolCalls(turn, stepIds, ctx),
         responses: ctx.byTurn.get(turn.index) ?? [],
       });
       return section;

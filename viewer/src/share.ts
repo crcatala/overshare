@@ -1,7 +1,8 @@
 /**
  * The share button and its menu: copy a link to the session as-is (the reader sees it
- * their own way), with the view settings on screen (`&ui=`), or to the prompt in view
- * (`&turn=`). Links are built from the share's source, never from the address bar.
+ * their own way) or with the view settings on screen (`&ui=`), either one optionally at
+ * the prompt in view (`&turn=`). Links are built from the share's source, never from the
+ * address bar.
  */
 import { h, svg } from "./el.ts";
 import { toast } from "./dom.ts";
@@ -65,15 +66,19 @@ export function shareButton(opts: ShareOptions): HTMLElement {
     };
     const view = opts.view();
     const turn = opts.turn();
+    const copyItem = (what: string, blurb: string, params: Record<string, string> = {}) =>
+      menuItem(`Copy ${what}`, blurb, act(() => void copyLink(shareLink(opts.source, params), what)));
+    const toPrompt = (withView: boolean) => {
+      const suffix = withView ? " with current view" : "";
+      if (!turn) return menuItem(`Copy link to this prompt${suffix}`, "Scroll to a prompt first", () => {}, { disabled: true });
+      const what = `link to prompt ${turn.ordinal}${suffix}`;
+      return copyItem(what, withView ? view.label : turn.label, { ...(withView ? { ui: view.ui } : {}), turn: String(turn.ordinal) });
+    };
     const items = [
-      menuItem("Copy link", "Opens with the reader's own view settings", act(() => void copyLink(shareLink(opts.source), "link"))),
-      menuItem("Copy link with current view", view.label, act(() => void copyLink(shareLink(opts.source, { ui: view.ui }), "link with current view"))),
-      menuItem(
-        turn ? `Copy link to prompt ${turn.ordinal}` : "Copy link to this prompt",
-        turn ? turn.label : "Scroll to a prompt first",
-        act(() => turn && void copyLink(shareLink(opts.source, { turn: String(turn.ordinal) }), `link to prompt ${turn.ordinal}`)),
-        { disabled: !turn },
-      ),
+      copyItem("link", "Opens with the reader's own view settings"),
+      copyItem("link with current view", view.label, { ui: view.ui }),
+      toPrompt(false),
+      toPrompt(true),
     ];
     const foot = opts.source.kind === "local" ? [h("div", { class: "menu-foot" }, "Local links only open on this machine, while agent-share serve runs")] : [];
     return { children: [h("div", { class: "menu-head" }, "Share"), ...items, ...foot], items };

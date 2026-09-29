@@ -257,8 +257,8 @@ published with falls back to the most it has.
 `full`/`brief`/`minimal`, `system`/`light`/`dark`, the open rails as `LR`/`L`/`R`/`-`, and
 `toc-prompts`/`toc-all`. Unknown tokens are skipped, so an option that is renamed or
 removed later only falls back to the reader's own setting. The **share** menu (next to
-settings) copies a plain link, a link with the current view (every field, with the theme
-as shown), or a link to the prompt in view (`&turn=`).
+settings) copies a plain link or one with the current view (every field, with the theme
+as shown), each either to the whole session or to the prompt in view (`&turn=`).
 
 **Text tables.** Markdown tables become box-drawn grids sized in characters: columns
 keep their longest word where possible, spare width goes to the columns with the most

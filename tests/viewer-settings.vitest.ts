@@ -186,26 +186,39 @@ describe("share menu", () => {
     button.click();
   }
 
-  it("offers a plain link, one with the current view, and one to the prompt in view", async () => {
+  it("offers plain and current-view links, to the session and to the prompt in view", async () => {
     const writeText = vi.fn(async () => {});
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     open({ ordinal: 3, label: "Fix the flaky test" });
     const rows = menuRows();
-    expect(rows.map(label)).toEqual(["Copy link", "Copy link with current view", "Copy link to prompt 3"]);
+    expect(rows.map(label)).toEqual(["Copy link", "Copy link with current view", "Copy link to prompt 3", "Copy link to prompt 3 with current view"]);
     expect(blurb(rows[1]!)).toBe("log · brief · dark · contents rail");
     expect(blurb(rows[2]!)).toBe("Fix the flaky test");
+    expect(blurb(rows[3]!)).toBe("log · brief · dark · contents rail");
     rows[1]!.click();
     expect(document.querySelector(".menu")).toBeNull();
     expect(writeText).toHaveBeenLastCalledWith(expect.stringMatching(/#someone\/0123456789abcdef0123&ui=log\.brief\.dark\.L\.toc-prompts$/));
     await vi.waitFor(() => expect(document.getElementById("toast")?.textContent).toBe("Copied link with current view"));
+    const copy = (row: number) => {
+      document.querySelector<HTMLButtonElement>("button.share")!.click();
+      menuRows()[row]!.click();
+      return writeText.mock.lastCall?.[0];
+    };
+    expect(copy(0)).toMatch(/#someone\/0123456789abcdef0123$/);
+    expect(copy(2)).toMatch(/#someone\/0123456789abcdef0123&turn=3$/);
+    expect(copy(3)).toMatch(/#someone\/0123456789abcdef0123&ui=log\.brief\.dark\.L\.toc-prompts&turn=3$/);
+    await vi.waitFor(() => expect(document.getElementById("toast")?.textContent).toBe("Copied link to prompt 3 with current view"));
     vi.unstubAllGlobals();
   });
 
   it("can't link to a prompt before one is in view", () => {
     open(undefined);
-    const last = menuRows().at(-1)!;
-    expect(last.disabled).toBe(true);
-    expect(blurb(last)).toBe("Scroll to a prompt first");
+    const [plain, withView] = menuRows().slice(2);
+    for (const row of [plain!, withView!]) {
+      expect(row.disabled).toBe(true);
+      expect(blurb(row)).toBe("Scroll to a prompt first");
+    }
+    expect(label(withView!)).toBe("Copy link to this prompt with current view");
   });
 
   it("warns that local links only work on this machine", () => {

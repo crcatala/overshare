@@ -1,10 +1,11 @@
 /**
- * The settings button (two sliders) and its menu: pick a design variant. The menu is
- * attached to <body> with fixed positioning, because the minibar it can open from is
- * transformed and blurred (either would trap a fixed child), and in one variant clipped.
+ * The settings button (two sliders) and its menu: pick a design variant, and save the
+ * current view settings as the reader's default (or go back to the built-in one).
  */
 import { h, svg } from "./el.ts";
+import { menuButton, menuItem } from "./menu.ts";
 import { VARIANTS, type Variant } from "./variants.ts";
+import type { DefaultsState } from "./viewsettings.ts";
 
 /** Two horizontal sliders with their knobs: "adjust how this looks". */
 export function slidersIcon(): SVGElement {
@@ -20,88 +21,37 @@ export function slidersIcon(): SVGElement {
 export interface SettingsOptions {
   current: () => Variant;
   onPick: (v: Variant) => void;
-}
-
-/** Close whichever settings menu is open (e.g. before the page re-renders). */
-export function closeMenus(): void {
-  for (const m of document.querySelectorAll(".menu")) (m as HTMLElement & { close?: () => void }).close?.() ?? m.remove();
+  defaults: () => DefaultsState;
+  saveDefault: () => void;
+  resetDefault: () => void;
 }
 
 export function settingsButton(opts: SettingsOptions): HTMLElement {
-  const button = h("button", { type: "button", class: "icon settings", "aria-label": "Settings", title: "Settings", "aria-haspopup": "menu", "aria-expanded": "false" });
+  const button = h("button", { type: "button", class: "icon settings", "aria-label": "Settings", title: "Settings" });
   button.append(slidersIcon());
-
-  const open = () => {
-    closeMenus();
+  return menuButton(button, "Settings", (close) => {
     const current = opts.current();
-    const items = VARIANTS.map((v) =>
-      h(
-        "button",
-        {
-          type: "button",
-          class: "menu-item",
-          role: "menuitemradio",
-          "aria-checked": String(v.id === current.id),
-          onclick: () => {
-            close();
-            opts.onPick(v);
-          },
-        },
-        h("span", { class: "menu-check", "aria-hidden": "true" }, v.id === current.id ? "✓" : ""),
-        h("span", { class: "menu-text" }, h("span", { class: "menu-label" }, v.label), h("span", { class: "menu-blurb" }, v.blurb)),
-      ),
-    );
-    const menu = h(
-      "div",
-      { class: "menu", role: "menu", "aria-label": "Design variant" },
-      h("div", { class: "menu-head" }, "Design variant"),
-      ...items,
-      h("div", { class: "menu-foot" }, h("kbd", {}, "v"), " next · ", h("kbd", {}, "V"), " previous"),
-    );
-    const listeners = new AbortController();
-    function close() {
-      listeners.abort();
-      menu.remove();
-      button.setAttribute("aria-expanded", "false");
-    }
-    Object.assign(menu, { close });
-    document.body.append(menu);
-    // Below the button, right edges aligned, kept inside the window.
-    const r = button.getBoundingClientRect();
-    const { width, height } = menu.getBoundingClientRect();
-    menu.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, r.right - width))}px`;
-    menu.style.top = `${r.bottom + height + 8 > window.innerHeight ? Math.max(8, r.top - height - 6) : r.bottom + 6}px`;
-    button.setAttribute("aria-expanded", "true");
-    (items.find((i) => i.getAttribute("aria-checked") === "true") ?? items[0])?.focus({ preventScroll: true });
-
-    const signal = listeners.signal;
-    document.addEventListener(
-      "pointerdown",
-      (e) => {
-        const t = e.target as Node;
-        if (!menu.contains(t) && !button.contains(t)) close();
-      },
-      { signal },
-    );
-    window.addEventListener("scroll", close, { passive: true, signal });
-    window.addEventListener("resize", close, { signal });
-    menu.addEventListener(
-      "keydown",
-      (e) => {
-        const i = items.indexOf(document.activeElement as HTMLButtonElement);
-        if (e.key === "Escape") {
-          e.stopPropagation();
-          close();
-          button.focus();
-        } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-          e.preventDefault();
-          items[(i + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus({ preventScroll: true });
-        } else if (e.key === "Tab") close();
-      },
-      { signal },
-    );
-  };
-
-  button.addEventListener("click", () => (button.getAttribute("aria-expanded") === "true" ? closeMenus() : open()));
-  return button;
+    const pick = (fn: () => void) => () => {
+      close();
+      fn();
+    };
+    const variants = VARIANTS.map((v) => menuItem(v.label, v.blurb, pick(() => opts.onPick(v)), { checked: v.id === current.id }));
+    const d = opts.defaults();
+    const save = menuItem("Save as my default", d.canSave ? "Variant, view, theme, open rails and contents detail, for every session you open" : "This is your default view", pick(opts.saveDefault), { disabled: !d.canSave });
+    const resetBlurb = d.saved ? `Forget your default (${d.saved})` : d.canReset ? "Go back to the viewer's own settings" : "Showing the viewer's own settings";
+    const reset = menuItem("Reset to built-in default", resetBlurb, pick(opts.resetDefault), { disabled: !d.canReset });
+    const items = [...variants, save, reset];
+    return {
+      children: [
+        h("div", { class: "menu-head" }, "Design variant"),
+        ...variants,
+        h("div", { class: "menu-head menu-section" }, "Default view"),
+        save,
+        reset,
+        h("div", { class: "menu-foot" }, h("kbd", {}, "v"), " next · ", h("kbd", {}, "V"), " previous"),
+      ],
+      items,
+      focus: variants.find((i) => i.getAttribute("aria-checked") === "true"),
+    };
+  });
 }

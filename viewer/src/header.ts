@@ -7,6 +7,7 @@ import { availableModes } from "../../src/modes.ts";
 import { totalTokens, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
 import { h, provenanceLine, withTooltip } from "./dom.ts";
 import { settingsButton, type SettingsOptions } from "./settings.ts";
+import { shareButton, type ShareOptions } from "./share.ts";
 import type { Provenance } from "./source.ts";
 import type { TurnInfo } from "./transcript.ts";
 
@@ -20,6 +21,7 @@ export interface Controls {
   toggleTheme: () => void;
   toggleRail: (side: "left" | "right") => void;
   settings: SettingsOptions;
+  share: ShareOptions;
   local: boolean;
 }
 
@@ -77,7 +79,7 @@ export function renderHeader(s: NormalizedSession, provenance: Provenance | unde
       "div",
       { class: "hdr-top" },
       h("h1", { class: "hdr-title" }, s.title ?? "Agent session"),
-      h("div", { class: "hdr-actions" }, modeSwitch(c), iconButton("Toggle color theme", "", c.toggleTheme, "theme"), settingsButton(c.settings)),
+      h("div", { class: "hdr-actions" }, modeSwitch(c), iconButton("Toggle color theme", "", c.toggleTheme, "theme"), settingsButton(c.settings), shareButton(c.share)),
     ),
     facts("facts-meta", [
       ["agent", harness],
@@ -130,6 +132,7 @@ export function renderMinibar(s: NormalizedSession, turns: TurnInfo[], c: Contro
       modeSwitch(c),
       iconButton("Toggle color theme", "", c.toggleTheme, "theme"),
       settingsButton(c.settings),
+      shareButton(c.share),
       iconButton("Toggle token rail", "∑", () => c.toggleRail("right"), "mb-right"),
     ),
     progress,

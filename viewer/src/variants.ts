@@ -1,5 +1,5 @@
 /**
- * Design variants, for evaluating directions side by side (`&variant=<id>` in the link,
+ * Design variants, for evaluating directions side by side (`&ui=<id>` in the link,
  * the settings menu, or `v`/`V`). They share one DOM; each is a stylesheet scoped by
  * `html[data-variant]` plus the few choices below that CSS can't make.
  */

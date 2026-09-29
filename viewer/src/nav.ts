@@ -39,3 +39,15 @@ export function wheelMovesPage(deltaY: number, scrollY: number, max: number): bo
   if (deltaY < 0) return scrollY > 0;
   return false;
 }
+
+/** Whether the key was pressed while typing in a field, where shortcuts must stay out of the way. */
+export function typing(e: KeyboardEvent): boolean {
+  const el = e.target as HTMLElement | null;
+  return Boolean(el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)));
+}
+
+/** `v` goes to the next variant, `V` to the previous; undefined for any other key, with a modifier, or while typing. */
+export function variantKeyStep(e: KeyboardEvent): 1 | -1 | undefined {
+  if (e.metaKey || e.ctrlKey || e.altKey || typing(e)) return undefined;
+  return e.key === "v" ? 1 : e.key === "V" ? -1 : undefined;
+}

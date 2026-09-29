@@ -7,7 +7,7 @@
  */
 import { formatCost, formatDuration, formatTokens, plural } from "../../src/format.ts";
 import { contextTokens, type EventStep, type NormalizedSession, type ResponseUsage, type Step, type SubagentStep, type ThinkingStep, type ToolGroupStep, type ToolStep, type Turn } from "../../src/schema.ts";
-import { commandName, groupCalls, isExecTool, type CallCount } from "./commands.ts";
+import { commandName, groupCalls, groupShell, isExecTool, type CallCount } from "./commands.ts";
 import { h, markdown } from "./dom.ts";
 import { firstLine, lineDiff, preview, splitLines, trimContext, type DiffLine } from "./text.ts";
 
@@ -464,18 +464,17 @@ function toolCalls(turn: Turn, stepIds: string[], ctx: Ctx): ToolCall[] {
     } else if (step.kind === "subagent") {
       out.push({ id, tool: step.tool, preview: step.description ?? step.agents.join(", ") ?? step.tool, ...(step.isError ? { error: true } : {}) });
     } else if (step.kind === "toolGroup") {
-      const exec = step.calls.filter((c) => isExecTool(c.name));
-      const shell = exec.length === 1 && step.commands.length <= exec[0]!.count ? exec[0]! : undefined;
+      const shell = groupShell(step);
       for (const c of step.calls) {
         let rest = c.count;
-        if (c === shell) {
-          for (const command of step.commands) {
+        if (c === shell?.call) {
+          for (const command of shell.commands) {
             const program = commandName(command);
             out.push({ id, tool: c.name, ...(program ? { program } : {}), preview: rel(ctx, command) });
           }
-          rest -= step.commands.length;
+          rest -= shell.commands.length;
         }
-        if (rest > 0) out.push({ id, tool: c.name, preview: c === shell ? "command not kept" : "details not kept in this view", count: rest, ...(c.errors ? { error: true } : {}) });
+        if (rest > 0) out.push({ id, tool: c.name, preview: c === shell?.call ? "command not kept" : "details not kept in this view", count: rest, ...(c.errors ? { error: true } : {}) });
       }
     }
   });

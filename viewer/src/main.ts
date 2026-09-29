@@ -12,12 +12,13 @@ import { beacon } from "./beacon.ts";
 import { relayoutTables, releaseTables, setTableStyle } from "./asciitable.ts";
 import { h, hideTooltip } from "./dom.ts";
 import { attribution } from "./attribution.ts";
-import { formatDate, HARNESS_LABEL, iconButton, renderHeader, renderMinibar, type Controls } from "./header.ts";
+import { renderHeader, renderMinibar, type Controls } from "./header.ts";
 import { closeHoverCard } from "./popover.ts";
 import { load, save } from "./prefs.ts";
 import { closeMenus, settingsButton, type SettingsOptions } from "./settings.ts";
 import { formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
-import { stepPrompt, wheelMovesPage } from "./nav.ts";
+import { stepPrompt, typing, variantKeyStep, wheelMovesPage } from "./nav.ts";
+import { fetchLocalShares, renderPicker, setPickerVariant } from "./picker.ts";
 import { renderToc } from "./toc.ts";
 import { renderTokenRail } from "./tokens.ts";
 import { renderTranscript, type TurnInfo } from "./transcript.ts";
@@ -64,7 +65,8 @@ function setVariant(v: Variant): void {
   if (shared) render({ keepPlace: true });
   else {
     applyVariant(v);
-    void main();
+    // The local sessions page only needs its links updated; anything else has to reload.
+    if (!setPickerVariant(app, v.id)) void main();
   }
 }
 
@@ -326,12 +328,6 @@ function render(opts: { keepPlace?: boolean } = {}): void {
   spy();
 }
 
-/** Whether the key was pressed while typing in a field. */
-function typing(e: KeyboardEvent): boolean {
-  const el = e.target as HTMLElement | null;
-  return Boolean(el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)));
-}
-
 function onKey(e: KeyboardEvent, turns: TurnInfo[], jump: (id: string) => void, focusSearch: () => void): void {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key !== "j" && e.key !== "k") navCursor = undefined;
@@ -387,79 +383,19 @@ function setView(mode: ShareMode): void {
   render({ keepPlace: true });
 }
 
-interface LocalShare {
-  name: string;
-  title?: string;
-  harness?: string;
-  mode?: string;
-  turns?: number;
-  project?: string;
-  startedAt?: string;
-  error?: string;
-}
-
-/** A row's details as small labels in the variant's palette, after the file name. */
-function pickerMeta(s: LocalShare): HTMLElement {
-  const badge = (text: string, cls = "", attrs: Record<string, string> = {}) => h("span", { class: `badge ${cls}`.trim(), ...attrs }, text);
-  const started = formatDate(s.startedAt);
-  return h(
-    "div",
-    { class: "picker-meta" },
-    h("span", { class: "picker-file" }, s.name),
-    s.error ? badge("unreadable", "is-error", { title: s.error }) : null,
-    s.harness ? badge(HARNESS_LABEL[s.harness] ?? s.harness, "badge-harness") : null,
-    s.mode ? badge(s.mode, "badge-mode", { "data-mode": s.mode }) : null,
-    s.turns !== undefined ? badge(plural(s.turns, "turn")) : null,
-    s.project ? badge(s.project, "badge-project") : null,
-    started ? h("span", { class: "picker-date" }, started) : null,
-  );
-}
-
-/** `agent-share serve` exposes ./local/index.json; on a deployed viewer it simply 404s. */
+/** Show the local sessions page when the viewer was opened without a share and there are some to pick. */
 async function showLocalPicker(): Promise<boolean> {
-  let shares: LocalShare[];
-  try {
-    const res = await fetch("./local/index.json", { cache: "no-store" });
-    if (!res.ok) return false;
-    shares = (await res.json()) as LocalShare[];
-  } catch {
-    return false;
-  }
-  if (!Array.isArray(shares) || shares.length === 0) return false;
+  const shares = await fetchLocalShares();
+  if (!shares) return false;
   teardown.abort();
   teardown = new AbortController();
   document.title = "Local sessions · Agent Session";
-  const variant = state.params.get("variant");
-  app.replaceChildren(
-    h(
-      "div",
-      { class: "page picker" },
-      h(
-        "header",
-        { class: "hdr" },
-        h("div", { class: "hdr-top" }, h("h1", { class: "hdr-title" }, "Local sessions"), h("div", { class: "hdr-actions" }, iconButton("Toggle color theme", "", toggleTheme, "theme"), settingsButton(settings))),
-        h("p", { class: "fine" }, `Served by agent-share serve · ${plural(shares.length, "file")}`),
-      ),
-      h(
-        "ul",
-        { class: "picker-list" },
-        ...shares.map((s) =>
-          h(
-            "li",
-            {},
-            h("a", { href: `#local:${encodeURIComponent(s.name)}${variant ? `&variant=${encodeURIComponent(variant)}` : ""}` }, s.title ?? s.name),
-            pickerMeta(s),
-          ),
-        ),
-      ),
-      attribution(),
-    ),
-  );
+  app.replaceChildren(renderPicker(shares, { variant: state.params.get("variant"), settings, toggleTheme }));
   document.addEventListener(
     "keydown",
     (e) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || typing(e)) return;
-      if (e.key === "v" || e.key === "V") cycleVariant(e.key === "V" ? -1 : 1);
+      const dir = variantKeyStep(e);
+      if (dir) cycleVariant(dir);
     },
     { signal: teardown.signal },
   );

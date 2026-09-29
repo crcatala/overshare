@@ -132,6 +132,26 @@ describe("token rail tools", () => {
   });
 });
 
+describe("shell calls of a brief group", () => {
+  // The chips, the outline, the rail and the call lists all split a group's shell calls by program,
+  // and must agree on when the group's commands can be attributed.
+  const group = (commands: string[]): Step => ({ kind: "toolGroup", id: "g", calls: [{ name: "Bash", count: 1, errors: 0 }], total: 1, files: { read: [], edited: [], written: [] }, commands, responseIds: [] });
+
+  it.each([
+    ["attributes commands that fit the calls", ["git status"], "Bash(git)", ["git"]],
+    ["does not attribute more commands than calls", ["git status", "ls"], "Bash", []],
+  ])("%s", (_name, commands, chip, railPrograms) => {
+    const s = session([turn(0, [group(commands)])]);
+    s.stats.tools = { Bash: 1 };
+    const { turns, el } = renderTranscript(s);
+    expect(el.querySelector(".chip")?.textContent).toBe(chip);
+    expect(turns[0]!.items[0]!.label).toBe(chip);
+    expect(turns[0]!.calls.some((c) => c.program)).toBe(railPrograms.length > 0);
+    const rail = renderTokenRail(s, turns, () => {});
+    expect(Array.from(rail.el.querySelectorAll(".bars-sub.bars-row .bars-name"), (n) => n.textContent)).toEqual(railPrograms);
+  });
+});
+
 describe("tool call lists", () => {
   const shell = (id: string, command: string, extra: Partial<Extract<Step, { kind: "tool" }>> = {}): Step => ({ kind: "tool", id, name: "Bash", action: "exec", summary: command, input: { command }, ...extra });
 

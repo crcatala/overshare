@@ -9,7 +9,7 @@
  */
 import { formatCost, formatTokens, plural } from "../../src/format.ts";
 import { contextTokens, totalTokens, type NormalizedSession, type ResponseUsage, type Usage } from "../../src/schema.ts";
-import { isExecTool, tallyCommands } from "./commands.ts";
+import { groupShell, isExecTool, tallyCommands } from "./commands.ts";
 import { h, hideTooltip, withTooltip } from "./dom.ts";
 import { svg } from "./el.ts";
 import { closeHoverCard, hoverCard } from "./popover.ts";
@@ -196,9 +196,8 @@ function shellBreakdown(session: NormalizedSession): Map<string, [program: strin
         const cmd = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : step.summary;
         add(step.name, [cmd]);
       } else if (step.kind === "toolGroup") {
-        // A group's commands aren't attributed to a tool; they belong to its only shell tool.
-        const exec = step.calls.filter((c) => isExecTool(c.name));
-        if (exec.length === 1) add(exec[0]!.name, step.commands);
+        const shell = groupShell(step);
+        if (shell) add(shell.call.name, shell.commands);
       }
     }
   }

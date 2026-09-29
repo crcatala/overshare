@@ -404,16 +404,46 @@ button.theme::before {
 .body {
   min-width: 0;
 }
-.entry.flash,
-.turn.flash > .entry:first-of-type {
-  animation: flash 1.4s ease-out;
+/* Jump beacon (beacon.ts): an outline that ripples a few times, then fades. */
+.beacon {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  border: 1.5px solid var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  animation: bc-life 2.8s ease-in forwards;
 }
-@keyframes flash {
+.beacon::before {
+  content: "";
+  position: absolute;
+  inset: -1.5px;
+  border-radius: inherit;
+  animation: bc-ripple 0.9s ease-out 3;
+}
+@keyframes bc-life {
   0% {
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    opacity: 0;
+  }
+  6%,
+  65% {
+    opacity: 1;
   }
   100% {
-    background: transparent;
+    opacity: 0;
+  }
+}
+@keyframes bc-ripple {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .beacon::before {
+    display: none;
   }
 }
 .k-user .body {

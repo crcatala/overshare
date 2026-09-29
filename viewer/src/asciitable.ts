@@ -414,7 +414,8 @@ function renderLines(pre: HTMLElement, lines: Line[], model: TableModel): void {
 const relayouts = new WeakMap<Element, () => void>();
 let observer: ResizeObserver | undefined;
 
-function relayoutTables(): void {
+/** Lay out every table to its container now (e.g. right after inserting a new render). */
+export function relayoutTables(): void {
   for (const el of document.querySelectorAll(".atable")) relayouts.get(el)?.();
 }
 

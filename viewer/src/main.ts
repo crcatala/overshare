@@ -8,7 +8,7 @@ import "./styles/log.css";
 import { plural } from "../../src/format.ts";
 import { availableModes, projectSession } from "../../src/modes.ts";
 import { SCHEMA_VERSION, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
-import { setTableStyle } from "./asciitable.ts";
+import { relayoutTables, setTableStyle } from "./asciitable.ts";
 import { h } from "./dom.ts";
 import { HARNESS_LABEL, renderHeader, renderMinibar, type Controls } from "./header.ts";
 import { load, save } from "./prefs.ts";
@@ -56,9 +56,12 @@ function setVariant(v: Variant): void {
   save("variant", v.id);
   state.params.set("variant", v.id);
   history.replaceState(null, "", formatHash(state));
-  applyVariant(v);
+  // render() applies the variant itself, after noting where the reader is.
   if (shared) render({ keepPlace: true });
-  else void main();
+  else {
+    applyVariant(v);
+    void main();
+  }
 }
 
 const settings: SettingsOptions = { current: currentVariant, onPick: setVariant };
@@ -148,8 +151,44 @@ function currentView(): ShareMode {
 
 let activeTurn: TurnInfo | undefined;
 
+/** What's at the top of the viewport, so a re-render (variant, view mode) can keep it there. */
+type Anchor = { atTop: true } | { atTop: false; id: string; top: number; turnId?: string };
+
+function captureAnchor(): Anchor | undefined {
+  const entries = document.querySelectorAll<HTMLElement>(".transcript .entry[id]");
+  if (!entries.length) return undefined;
+  if (window.scrollY < 1) return { atTop: true };
+  // The last entry whose top has passed the top edge (below the minibar).
+  const line = cssPx("--top") + 8;
+  let lo = 0;
+  let hi = entries.length - 1;
+  let found = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (entries[mid]!.getBoundingClientRect().top <= line) {
+      found = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  const el = entries[found]!;
+  return { atTop: false, id: el.id, top: el.getBoundingClientRect().top, turnId: el.closest(".turn")?.id };
+}
+
+function restoreAnchor(anchor: Anchor): void {
+  if (anchor.atTop) return window.scrollTo(0, 0);
+  // Brief/minimal views group steps differently, so an entry may not exist there; then
+  // fall back to the start of its turn.
+  const el = document.getElementById(anchor.id);
+  const target = el ?? (anchor.turnId ? document.getElementById(anchor.turnId) : null);
+  if (!target) return;
+  const top = el ? anchor.top : Math.min(anchor.top, cssPx("--top") + 8);
+  window.scrollTo(0, window.scrollY + target.getBoundingClientRect().top - top);
+}
+
 function render(opts: { keepPlace?: boolean } = {}): void {
   if (!shared) return;
+  // Before anything changes the layout (the new variant's styles included).
+  const anchor = opts.keepPlace ? captureAnchor() : undefined;
   teardown.abort();
   teardown = new AbortController();
   const signal = teardown.signal;
@@ -159,11 +198,9 @@ function render(opts: { keepPlace?: boolean } = {}): void {
   const view = currentView();
   const session = view === shared.mode ? shared : projectSession(shared, view);
   document.title = `${session.title ?? "Agent session"} · Agent Session`;
-  const keep = opts.keepPlace ? activeTurn?.index : undefined;
 
   const controls: Controls = { view, setView, toggleTheme, toggleRail, settings, local: state.source?.kind === "local" };
   const { el: transcript, turns } = renderTranscript(session, { inlineThinking: variant.inlineThinking });
-  const byIndex = new Map(turns.map((t) => [t.index, t]));
 
   const jump = (id: string, smooth = true) => {
     const target = document.getElementById(id);
@@ -242,8 +279,20 @@ function render(opts: { keepPlace?: boolean } = {}): void {
   document.addEventListener("keydown", (e) => onKey(e, turns, jump, toc.focusSearch), { signal });
 
   activeTurn = undefined;
-  const target = keep !== undefined ? byIndex.get(keep) : undefined;
-  if (target) target.el.scrollIntoView({ block: "start" });
+  if (anchor) {
+    // Tables start at a default width until their observer fires; size them now so
+    // the heights above the anchor are final before measuring.
+    relayoutTables();
+    restoreAnchor(anchor);
+    // A variant's font may still be loading; once it lands, put the reader back unless
+    // they've scrolled since.
+    if (document.fonts?.status === "loading") {
+      const settled = window.scrollY;
+      void document.fonts.ready.then(() => {
+        if (!signal.aborted && Math.abs(window.scrollY - settled) < 2) restoreAnchor(anchor);
+      });
+    }
+  }
   spy();
 }
 

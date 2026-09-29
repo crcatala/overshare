@@ -12,6 +12,12 @@ const OUTSET = 5;
 const LEAD_PX = 120;
 /** ...or once scrolling has been quiet this long (the page couldn't scroll that far). */
 const SETTLE_MS = 120;
+/**
+ * How long the beacon stays up: just past bc-life (2.8s in base.css), whose end is
+ * opacity 0. A timer rather than animationend, which never fires for a beacon a
+ * re-render has detached.
+ */
+const LIFE_MS = 2900;
 
 let current: { el: HTMLElement; stop: () => void } | undefined;
 
@@ -47,7 +53,7 @@ export function beacon(target: HTMLElement): void {
     window.removeEventListener("scroll", onScroll);
     host.append(el);
     place();
-    el.addEventListener("animationend", (e) => e.animationName === "bc-life" && stop());
+    timer = window.setTimeout(stop, LIFE_MS);
   };
   const onScroll = () => {
     clearTimeout(timer);

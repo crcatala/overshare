@@ -442,6 +442,10 @@ button.theme::before {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  /* Outranks the global `animation: none` below: the fade is only opacity. */
+  .beacon {
+    animation: bc-life 2.8s ease-in forwards !important;
+  }
   .beacon::before {
     display: none;
   }

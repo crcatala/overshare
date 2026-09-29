@@ -8,6 +8,7 @@ import "./styles/log.css";
 import { plural } from "../../src/format.ts";
 import { availableModes, projectSession } from "../../src/modes.ts";
 import { SCHEMA_VERSION, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
+import { beacon } from "./beacon.ts";
 import { relayoutTables, releaseTables, setTableStyle } from "./asciitable.ts";
 import { h, hideTooltip } from "./dom.ts";
 import { HARNESS_LABEL, renderHeader, renderMinibar, type Controls } from "./header.ts";
@@ -211,9 +212,7 @@ function render(opts: { keepPlace?: boolean } = {}): void {
     if (!target) return;
     target.scrollIntoView({ behavior: smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches ? "smooth" : "auto", block: "start" });
     if (!docked()) toggleRail("left", false);
-    target.classList.remove("flash");
-    void target.offsetWidth;
-    target.classList.add("flash");
+    beacon(target);
   };
   const toc = renderToc(turns, (id) => jump(id));
   const tokens = renderTokenRail(session, turns, (turn) => jump(`turn-${turn}`));

@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 /** What the transcript and token rail render for the session data they're given. */
 import { describe, expect, it } from "vitest";
-import { SCHEMA_VERSION, type NormalizedSession, type Step, type Turn, type Usage } from "../src/schema.ts";
+import { SCHEMA_VERSION, type NormalizedSession, type ShareMode, type Step, type Turn, type Usage } from "../src/schema.ts";
 
 (globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
 const { renderTranscript } = await import("../viewer/src/transcript.ts");
 const { renderTokenRail } = await import("../viewer/src/tokens.ts");
+const { renderHeader } = await import("../viewer/src/header.ts");
+const { projectSession } = await import("../src/modes.ts");
+const { VARIANTS } = await import("../viewer/src/variants.ts");
 
 const usage = (context: number, output: number): Usage => ({ input: 0, output, cacheRead: context, cacheWrite: 0, reasoning: 0 });
 
@@ -143,5 +146,30 @@ describe("transcript tool entries", () => {
     expect(collapsed.querySelector(".md")).toBeNull();
     const inline = renderTranscript(session([turn(0, [thinking])]), { inlineThinking: true }).el.querySelector(".k-think")!;
     expect(inline.querySelector(".md strong")?.textContent).toBe("schema");
+  });
+});
+
+describe("header mode switch", () => {
+  const controls = (view: ShareMode) => ({
+    sharedMode: "full" as const,
+    view,
+    setView: () => {},
+    toggleTheme: () => {},
+    toggleRail: () => {},
+    settings: { current: () => VARIANTS[0]!, onPick: () => {} },
+    local: false,
+  });
+  const buttons = (el: HTMLElement) =>
+    Object.fromEntries(Array.from(el.querySelectorAll<HTMLButtonElement>(".modes button"), (b) => [b.textContent, b.disabled]));
+
+  // Regression: the switch read the modes on offer from the projected session, so once a
+  // full share was viewed as brief, "full" was disabled and there was no way back.
+  it("keeps every mode the share allows on offer while viewing a smaller one", () => {
+    const shared = session([turn(0, [])]);
+    for (const view of ["brief", "minimal"] as const) {
+      const el = renderHeader(projectSession(shared, view), undefined, controls(view));
+      expect(buttons(el)).toEqual({ full: false, brief: false, minimal: false });
+      expect(el.querySelector(".facts-share dd")?.textContent).toBe("full");
+    }
   });
 });

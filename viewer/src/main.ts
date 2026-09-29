@@ -204,7 +204,7 @@ function render(opts: { keepPlace?: boolean } = {}): void {
   const session = view === shared.mode ? shared : projectSession(shared, view);
   document.title = `${session.title ?? "Agent session"} · Agent Session`;
 
-  const controls: Controls = { view, setView, toggleTheme, toggleRail, settings, local: state.source?.kind === "local" };
+  const controls: Controls = { sharedMode: shared.mode, view, setView, toggleTheme, toggleRail, settings, local: state.source?.kind === "local" };
   const { el: transcript, turns } = renderTranscript(session, { inlineThinking: variant.inlineThinking });
 
   const jump = (id: string, smooth = true) => {

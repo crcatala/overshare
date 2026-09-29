@@ -1,6 +1,6 @@
 ---
 id: ass-llot
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-09-29T19:47:05Z
@@ -62,3 +62,13 @@ Known limits of the label filter and of transcript outlines (from review of the 
 - Outlines in a drawn ASCII table are lost when the table re-lays itself out (window resize, font load, table style change): asciitable.ts rebuilds the grid with pre.replaceChildren. A fix needs asciitable and findhits to cooperate, e.g. re-apply the current hits after relayout.
 - Matching does not normalize Unicode: a query typed in NFC does not match a label in NFD (for example a macOS filename with an accent), and the reverse. Case and punctuation are folded; combining marks are kept inside words. Folding to NFC needs highlight offsets mapped back to the original text.
 - A hit in a collapsed tool block's preview is not carried into the expanded body.
+
+**2026-09-29T20:52:01Z**
+
+Implemented on feat/viewer-full-text-search. Decisions:
+- Tool output is indexed but searched only on request (a 'tool output' switch in the rail, off by default). While it is off, the switch shows how many more turns would match in output (+N). Hidden in brief/minimal views, which keep no output. Tool inputs (commands, paths, patterns, Edit/Write bodies) are always searched.
+- Every word must be in one entry (a prompt or a step), not spread across a turn. Turns average ~50 steps and 50-100 KB, so turn-wide matching would behave like matching any word. A turn-level fallback can be added later without changing the index.
+- The index is built from the redacted share projected to the current view, on first focus of the search box.
+- Measured on the largest local session (621 entries, 888 KB share, tool results already capped at 20k chars per share): about 22 ms to build the index once; each keystroke finishes within one or two frames (under 35 ms including the frame wait). No debounce or Worker needed.
+- Resolved from the notes above: a hit in a collapsed tool block now follows into the expanded body (outlines are re-applied when an entry opens or closes).
+- Still open: Unicode normalization (NFC/NFD) and outlines lost when an ASCII table re-lays itself out.

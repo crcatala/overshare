@@ -1061,6 +1061,67 @@ pre.diff > span {
 .toc-item .toc-label:has(.toc-hit) {
   -webkit-line-clamp: none;
 }
+/* A snippet starts shortly before its first hit, so three lines hold it. */
+.toc-item .toc-label.toc-snip {
+  -webkit-line-clamp: 3;
+}
+.toc-src {
+  font-size: 10.5px;
+  color: var(--faint);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+.toc-item.toc-k-found .toc-glyph::before {
+  content: "⌕";
+}
+.toc-more button {
+  appearance: none;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  padding: 1px 6px 3px calc(2ch + 14px + 1ch + 8px);
+  font-size: 11px;
+  color: var(--faint);
+}
+.toc-more button:hover {
+  color: var(--ink);
+}
+.toc-status {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 6px;
+  flex: none;
+  font-size: 11px;
+  color: var(--faint);
+}
+.toc-scope {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: none;
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.toc-scope::before {
+  content: "+ ";
+}
+.toc-scope[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--bg-3);
+  border-color: var(--accent);
+}
+.toc-scope[aria-pressed="true"]::before {
+  content: "✓ ";
+}
+.toc-extra {
+  color: var(--accent);
+}
 .toc-glyph {
   flex: none;
   width: 1ch;

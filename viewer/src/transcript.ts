@@ -81,10 +81,16 @@ interface Ctx extends TranscriptOptions {
 }
 
 /** Paths relative to the project, which is where almost every tool call points. */
-function rel(ctx: Ctx, text: string): string {
-  if (!ctx.cwd) return text;
-  return text.split(`${ctx.cwd}/`).join("");
+export function relTo(cwd: string | undefined, text: string): string {
+  if (!cwd) return text;
+  return text.split(`${cwd}/`).join("");
 }
+
+const rel = (ctx: Ctx, text: string) => relTo(ctx.cwd, text);
+
+/** The transcript entry ids: a turn's prompt, and each of its steps. */
+export const promptId = (turn: number) => `turn-${turn}-prompt`;
+export const stepId = (turn: number, i: number) => `s-${turn}-${i}`;
 
 function gut(who: string, iso?: string): HTMLElement {
   const t = clock(iso);
@@ -503,12 +509,12 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
     .map((turn) => {
       const n = turn.user ? ++ordinal : 0;
       const id = `turn-${turn.index}`;
-      const stepIds = turn.steps.map((_, i) => `s-${turn.index}-${i}`);
+      const stepIds = turn.steps.map((_, i) => stepId(turn.index, i));
       const section = h(
         "section",
         { class: `turn${turn.user ? "" : " turn-start"}`, id, "data-turn": String(turn.index), "data-n": String(n) },
         h("div", { class: "turn-head", "aria-hidden": "true" }, h("span", { class: "turn-n" }, n ? String(n) : "·"), turn.timestamp ? h("time", {}, clock(turn.timestamp)) : null),
-        renderPrompt(turn, `${id}-prompt`),
+        renderPrompt(turn, promptId(turn.index)),
         ...turn.steps.map((s, i) => renderStep(s, stepIds[i]!, ctx)),
         turnFoot(ctx.byTurn.get(turn.index)),
       );

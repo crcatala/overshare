@@ -8,8 +8,11 @@ const { renderToc } = await import("../viewer/src/toc.ts");
 const { fold } = await import("../viewer/src/filter.ts");
 type SearchDoc = import("../viewer/src/search.ts").SearchDoc;
 
-/** The detail setting lives with the viewer's settings; a rail under test keeps it in a variable. */
-const opts = (onClear = () => {}) => ({ detail: "prompts" as const, onDetail: () => {}, onClear });
+/**
+ * The detail setting lives with the viewer's settings; a rail under test keeps it in a variable.
+ * "all" by default: it searches everything, which is what most of these tests are about.
+ */
+const opts = (onClear = () => {}, detail: "prompts" | "all" = "all") => ({ detail, onDetail: () => {}, onClear });
 
 const turn = (index: number, label: string, items: TurnInfo["items"] = []): TurnInfo => ({
   index,
@@ -193,7 +196,8 @@ describe("rail filter", () => {
     await type("");
     expect(hits()).toEqual([]);
     expect(visible()).toHaveLength(3);
-    expect([...toc.el.querySelectorAll<HTMLElement>(".toc-item")].every((i) => i.hidden)).toBe(true);
+    // With detail "all", every item shows again.
+    expect([...toc.el.querySelectorAll<HTMLElement>(".toc-item")].every((i) => !i.hidden)).toBe(true);
   });
 
   it("clears on Escape without waiting for a frame", async () => {
@@ -256,7 +260,7 @@ describe("full-text search", () => {
   const snippets = (row?: number) => [...(row === undefined ? rail.el : rowsOf()[row]!).querySelectorAll<HTMLElement>(".toc-found:not([hidden]) .toc-k-found")].map((li) => li.textContent);
   const rowsOf = () => [...rail.el.querySelectorAll<HTMLElement>(".toc-turn")];
   const shownRows = () => rowsOf().filter((r) => !r.hidden).map((r) => r.querySelector(".toc-label")!.textContent);
-  const scope = () => rail.el.querySelector<HTMLButtonElement>(".toc-scope")!;
+  const scope = () => rail.el.querySelector<HTMLButtonElement>(".toc-output")!;
   async function find(value: string) {
     box().value = value;
     box().dispatchEvent(new Event("input"));
@@ -325,7 +329,7 @@ describe("full-text search", () => {
     input.value = "hook";
     input.dispatchEvent(new Event("input"));
     await new Promise((r) => requestAnimationFrame(() => r(undefined)));
-    expect(brief.el.querySelector<HTMLElement>(".toc-scope")!.hidden).toBe(true);
+    expect(brief.el.querySelector<HTMLElement>(".toc-output")!.hidden).toBe(true);
     await find("hook");
     expect(scope().hidden).toBe(false);
   });
@@ -378,3 +382,98 @@ describe("full-text search", () => {
     expect(search().placeholder).toBe("Filter…");
   });
 });
+
+describe("the detail setting as the search's scope", () => {
+  const doc = (turn: number, id: string, source: string, text: string, output?: boolean): SearchDoc => {
+    const f = { source, text, folded: fold(text), ...(output ? { output: true } : {}) };
+    return { turn, id, fields: [f], inputs: output ? "" : f.folded, all: f.folded };
+  };
+  const index: SearchDoc[] = [
+    doc(0, "turn-0-prompt", "prompt", "Fix the pre-commit hook. It fails when prettier runs twice on the lockfile"),
+    doc(0, "a", "reply", "The hook runs prettier twice, so the second run rewrites the lockfile"),
+    doc(1, "c", "reply", "Done: the search box filters rows and the lockfile is untouched"),
+    doc(2, "d", "Bash output", "lockfile unchanged", true),
+  ];
+  let details: string[];
+  let rail: ReturnType<typeof renderToc>;
+  const box = () => rail.el.querySelector<HTMLInputElement>(".toc-search")!;
+  const shownRows = () => [...rail.el.querySelectorAll<HTMLElement>(".toc-turn")].filter((r) => !r.hidden).map((r) => r.querySelector(".toc-label")!.textContent);
+  const shownItems = () => [...rail.el.querySelectorAll<HTMLElement>(".toc-item")].filter((i) => !i.hidden && !i.closest("[hidden]"));
+  const widen = () => rail.el.querySelector<HTMLButtonElement>(".toc-widen")!;
+  const output = () => rail.el.querySelector<HTMLButtonElement>(".toc-output")!;
+  const seg = (d: string) => rail.el.querySelector<HTMLButtonElement>(`.toc-seg [data-detail="${d}"]`)!;
+  async function find(value: string) {
+    box().value = value;
+    box().dispatchEvent(new Event("input"));
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+  }
+
+  beforeEach(() => {
+    details = [];
+    rail = renderToc(turns, () => {}, { detail: "prompts", onDetail: (d) => details.push(d), onClear: () => {}, index: () => index });
+    document.body.append(rail.el);
+  });
+
+  it("searches only the prompts with \"prompts\", their full text included", async () => {
+    expect(box().placeholder).toBe("Search prompts…");
+    // "fails" is in the prompt's text, not its label.
+    await find("fails");
+    expect(shownRows()).toEqual(["Fix the pre-commit hook"]);
+    expect(shownItems().map((i) => i.textContent)).toEqual(["prompt …hook. It fails when prettier…"]);
+    // "filters rows" is only in a reply's label, and "untouched" in a reply's text.
+    await find("filters rows");
+    expect(shownRows()).toEqual([]);
+    await find("untouched");
+    expect(shownRows()).toEqual([]);
+  });
+
+  it("shows no reply or tool rows, even ones whose labels match", async () => {
+    await find("prettier");
+    expect(shownRows()).toEqual(["Fix the pre-commit hook"]);
+    expect(shownItems().every((i) => i.classList.contains("toc-k-found") && i.textContent!.startsWith("prompt"))).toBe(true);
+  });
+
+  it("says how many more turns replies and tools would add, and switches to \"all\" on click", async () => {
+    await find("lockfile");
+    expect(shownRows()).toEqual(["Fix the pre-commit hook"]);
+    expect(widen().hidden).toBe(false);
+    expect(widen().textContent).toBe("replies & tools +1");
+    // Tool output is a step further: not offered until replies and tools are searched.
+    expect(output().hidden).toBe(true);
+    widen().click();
+    expect(details).toEqual(["all"]);
+    expect(seg("all").getAttribute("aria-pressed")).toBe("true");
+    expect(box().placeholder).toBe("Search…");
+    expect(shownRows()).toEqual(["Fix the pre-commit hook", "Add a search box"]);
+    expect(widen().hidden).toBe(true);
+    expect(output().hidden).toBe(false);
+    expect(output().textContent).toBe("tool output +1");
+  });
+
+  it("narrows back to the prompts when switched to \"prompts\" mid-search", async () => {
+    seg("all").click();
+    await find("lockfile");
+    expect(shownRows()).toHaveLength(2);
+    seg("prompts").click();
+    expect(shownRows()).toEqual(["Fix the pre-commit hook"]);
+    expect(details).toEqual(["all", "prompts"]);
+  });
+
+  it("offers nothing to add when replies and tools hold no more matches", async () => {
+    await find("fails");
+    expect(widen().textContent).toBe("replies & tools");
+  });
+
+  it("scopes a label-only rail the same way", async () => {
+    const plain = renderToc(turns, () => {}, opts(() => {}, "prompts"));
+    document.body.append(plain.el);
+    const input = plain.el.querySelector<HTMLInputElement>(".toc-search")!;
+    expect(input.placeholder).toBe("Filter prompts…");
+    input.value = "prettier";
+    input.dispatchEvent(new Event("input"));
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    expect([...plain.el.querySelectorAll<HTMLElement>(".toc-turn")].every((r) => r.hidden)).toBe(true);
+    expect(plain.el.querySelector(".toc-widen")!.textContent).toBe("replies & tools +1");
+  });
+});
+

@@ -6,6 +6,8 @@
  *
  * The search matches the rail's own labels, and, given an index, the whole transcript:
  * an entry whose text matches but whose label doesn't gets a snippet row under its turn.
+ * The detail setting is also the search's scope: "prompts" searches the prompts only,
+ * "all" everything, so the rail never shows rows the setting says it hides.
  */
 import { plural } from "../../src/format.ts";
 import { append, h } from "./dom.ts";
@@ -24,6 +26,7 @@ export interface TocOptions {
 }
 
 const SCOPE_TITLE = "Also search what tools returned: command output, file contents, subagent results";
+const WIDEN_TITLE = "Search everything, not just the prompts: replies, thinking, tool calls, events";
 
 /** Snippet rows shown per turn before a "+N more" opener. */
 const SNIPPETS_PER_TURN = 3;
@@ -175,7 +178,7 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
     "button",
     {
       type: "button",
-      class: "toc-scope",
+      class: "toc-scope toc-output",
       "aria-pressed": "false",
       title: SCOPE_TITLE,
       onclick: () => {
@@ -187,7 +190,20 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
     "tool output",
     extra,
   );
-  const status = h("div", { class: "toc-status", hidden: true }, count, opts.index ? scope : null);
+  const wider = h("span", { class: "toc-extra" });
+  const widen = h(
+    "button",
+    {
+      type: "button",
+      class: "toc-scope toc-widen",
+      "aria-pressed": "false",
+      title: WIDEN_TITLE,
+      onclick: () => setDetail("all"),
+    },
+    "replies & tools",
+    wider,
+  );
+  const status = h("div", { class: "toc-status", hidden: true }, count, widen, opts.index ? scope : null);
 
   const drawFound = (row: Row, turn: number, hits: SearchHit[]) => {
     const shown = opened.has(turn) ? hits : hits.slice(0, SNIPPETS_PER_TURN);
@@ -218,9 +234,11 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
   // A turn stays when its own label or any of its items matches, or, with an index, when any
   // of its entries holds every word. Each label is matched on its own, so the words that made
   // a row appear are the words highlighted in it; an entry that matched on text its label
-  // doesn't show gets a snippet row instead.
+  // doesn't show gets a snippet row instead. With detail "prompts", only the prompt counts:
+  // its label and its text. What the rest would add is offered, not shown.
   const apply = () => {
-    const key = tokens.length ? `${output}:${tokens.join(" ")}` : "";
+    const prompts = detail === "prompts";
+    const key = tokens.length ? `${detail}:${output}:${tokens.join(" ")}` : "";
     const redraw = key !== drawn;
     if (redraw) opened.clear();
     drawn = key;
@@ -234,24 +252,29 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
     }
     let shown = 0;
     let entries = 0;
+    let rest = 0;
     for (const [turn, row] of rows) {
-      let match = !tokens.length;
       const own = tokens.length > 0 && matchesAll(row.own.folded, tokens);
       paint(row.own, own ? tokens : []);
       // Entries a highlighted label already explains don't need a snippet too.
       const explained = new Set<string>();
       if (own) explained.add(promptId(turn));
+      let items = false;
       for (const item of row.items) {
-        const hit = tokens.length > 0 && matchesAll(item.label.folded, tokens);
+        const matched = tokens.length > 0 && matchesAll(item.label.folded, tokens);
+        const hit = matched && !prompts;
+        items ||= matched;
         paint(item.label, hit ? tokens : []);
-        // Without a filter, sub-items follow the detail setting; with one, matching items show.
-        item.el.hidden = tokens.length ? !hit : detail === "prompts";
+        // Sub-items follow the detail setting; with a query, the matching ones show.
+        item.el.hidden = prompts || (tokens.length > 0 && !hit);
         if (hit) for (const id of item.ids) explained.add(id);
-        match ||= hit;
       }
-      const hits = byTurn.get(turn) ?? [];
+      const all = byTurn.get(turn) ?? [];
+      const hits = prompts ? all.filter((hit) => hit.doc.id === promptId(turn)) : all;
       entries += hits.length;
-      match ||= own || hits.length > 0;
+      const match = !tokens.length || own || hits.length > 0 || (!prompts && items);
+      // What "all" would add to this view: a turn only its replies and tools match.
+      if (prompts && !match && (items || all.length > 0)) rest++;
       if (redraw) drawFound(row, turn, hits.filter((hit) => !explained.has(hit.doc.id)));
       row.el.hidden = !match;
       if (match) shown++;
@@ -261,15 +284,28 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
     if (tokens.length) {
       count.textContent = plural(shown, "turn");
       count.title = opts.index ? `${plural(entries, "entry", "entries")} hold every word` : "";
-      const more = opts.index && !output ? outputOnlyTurns(docs(), tokens, new Set([...rows].filter(([, r]) => !r.el.hidden).map(([t]) => t))) : 0;
+      wider.textContent = rest ? ` +${rest}` : "";
+      widen.title = rest ? `${plural(rest, "more turn")} ${rest === 1 ? "matches" : "match"} in replies and tools: search everything` : WIDEN_TITLE;
+      widen.hidden = !prompts;
+      const more = opts.index && !output && !prompts ? outputOnlyTurns(docs(), tokens, new Set([...rows].filter(([, r]) => !r.el.hidden).map(([t]) => t))) : 0;
       extra.textContent = more ? ` +${more}` : "";
       scope.title = more ? `${plural(more, "more turn")} ${more === 1 ? "matches" : "match"} in tool output: command output, file contents, subagent results` : SCOPE_TITLE;
       scope.setAttribute("aria-pressed", String(output));
       // Brief and minimal views keep no tool output: nothing to switch on.
       hasOutput ??= docs().some((d) => d.fields.some((f) => f.output));
-      scope.hidden = !hasOutput;
+      // Tool output is one step past "all": offered once replies and tools are searched.
+      scope.hidden = prompts || !hasOutput;
     }
     for (const b of seg.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.detail === detail));
+    search.placeholder = `${opts.index ? "Search" : "Filter"}${prompts ? " prompts" : ""}…`;
+    search.setAttribute("aria-label", prompts ? `${opts.index ? "Search" : "Filter"} the prompts` : opts.index ? "Search the session" : "Filter the outline");
+  };
+
+  const setDetail = (d: TocDetail) => {
+    detail = d;
+    opts.onDetail(d);
+    opts.onClear?.();
+    apply();
   };
 
   const seg = h(
@@ -281,24 +317,14 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
         {
           type: "button",
           "data-detail": d,
-          onclick: () => {
-            detail = d;
-            opts.onDetail(d);
-            apply();
-          },
+          onclick: () => setDetail(d),
         },
         d,
       ),
     ),
   );
-  const search = h("input", {
-    type: "search",
-    class: "toc-search",
-    placeholder: opts.index ? "Search…" : "Filter…",
-    "aria-label": opts.index ? "Search the session" : "Filter the outline",
-    spellcheck: "false",
-    autocomplete: "off",
-  });
+  // Its placeholder and label follow the detail setting (see apply).
+  const search = h("input", { type: "search", class: "toc-search", spellcheck: "false", autocomplete: "off" });
   // Folding the whole session takes a moment on a big one: do it before the first keystroke.
   search.addEventListener("focus", () => void docs(), { once: true });
   // Typing is coalesced to one pass per frame: the pass is cheap, but marks are DOM writes.

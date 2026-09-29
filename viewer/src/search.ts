@@ -54,8 +54,12 @@ function strings(value: unknown, out: string[] = []): string[] {
 function toolFields(step: ToolStep, cwd: string | undefined): (Field | undefined)[] {
   const summary = relTo(cwd, step.summary || "");
   // A read's input is the path (already the summary) plus offsets; everything else is shown in full.
-  const input = step.action === "read" ? "" : strings(step.input).map((s) => (step.action === "edit" || step.action === "write" || step.action === "exec" ? s : relTo(cwd, s))).join("\n");
-  return [field(step.name, [summary, input].filter(Boolean).join("\n")), field(`${step.name} output`, step.result?.text, "output")];
+  // The summary repeats the input: a command's first line, a file's path, a search's pattern
+  // and path. Each is kept once, so a hit shows once.
+  const all = step.action === "read" ? [] : strings(step.input).map((s) => relTo(cwd, s));
+  const lead = all.some((s) => s.split("\n", 1)[0] === summary) ? [] : [summary];
+  const inputs = lead.length ? all.filter((s) => s.includes("\n") || !summary.includes(s)) : all;
+  return [field(step.name, [...lead, ...inputs].filter(Boolean).join("\n")), field(`${step.name} output`, step.result?.text, "output")];
 }
 
 function stepFields(step: Step, cwd: string | undefined): (Field | undefined)[] {
@@ -127,7 +131,6 @@ export function outputOnlyTurns(docs: readonly SearchDoc[], tokens: readonly str
   return extra.size;
 }
 
-const escape = (token: string) => token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** A markdown line as it reads: no emphasis or code marks, no heading or list markers, table cells split by "·". */
 function plainMarkdown(line: string): string {
@@ -140,48 +143,96 @@ function plainMarkdown(line: string): string {
     .replace(/\s*\|\s*/g, " · ");
 }
 
-/** The line holding the most of the words (the first of those), or undefined when none holds any. */
-function bestLine(lines: readonly string[], words: readonly string[]): string | undefined {
-  let best: string | undefined;
-  let most = 0;
-  for (const line of lines) {
-    const folded = fold(line);
-    const n = words.filter((w) => folded.includes(w)).length;
-    if (n > most) [best, most] = [line, n];
-    if (most === words.length) break;
-  }
-  return best;
+/** One stretch of text around one or more hits, with the hits' ranges in it. */
+export interface Stretch {
+  text: string;
+  ranges: [number, number][];
 }
 
+/** The stretches to show, how many more hits the text holds past them, and how many it holds in all. */
+export interface Excerpt {
+  stretches: Stretch[];
+  more: number;
+  total: number;
+}
+
+/** Characters kept on each side of a hit: about half a line of the rail. */
+const CONTEXT = 16;
+/** Hits closer than CONTEXT join one stretch, up to this length; past it a new stretch starts. */
+const MAX_STRETCH = 80;
+/** Stretches shown per row; the rest are counted. */
+const MAX_STRETCHES = 2;
+
 /**
- * A one-line excerpt around the first hit, about `width` characters, with the hits' ranges
- * in the excerpt. The excerpt comes from the line holding the most of the words, where the
- * words around them belong, and starts shortly before the first hit so it survives the
- * rail's line clamp. It is cut at word boundaries, with "…" where it was cut. `markdown`
- * drops the syntax.
+ * The hits in `source` with a little context each, compact enough for a rail row whatever
+ * the text's length. Each hit keeps about CONTEXT characters on either side; a hit within
+ * that reach of the previous one joins its stretch, so nearby hits read as one phrase.
+ * Stretches stay on their line and are cut at word boundaries, with "…" where a line was
+ * cut. `markdown` drops the syntax first (a hit only the syntax held, like a link's URL,
+ * is shown from the raw text). Without a word long enough to find, the first line is shown.
  */
-export function snippet(source: string, tokens: readonly string[], width = 80, markdown = false): { text: string; ranges: [number, number][] } {
+export function excerpt(source: string, tokens: readonly string[], opts: { markdown?: boolean; context?: number; max?: number } = {}): Excerpt {
+  const context = opts.context ?? CONTEXT;
   const words = tokens.filter((t) => t.length >= MIN_HIGHLIGHT);
-  const pattern = words.length ? new RegExp(words.map(escape).join("|"), "iu") : undefined;
-  const raw = source.split("\n");
-  const lines = markdown ? raw.map(plainMarkdown) : raw;
-  // A hit only the syntax held (a link's URL) is shown in the raw line.
-  const text = (words.length ? (bestLine(lines, words) ?? bestLine(raw, words)) : undefined) ?? lines.find((l) => l.trim()) ?? "";
-  const first = pattern ? text.search(pattern) : -1;
-  const at = Math.max(0, first);
-  let start = Math.max(0, at - Math.floor(width / 4));
-  let end = Math.min(text.length, start + width);
-  start = Math.max(0, Math.min(start, end - width));
-  // Move the cuts to the nearest space inside the window, so no word is split.
-  if (start > 0) {
-    const space = text.slice(start, at).search(/\s/);
-    if (space >= 0) start += space + 1;
+  let text = opts.markdown ? source.split("\n").map(plainMarkdown).join("\n") : source;
+  let hits = hitRanges(text, words);
+  if (!hits.length && opts.markdown) {
+    text = source;
+    hits = hitRanges(text, words);
   }
-  if (end < text.length) {
-    const space = text.slice(Math.max(at, start), end).search(/\s\S*$/);
-    if (space > 0) end = Math.max(at, start) + space;
+  if (!hits.length) {
+    const line = (text.split("\n").find((l) => l.trim()) ?? "").replace(/\s+/g, " ").trim();
+    const cut = 3 * context;
+    return { stretches: [{ text: line.length > cut ? `${line.slice(0, cut - 1)}…` : line, ranges: [] }], more: 0, total: 0 };
   }
-  const body = text.slice(start, end).replace(/\s+/g, " ").trim();
-  const out = `${start > 0 ? "…" : ""}${body}${end < text.length ? "…" : ""}`;
-  return { text: out, ranges: hitRanges(out, words) };
+
+  const groups: { start: number; end: number; lineStart: number; lineEnd: number; first: number; last: number; hits: number }[] = [];
+  for (const [s, e] of hits) {
+    const prev = groups[groups.length - 1];
+    const sameLine = prev !== undefined && s < prev.lineEnd;
+    if (prev && sameLine && s <= prev.end && e + context - prev.start <= MAX_STRETCH) {
+      prev.end = Math.min(prev.lineEnd, e + context);
+      prev.last = e;
+      prev.hits++;
+      continue;
+    }
+    const lineStart = sameLine ? prev.lineStart : text.lastIndexOf("\n", s - 1) + 1;
+    const newline = text.indexOf("\n", e);
+    const lineEnd = sameLine ? prev.lineEnd : newline < 0 ? text.length : newline;
+    // A stretch split for length starts where the previous one ended, so no text shows twice.
+    const start = Math.max(lineStart, s - context, sameLine ? prev.end : 0);
+    groups.push({ start, end: Math.min(lineEnd, e + context), lineStart, lineEnd, first: s, last: e, hits: 1 });
+  }
+
+  const stretch = (g: (typeof groups)[number]): Stretch => {
+    let { start, end } = g;
+    // Move the cuts to a space between the cut and the hits, so no word is split.
+    if (start > g.lineStart) {
+      const space = text.slice(start, g.first).search(/\s/);
+      if (space >= 0) start += space + 1;
+    }
+    if (end < g.lineEnd) {
+      const space = text.slice(g.last, end).search(/\s\S*$/);
+      if (space >= 0) end = g.last + space;
+    }
+    const body = text.slice(start, end).replace(/\s+/g, " ").trim();
+    const out = `${start > g.lineStart ? "…" : ""}${body}${end < g.lineEnd ? "…" : ""}`;
+    return { text: out, ranges: hitRanges(out, words) };
+  };
+  // The same stretch twice (a line repeated in the text) says nothing new: shown once, not counted.
+  const max = opts.max ?? MAX_STRETCHES;
+  const stretches: Stretch[] = [];
+  const seen = new Set<string>();
+  let more = 0;
+  for (const g of groups) {
+    if (stretches.length >= max) {
+      more += g.hits;
+      continue;
+    }
+    const st = stretch(g);
+    if (seen.has(st.text)) continue;
+    seen.add(st.text);
+    stretches.push(st);
+  }
+  return { stretches, more, total: hits.length };
 }

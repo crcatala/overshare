@@ -290,7 +290,7 @@ function render(opts: { keepPlace?: boolean; turn?: number } = {}): void {
   const toc = renderToc(
     turns,
     (id, hit) => {
-      if (hit) showHits(hit.ids, hit.tokens, { reveal: hit.reveal });
+      if (hit) showHits(hit.ids, hit.tokens, { reveal: hit.reveal, count: hit.count });
       else clearHits();
       jump(id);
     },

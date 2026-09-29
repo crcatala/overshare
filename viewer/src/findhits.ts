@@ -44,13 +44,15 @@ function textNodes(root: HTMLElement): Text[] {
 }
 
 /**
- * Opens an entry's collapsed parts (tool output, thinking, an expanded prompt) when some of
- * the words are not in the text it shows now. The words were found in the session data, so
- * they are in there somewhere.
+ * Opens an entry's collapsed parts (tool output, thinking, an expanded prompt, a written
+ * file) when some of the words are not in the text it shows now, or when it shows fewer
+ * than `count` hits. The words were found in the session data, so they are in there somewhere.
  */
-function reveal(entry: HTMLElement, words: readonly string[]): void {
-  const seen = fold(textNodes(entry).map((n) => n.data).join(" "));
-  if (words.every((w) => seen.includes(w))) return;
+function reveal(entry: HTMLElement, words: readonly string[], count = 0): void {
+  const nodes = textNodes(entry);
+  const seen = fold(nodes.map((n) => n.data).join(" "));
+  const shown = count ? nodes.reduce((n, node) => n + hitRanges(node.data, words).length, 0) : 0;
+  if (words.every((w) => seen.includes(w)) && shown >= count) return;
   for (const b of entry.querySelectorAll<HTMLButtonElement>('button.tline[aria-expanded="false"]')) b.click();
 }
 
@@ -74,14 +76,14 @@ function unmark(): void {
 
 /**
  * Replaces any earlier outlines with the tokens' matches inside the entries `ids` name.
- * `reveal` first opens an entry whose visible text lacks some of the words.
- * `pulseHits` starts their ripple once the scroll has arrived.
+ * `reveal` first opens an entry whose visible text lacks some of the words, or holds fewer
+ * than `count` hits. `pulseHits` starts their ripple once the scroll has arrived.
  */
-export function showHits(ids: readonly string[], tokens: readonly string[], opts: { reveal?: boolean } = {}): void {
+export function showHits(ids: readonly string[], tokens: readonly string[], opts: { reveal?: boolean; count?: number } = {}): void {
   clearHits();
   const words = tokens.filter((t) => t.length >= MIN_HIGHLIGHT);
   // Set after revealing: opening an entry asks for a refresh, and there is nothing to refresh yet.
-  if (opts.reveal) for (const entry of entriesOf(ids)) reveal(entry, words);
+  if (opts.reveal) for (const entry of entriesOf(ids)) reveal(entry, words, opts.count);
   current = { ids, tokens };
   mark(ids, words);
 }

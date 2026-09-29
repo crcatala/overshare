@@ -178,6 +178,14 @@ describe("revealing collapsed text", () => {
     expect(hits()).toEqual(["passed"]);
   });
 
+  it("opens the entry when it shows fewer hits than it holds, though every word is in view", () => {
+    // A written file: the path shows the word, the collapsed content holds it again.
+    root.append(collapsed("w", "src/currency.ts", "12 lines", "const currency = 'USD';\nexport { currency };"));
+    showHits(["w"], ["currency"], { reveal: true, count: 3 });
+    expect(root.querySelector("#w .tline")!.getAttribute("aria-expanded")).toBe("true");
+    expect(hits()).toEqual(["currency", "currency", "currency"]);
+  });
+
   it("opens only when asked", () => {
     root.append(collapsed("t", "npm test", "3 passed", "ECONNREFUSED"));
     showHits(["t"], ["econnrefused"]);

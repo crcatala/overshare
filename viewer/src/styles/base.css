@@ -1061,9 +1061,28 @@ pre.diff > span {
 .toc-item .toc-label:has(.toc-hit) {
   -webkit-line-clamp: none;
 }
-/* A snippet starts shortly before its first hit, so three lines hold it. */
-.toc-item .toc-label.toc-snip {
-  -webkit-line-clamp: 3;
+/* Search excerpts: a stretch of context per hit, on lines of its own, two at most. Several get a mark each, so separate hits read as separate. */
+.toc-xline {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+/* A single stretch runs on after the row's lead ("assistant:", a source chip) like any label. */
+.toc-x:not(.is-multi) .toc-xline {
+  display: inline;
+}
+.toc-x.is-multi .toc-xline {
+  border-left: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  padding-left: 6px;
+}
+.toc-x.is-multi .toc-xline + .toc-xline {
+  margin-top: 2px;
+}
+.toc-xmore {
+  display: block;
+  color: var(--faint);
+  font-size: 10.5px;
 }
 .toc-src {
   font-size: 10.5px;

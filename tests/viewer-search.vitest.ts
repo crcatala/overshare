@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { SCHEMA_VERSION, type NormalizedSession, type Step, type Turn } from "../src/schema.ts";
 
 (globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
-const { buildIndex, outputOnlyTurns, search, snippet } = await import("../viewer/src/search.ts");
+const { buildIndex, excerpt, outputOnlyTurns, search } = await import("../viewer/src/search.ts");
 const { queryTokens } = await import("../viewer/src/filter.ts");
 const { projectSession } = await import("../src/modes.ts");
 
@@ -89,6 +89,18 @@ describe("buildIndex", () => {
   });
 });
 
+describe("tool text", () => {
+  it("keeps the summary once where the input repeats it", () => {
+    const doc = (step: Step) => buildIndex(session([{ index: 0, steps: [step] }]))[0]!.fields[0]!.text;
+    // A command's first line.
+    expect(doc({ kind: "tool", id: "b", name: "Bash", action: "exec", summary: "npm test", input: { command: "npm test\n  --watch" } })).toBe("npm test\n  --watch");
+    // A search's pattern and path, inside the summary.
+    expect(doc({ kind: "tool", id: "g", name: "Grep", action: "search", summary: "currency in src", input: { pattern: "currency", path: "src" } })).toBe("currency in src");
+    // An edit's path: the summary, relative like every input.
+    expect(doc({ kind: "tool", id: "e", name: "Edit", action: "edit", summary: "/home/tester/app/a.ts", input: { file_path: "/home/tester/app/a.ts", old_string: "x", new_string: "y" } })).toBe("a.ts\nx\ny");
+  });
+});
+
 describe("search", () => {
   it("finds words that no rail label shows: reply bodies, thinking, commands, paths and edits", () => {
     expect(find("comes from")).toEqual(["s-0-3 reply"]);
@@ -128,41 +140,67 @@ describe("search", () => {
   });
 });
 
-describe("snippet", () => {
-  it("cuts around the first hit at word boundaries and marks the hits", () => {
+describe("excerpt", () => {
+  const texts = (ex: { stretches: { text: string }[] }) => ex.stretches.map((st) => st.text);
+  const marked = (ex: { stretches: { text: string; ranges: [number, number][] }[] }) => ex.stretches.flatMap((st) => st.ranges.map(([a, b]) => st.text.slice(a, b)));
+
+  it("keeps a little context on each side of a hit, cut at word boundaries", () => {
     const text = `${"lorem ipsum ".repeat(30)}the needle is here ${"dolor sit ".repeat(30)}`;
-    const snip = snippet(text, ["needle"], 60);
-    expect(snip.text.startsWith("…")).toBe(true);
-    expect(snip.text.endsWith("…")).toBe(true);
-    expect(snip.text).toContain("the needle is here");
-    expect(snip.text.split(" ").every((w) => /^…?(lorem|ipsum|the|needle|is|here|dolor|sit)…?$/.test(w))).toBe(true);
-    const [start, end] = snip.ranges[0]!;
-    expect(snip.text.slice(start, end)).toBe("needle");
+    const ex = excerpt(text, ["needle"]);
+    expect(texts(ex)).toEqual(["…ipsum the needle is here dolor…"]);
+    expect(marked(ex)).toEqual(["needle"]);
+    expect(ex.more).toBe(0);
   });
 
-  it("stays on the hit's line, keeping a short one whole", () => {
-    expect(snippet("fix the\n  pre-commit   hook\nlater", ["hook"])).toEqual({ text: "pre-commit hook", ranges: [[11, 15]] });
+  it("keeps short text whole", () => {
+    expect(texts(excerpt("Fix the pre-commit hook", ["pre", "commit"]))).toEqual(["Fix the pre-commit hook"]);
+  });
+
+  it("joins hits within reach of each other into one stretch", () => {
+    const near = excerpt(`${"x ".repeat(40)}the zero-decimal fix, zero amounts ${"y ".repeat(40)}`, ["zero"]);
+    expect(texts(near)).toEqual(["…x x x x x the zero-decimal fix, zero amounts y y y…"]);
+    expect(marked(near)).toEqual(["zero", "zero"]);
+    // Past the reach of the first hit's context, the second gets a stretch of its own.
+    const far = excerpt(`${"x ".repeat(40)}the zero-decimal fix for all the zero amounts ${"y ".repeat(40)}`, ["zero"]);
+    expect(far.stretches).toHaveLength(2);
+  });
+
+  it("gives hits far apart a stretch each, up to two, and counts the rest", () => {
+    const text = ["alpha", "beta", "gamma", "delta", "epsilon"].map((w) => `${"filler words ".repeat(8)}hook ${w}`).join(" ");
+    const ex = excerpt(text, ["hook"]);
+    expect(ex.stretches).toHaveLength(2);
+    expect(ex.stretches.every((st) => st.text.startsWith("…") && st.text.includes("hook"))).toBe(true);
+    expect(ex.more).toBe(3);
+  });
+
+  it("stays compact however long the text is", () => {
+    const text = "word ".repeat(5000);
+    const ex = excerpt(text, ["word"]);
+    expect(ex.stretches.every((st) => st.text.length <= 82)).toBe(true);
+    expect(ex.stretches).toHaveLength(2);
+    expect(ex.more).toBeGreaterThan(4000);
+  });
+
+  it("keeps a stretch on its line, where the words around a hit belong", () => {
+    expect(texts(excerpt("fix the\n  pre-commit   hook\nlater", ["hook"]))).toEqual(["pre-commit hook"]);
   });
 
   it("drops markdown syntax from markdown fields, table cells included", () => {
     const table = "| Severity | Finding |\n| --- | --- |\n| High | `toMinorUnits` assumes **2** decimals |";
-    expect(snippet(table, ["tominorunits"], 120, true).text).toBe("High · toMinorUnits assumes 2 decimals");
-    expect(snippet(table, ["tominorunits"]).text).toBe("| High | `toMinorUnits` assumes **2** decimals |");
+    expect(texts(excerpt(table, ["tominorunits"], { markdown: true }))).toEqual(["High · toMinorUnits assumes 2…"]);
+    expect(texts(excerpt(table, ["tominorunits"]))[0]).toContain("`toMinorUnits`");
   });
 
-  it("falls back to the raw line when only the syntax held the word", () => {
-    expect(snippet("See [the docs](https://example.com/zero-decimal)", ["decimal"], 120, true).text).toContain("zero-decimal");
+  it("falls back to the raw text when only the syntax held the word", () => {
+    expect(texts(excerpt("See [the docs](https://example.com/zero-decimal)", ["decimal"], { markdown: true }))[0]).toContain("zero-decimal");
   });
 
-  it("takes the line holding the most of the words", () => {
-    expect(snippet("two decimals here\nzero-decimal currencies", ["zero", "decimal"]).text).toBe("zero-decimal currencies");
-  });
-
-  it("shows the first line when no word is long enough to find", () => {
-    expect(snippet("\nfirst line\nsecond", ["x"]).text).toBe("first line");
+  it("shows the first line, cut short, when no word is long enough to find", () => {
+    expect(texts(excerpt("\nfirst line\nsecond", ["x"]))).toEqual(["first line"]);
+    expect(texts(excerpt("long ".repeat(40), ["x"]))[0]).toHaveLength(48);
   });
 
   it("does not treat the words as a pattern", () => {
-    expect(() => snippet("a (b) c", ["b"])).not.toThrow();
+    expect(() => excerpt("a (b) c", ["b"])).not.toThrow();
   });
 });

@@ -10,7 +10,7 @@
 import { plural } from "../../src/format.ts";
 import { append, h } from "./dom.ts";
 import { fold, hitRanges, MIN_HIGHLIGHT, matchesAll, queryTokens, splitByRanges } from "./filter.ts";
-import { outputOnlyTurns, search as searchIndex, snippet, type SearchDoc, type SearchHit } from "./search.ts";
+import { excerpt, outputOnlyTurns, search as searchIndex, type Excerpt, type SearchDoc, type SearchHit } from "./search.ts";
 import { promptId, type TurnInfo } from "./transcript.ts";
 import type { TocDetail } from "./viewsettings.ts";
 
@@ -38,15 +38,37 @@ interface Label {
 
 const labelOf = (el: HTMLElement, text: string): Label => ({ el, text, folded: fold(text), marked: false });
 
-/** Redraws a label with the tokens highlighted, or plain when there are none. Touches the DOM only when it changes. */
+/**
+ * The hits with a little context each, one stretch per line, then "+N more matches". More
+ * than one stretch gets a mark per line, so separate hits read as separate. `lead` starts
+ * the first line (a snippet's source). One wrapper child: the label is a -webkit-box, which
+ * drops a whitespace-only text node between two marks, so "USD fallback" would read "USDfallback".
+ */
+function excerptEl(ex: Excerpt, lead?: Node): HTMLElement {
+  return h(
+    "span",
+    { class: `toc-x${ex.stretches.length > 1 ? " is-multi" : ""}` },
+    ...ex.stretches.map((s, i) =>
+      // The line is clamped (a -webkit-box too): its pieces get a wrapper of their own.
+      h(
+        "span",
+        { class: "toc-xline" },
+        h("span", {}, ...(i === 0 && lead ? [lead, " "] : []), ...splitByRanges(s.text, s.ranges).map((p) => (p.hit ? h("mark", { class: "toc-hit" }, p.text) : p.text))),
+      ),
+    ),
+    ex.more ? h("span", { class: "toc-xmore" }, `+${plural(ex.more, "more match", "more matches")}`) : null,
+  );
+}
+
+/**
+ * Redraws a label with the tokens highlighted, or plain when there are none. A long label
+ * shows only the stretches around its hits. Touches the DOM only when it changes.
+ */
 function paint(label: Label, tokens: readonly string[]): void {
-  const ranges = hitRanges(label.text, tokens.filter((t) => t.length >= MIN_HIGHLIGHT));
-  if (!ranges.length && !label.marked) return;
-  label.marked = ranges.length > 0;
-  // One wrapper child: the label is a -webkit-box, which drops a whitespace-only text node
-  // between two marks, so "USD fallback" would read "USDfallback".
-  const pieces = splitByRanges(label.text, ranges).map((p) => (p.hit ? h("mark", { class: "toc-hit" }, p.text) : p.text));
-  label.el.replaceChildren(ranges.length ? h("span", {}, ...pieces) : label.text);
+  const hit = hitRanges(label.text, tokens.filter((t) => t.length >= MIN_HIGHLIGHT)).length > 0;
+  if (!hit && !label.marked) return;
+  label.marked = hit;
+  label.el.replaceChildren(hit ? excerptEl(excerpt(label.text, tokens)) : label.text);
 }
 
 /**
@@ -58,6 +80,8 @@ export interface TocHit {
   ids: string[];
   tokens: string[];
   reveal?: boolean;
+  /** How many hits the entry's text holds, so an entry showing fewer can be opened. */
+  count?: number;
 }
 
 interface Row {
@@ -68,18 +92,17 @@ interface Row {
   found: HTMLElement;
 }
 
-/** "Bash output" and the like, then the excerpt around the first hit. */
-function snippetRow(hit: SearchHit, tokens: readonly string[], onClick: () => void): HTMLElement {
-  const s = snippet(hit.field.text, tokens, undefined, hit.field.markdown);
-  const pieces = splitByRanges(s.text, s.ranges).map((p) => (p.hit ? h("mark", { class: "toc-hit" }, p.text) : p.text));
+/** "Bash output" and the like, then the stretches around the hits. The whole row is one link to the entry, and hands over how many hits it holds. */
+function snippetRow(hit: SearchHit, tokens: readonly string[], onClick: (count: number) => void): HTMLElement {
+  const ex = excerpt(hit.field.text, tokens, { markdown: hit.field.markdown });
   return h(
     "li",
     { class: "toc-item toc-k-found" },
     h(
       "button",
-      { type: "button", class: "toc-link", onclick: onClick, title: `${hit.field.source}: ${s.text}` },
+      { type: "button", class: "toc-link", onclick: () => onClick(ex.total), title: `${hit.field.source}: ${ex.stretches.map((s) => s.text).join("  ")}` },
       h("span", { class: "toc-glyph", "aria-hidden": "true" }),
-      h("span", { class: "toc-label toc-snip" }, h("span", {}, h("span", { class: "toc-src" }, hit.field.source), " ", ...pieces)),
+      h("span", { class: "toc-label" }, excerptEl(ex, h("span", { class: "toc-src" }, hit.field.source))),
     ),
   );
 }
@@ -187,7 +210,7 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
             ),
           )
         : null;
-    row.found.replaceChildren(...shown.map((hit) => snippetRow(hit, tokens, () => onJump(hit.doc.id, { ids: [hit.doc.id], tokens, reveal: true }))));
+    row.found.replaceChildren(...shown.map((hit) => snippetRow(hit, tokens, (count) => onJump(hit.doc.id, { ids: [hit.doc.id], tokens, reveal: true, count }))));
     if (more) row.found.append(more);
     row.found.hidden = !hits.length;
   };

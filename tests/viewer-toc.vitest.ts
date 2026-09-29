@@ -210,6 +210,16 @@ describe("rail filter", () => {
     expect(hits()).toEqual([]);
   });
 
+  it("shows only the stretch around the hit in a long label", async () => {
+    const long = renderToc([turn(0, `/implement ${"spec text ".repeat(12)}the needle ${"more text ".repeat(12)}`)], () => {}, opts());
+    document.body.append(long.el);
+    const box = long.el.querySelector<HTMLInputElement>(".toc-search")!;
+    box.value = "needle";
+    box.dispatchEvent(new Event("input"));
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    expect(long.el.querySelector(".toc-label")!.textContent).toBe("…spec text the needle more text more…");
+  });
+
   it("renders labels as text, never as markup", async () => {
     const evil = renderToc([turn(0, "<img src=x onerror=alert(1)> payload")], () => {}, opts());
     document.body.append(evil.el);
@@ -218,7 +228,9 @@ describe("rail filter", () => {
     box.dispatchEvent(new Event("input"));
     await new Promise((r) => requestAnimationFrame(() => r(undefined)));
     expect(evil.el.querySelector("img")).toBeNull();
-    expect(evil.el.querySelector(".toc-label")!.textContent).toBe("<img src=x onerror=alert(1)> payload");
+    // A long label shows only the stretch around the hit, still as text.
+    expect(evil.el.querySelector(".toc-label")!.textContent).toBe("…payload");
+    expect(evil.el.querySelector(".toc-link")!.getAttribute("title")).toBe("<img src=x onerror=alert(1)> payload");
     expect([...evil.el.querySelectorAll(".toc-hit")].map((m) => m.textContent)).toEqual(["payload"]);
   });
 });
@@ -274,7 +286,7 @@ describe("full-text search", () => {
   it("finds a turn by words only its reply body holds, with a snippet saying where", async () => {
     await find("lockfile");
     expect(shownRows()).toEqual(["Fix the pre-commit hook"]);
-    expect(snippets()).toEqual(["reply The hook runs prettier twice, so the second run rewrites the lockfile"]);
+    expect(snippets()).toEqual(["reply …rewrites the lockfile"]);
     const marks = [...rail.el.querySelectorAll(".toc-found .toc-hit")].map((m) => m.textContent);
     expect(marks).toEqual(["lockfile"]);
   });
@@ -290,7 +302,7 @@ describe("full-text search", () => {
   it("jumps to the entry, asking for it to be opened if the words are hidden", async () => {
     await find("git wip");
     rail.el.querySelector<HTMLElement>(".toc-k-found .toc-link")!.click();
-    expect(jumps.at(-1)).toEqual({ id: "b", hit: { ids: ["b"], tokens: ["git", "wip"], reveal: true } });
+    expect(jumps.at(-1)).toEqual({ id: "b", hit: { ids: ["b"], tokens: ["git", "wip"], reveal: true, count: 2 } });
   });
 
   it("searches tool output only when switched on, and says how many turns that would add", async () => {
@@ -302,7 +314,7 @@ describe("full-text search", () => {
     scope().click();
     expect(scope().getAttribute("aria-pressed")).toBe("true");
     expect(shownRows()).toEqual(["Fix the pre-commit hook"]);
-    expect(snippets()).toEqual(["Bash output husky - pre-commit hook exited with code 1 ECONNREFUSED"]);
+    expect(snippets()).toEqual(["Bash output …with code 1 ECONNREFUSED"]);
     expect(scope().textContent).toBe("tool output");
   });
 
@@ -316,6 +328,26 @@ describe("full-text search", () => {
     expect(brief.el.querySelector<HTMLElement>(".toc-scope")!.hidden).toBe(true);
     await find("hook");
     expect(scope().hidden).toBe(false);
+  });
+
+  it("shows far-apart hits in a long entry as separate lines of one link, and counts the rest", async () => {
+    const long = ["alpha", "beta", "gamma", "delta", "epsilon"].map((w) => `${"filler words ".repeat(8)}needle ${w}`).join(" ");
+    const big = renderToc(turns, (id, hit) => jumps.push({ id, hit }), { ...opts(), index: () => [doc(2, "big", [{ source: "reply", text: long }])] });
+    document.body.append(big.el);
+    const input = big.el.querySelector<HTMLInputElement>(".toc-search")!;
+    input.value = "needle";
+    input.dispatchEvent(new Event("input"));
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    const row = big.el.querySelector<HTMLElement>(".toc-found .toc-k-found")!;
+    expect(row.querySelectorAll(".toc-link")).toHaveLength(1);
+    expect(row.querySelector(".toc-x.is-multi")).not.toBeNull();
+    const lines = [...row.querySelectorAll(".toc-xline")];
+    expect(lines).toHaveLength(2);
+    expect(lines.every((l) => l.querySelector(".toc-hit")?.textContent === "needle")).toBe(true);
+    expect(row.querySelector(".toc-xmore")!.textContent).toBe("+3 more matches");
+    expect(row.textContent!.length).toBeLessThan(long.length / 2);
+    row.querySelector<HTMLElement>(".toc-link")!.click();
+    expect(jumps.at(-1)).toEqual({ id: "big", hit: { ids: ["big"], tokens: ["needle"], reveal: true, count: 5 } });
   });
 
   it("shows a few snippets per turn, then opens the rest on request", async () => {

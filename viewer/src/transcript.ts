@@ -525,7 +525,8 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
         ordinal: n,
         id,
         el: section,
-        label: u ? (u.command ? `${u.command.name}${u.command.args ? ` ${u.command.args}` : ""}` : plainLine(u.text.replace(/\s+/g, " "), 140)) : "Session start",
+        // Capped like a prompt: a command's arguments can be a whole pasted document.
+        label: u ? (u.command ? firstLine(`${u.command.name}${u.command.args ? ` ${u.command.args}` : ""}`.replace(/\s+/g, " "), 140) : plainLine(u.text.replace(/\s+/g, " "), 140)) : "Session start",
         time: clock(turn.timestamp),
         command: Boolean(u?.command),
         tools: o.tools,

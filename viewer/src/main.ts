@@ -15,7 +15,7 @@ import { HARNESS_LABEL, renderHeader, renderMinibar, type Controls } from "./hea
 import { load, save } from "./prefs.ts";
 import { closeMenus, settingsButton, type SettingsOptions } from "./settings.ts";
 import { formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
-import { stepPrompt } from "./nav.ts";
+import { stepPrompt, wheelMovesPage } from "./nav.ts";
 import { renderToc } from "./toc.ts";
 import { renderTokenRail } from "./tokens.ts";
 import { renderTranscript, type TurnInfo } from "./transcript.ts";
@@ -284,7 +284,9 @@ function render(opts: { keepPlace?: boolean } = {}): void {
   );
   document.addEventListener("keydown", (e) => onKey(e, turns, jump, toc.focusSearch), { signal });
   // Scrolling by hand (wheel, touch, scrollbar; keys are handled in onKey) makes the last j/k target stale.
-  for (const type of ["wheel", "touchmove", "pointerdown"]) window.addEventListener(type, () => (navCursor = undefined), { passive: true, signal });
+  const dropCursor = () => (navCursor = undefined);
+  for (const type of ["touchmove", "pointerdown"]) window.addEventListener(type, dropCursor, { passive: true, signal });
+  window.addEventListener("wheel", (e) => wheelMovesPage(e.deltaY, window.scrollY, root.scrollHeight - window.innerHeight) && dropCursor(), { passive: true, signal });
 
   activeTurn = undefined;
   navCursor = undefined;

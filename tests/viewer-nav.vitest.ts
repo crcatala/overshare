@@ -1,6 +1,6 @@
 /** j/k prompt stepping, including near the bottom of the page where jumps can't reach the landing line. */
 import { describe, expect, it } from "vitest";
-import { stepPrompt } from "../viewer/src/nav.ts";
+import { stepPrompt, wheelMovesPage } from "../viewer/src/nav.ts";
 
 const LAND = 60;
 
@@ -96,5 +96,29 @@ describe("stepPrompt near the bottom", () => {
   it("copes with a cursor index that no longer exists", () => {
     const { tops, atBottom } = bottom();
     expect(stepPrompt(1, tops, LAND, atBottom, 99)).toBe(3);
+  });
+});
+
+describe("wheelMovesPage", () => {
+  it("is true for a tick the page can follow", () => {
+    expect(wheelMovesPage(80, 500, 1200)).toBe(true);
+    expect(wheelMovesPage(-80, 500, 1200)).toBe(true);
+  });
+
+  it("is false for inertia past the bottom, so j/k keep their place", () => {
+    expect(wheelMovesPage(80, 1200, 1200)).toBe(false);
+    expect(wheelMovesPage(80, 1199.5, 1200)).toBe(false);
+  });
+
+  it("still counts scrolling back up from the bottom", () => {
+    expect(wheelMovesPage(-80, 1200, 1200)).toBe(true);
+  });
+
+  it("is false for inertia past the top", () => {
+    expect(wheelMovesPage(-80, 0, 1200)).toBe(false);
+  });
+
+  it("ignores horizontal-only ticks", () => {
+    expect(wheelMovesPage(0, 500, 1200)).toBe(false);
   });
 });

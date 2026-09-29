@@ -28,3 +28,14 @@ export function stepPrompt(dir: 1 | -1, tops: readonly number[], land: number, a
   for (let i = tops.length - 1; i >= 0; i--) if (tops[i]! < land - EPS) return i;
   return undefined;
 }
+
+/**
+ * Whether a wheel tick will scroll the page, given its `deltaY` and where the page is.
+ * Trackpad inertia keeps sending ticks after the page has hit an end; those don't move
+ * anything, so they shouldn't count as the reader scrolling away from a j/k target.
+ */
+export function wheelMovesPage(deltaY: number, scrollY: number, max: number): boolean {
+  if (deltaY > 0) return scrollY < max - 1;
+  if (deltaY < 0) return scrollY > 0;
+  return false;
+}

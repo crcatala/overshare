@@ -142,8 +142,10 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
   // Typing is coalesced to one pass per frame: the pass is cheap, but marks are DOM writes.
   let frame = 0;
   search.addEventListener("input", () => {
-    tokens = queryTokens(search.value);
-    onClear();
+    const next = queryTokens(search.value);
+    // A trailing space or "-" leaves the words as they were, so their outlines still apply.
+    if (next.length !== tokens.length || next.some((t, i) => t !== tokens[i])) onClear();
+    tokens = next;
     frame ||= requestAnimationFrame(() => {
       frame = 0;
       apply();

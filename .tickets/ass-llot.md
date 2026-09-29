@@ -53,3 +53,12 @@ Words are also matched per label, never across a prompt and its replies, so a qu
 - Only text available in the current view/share mode is searchable.
 - Filtering stays responsive on a large session (state the size tested).
 
+
+## Notes
+
+**2026-09-29T20:20:00Z**
+
+Known limits of the label filter and of transcript outlines (from review of the label-only PR); revisit with full-text search:
+- Outlines in a drawn ASCII table are lost when the table re-lays itself out (window resize, font load, table style change): asciitable.ts rebuilds the grid with pre.replaceChildren. A fix needs asciitable and findhits to cooperate, e.g. re-apply the current hits after relayout.
+- Matching does not normalize Unicode: a query typed in NFC does not match a label in NFD (for example a macOS filename with an accent), and the reverse. Case and punctuation are folded; combining marks are kept inside words. Folding to NFC needs highlight offsets mapped back to the original text.
+- A hit in a collapsed tool block's preview is not carried into the expanded body.

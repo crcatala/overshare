@@ -80,6 +80,33 @@ describe("showHits", () => {
     expect(hits()).toHaveLength(200);
   });
 
+  it("applies the cap inside a single text node, where long paragraphs and tool output live", () => {
+    root.append(entry("one", "word ".repeat(5000)));
+    showHits(["one"], ["word"]);
+    expect(hits()).toHaveLength(200);
+  });
+
+  it("spends what is left of the cap across entries", () => {
+    root.append(entry("a", "word ".repeat(150)), entry("b", "word ".repeat(150)));
+    showHits(["a", "b"], ["word"]);
+    expect(hits()).toHaveLength(200);
+    expect(root.querySelectorAll("#b .find-hit")).toHaveLength(50);
+  });
+
+  it("skips hidden content and the screen-reader copy of a drawn table, but not the drawn grid", () => {
+    root.append(
+      entry(
+        "tbl",
+        h("table", { class: "sr-only" }, h("tbody", {}, h("tr", {}, h("td", {}, "needle")))),
+        h("pre", { class: "at-grid", "aria-hidden": "true" }, "| needle |"),
+        h("div", { hidden: true }, "needle in a collapsed block"),
+      ),
+    );
+    showHits(["tbl"], ["needle"]);
+    expect(root.querySelectorAll("#tbl .find-hit")).toHaveLength(1);
+    expect(root.querySelector("#tbl .at-grid .find-hit")).not.toBeNull();
+  });
+
   it("never turns text into markup", () => {
     root.append(entry("evil", "<img src=x onerror=alert(1)> payload"));
     showHits(["evil"], ["payload"]);

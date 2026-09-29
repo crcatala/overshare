@@ -6,8 +6,12 @@
  * "fix auth" vs "auth: fix login" and "pre-commit" vs "pre commit" without a scoring model.
  */
 
-/** Anything that is not a letter or digit separates words: spaces, hyphens, slashes, dots, ×, … */
-const SEPARATORS = /[^\p{L}\p{N}]+/gu;
+/**
+ * Anything that is not a letter, combining mark or digit separates words: spaces, hyphens,
+ * slashes, dots, ×, … Marks stay inside words because in many scripts (Devanagari, Thai,
+ * Arabic) the vowel signs are marks: treated as separators they would shred every word.
+ */
+const SEPARATORS = /[^\p{L}\p{M}\p{N}]+/gu;
 
 /** Shorter words still filter, but highlighting a lone letter would light up half the text. */
 export const MIN_HIGHLIGHT = 2;

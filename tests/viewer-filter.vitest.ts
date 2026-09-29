@@ -18,6 +18,13 @@ describe("queryTokens", () => {
   it("keeps letters and digits from any script", () => {
     expect(queryTokens("naïve 日本語 x2")).toEqual(["naïve", "日本語", "x2"]);
   });
+
+  it("keeps words whole in scripts whose vowel signs are combining marks", () => {
+    expect(queryTokens("हिन्दी में")).toEqual(["हिन्दी", "में"]);
+    expect(queryTokens("สวัสดี ครับ")).toEqual(["สวัสดี", "ครับ"]);
+    expect(queryTokens("مرحبا بالعالم")).toEqual(["مرحبا", "بالعالم"]);
+    expect(queryTokens("cafe\u0301")).toEqual(["cafe\u0301"]);
+  });
 });
 
 describe("matchesAll", () => {
@@ -42,6 +49,15 @@ describe("matchesAll", () => {
 
   it("does not join across a separator", () => {
     expect(matches("foo-bar", "foobar")).toBe(false);
+  });
+
+  it("matches and highlights whole words in Devanagari and Thai", () => {
+    const label = "हिन्दी में लिखें";
+    expect(matches(label, "हिन्दी")).toBe(true);
+    expect(matches("नमस्ते दुनिया", "हिन्दी")).toBe(false);
+    expect(hitRanges(label, queryTokens("हिन्दी"))).toEqual([[0, 6]]);
+    expect(matches("ขอบคุณ ครับ", "สวัสดี")).toBe(false);
+    expect(matches("สวัสดี ครับ", "สวัสดี")).toBe(true);
   });
 
   it("finds tool-run labels", () => {

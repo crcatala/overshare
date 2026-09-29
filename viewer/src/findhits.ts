@@ -25,11 +25,16 @@ function entriesOf(ids: readonly string[]): HTMLElement[] {
   return out;
 }
 
-/** Text nodes the reader sees, in order. The gutter is decoration (aria-hidden), not content. */
+/**
+ * Text nodes the reader sees, in order. Skipped: the gutter (decoration), `hidden` content,
+ * and `.sr-only` copies, such as the real <table> behind each drawn ASCII table. Marks there
+ * would be invisible and would use up the cap. (`aria-hidden` is not a reason to skip: the
+ * drawn table itself is aria-hidden.)
+ */
 function textNodes(root: HTMLElement): Text[] {
   const nodes: Text[] = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode: (n) => (n.parentElement?.closest(".gut") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    acceptNode: (n) => (n.parentElement?.closest(".gut, .sr-only, [hidden]") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
   });
   for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n as Text);
   return nodes;
@@ -58,8 +63,11 @@ export function showHits(ids: readonly string[], tokens: readonly string[]): voi
   if (!words.length) return;
   for (const entry of entriesOf(ids)) {
     for (const node of textNodes(entry)) {
-      if (marks.length >= MAX_MARKS) return;
-      const ranges = hitRanges(node.data, words);
+      const room = MAX_MARKS - marks.length;
+      if (room <= 0) return;
+      // A single text node (a long paragraph, tool output) can hold thousands of matches, so
+      // the cap applies to the ranges, not only between nodes.
+      const ranges = hitRanges(node.data, words).slice(0, room);
       if (!ranges.length) continue;
       // Wrap from the last range back: each split leaves the text before it in `node`, so the
       // earlier offsets stay valid.

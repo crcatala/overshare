@@ -94,6 +94,17 @@ describe("clicking a result", () => {
     expect(jumps).toEqual([{ id: "t2", hit: undefined }]);
   });
 
+  it("leaves the outlines alone when an edit keeps the same words", async () => {
+    await type("search box");
+    expect(cleared).toBe(1);
+    await type("search box ");
+    await type("Search  box");
+    await type("search-box");
+    expect(cleared).toBe(1);
+    await type("search boxes");
+    expect(cleared).toBe(2);
+  });
+
   it("tells the viewer when the filter changes or is cleared", async () => {
     await type("sea");
     await type("search");

@@ -441,6 +441,29 @@ button.theme::before {
     box-shadow: 0 0 0 8px transparent;
   }
 }
+/*
+ * Words a rail filter result matched, in the transcript (findhits.ts). An outline, never a
+ * background: several variants already tint their blocks. The ripple plays once as the
+ * jump arrives; the outline itself stays until the filter changes.
+ */
+.find-hit {
+  background: none;
+  color: inherit;
+  outline: 1.5px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.find-hit.is-new {
+  animation: hit-ripple 0.9s ease-out 3;
+}
+@keyframes hit-ripple {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   /* Outranks the global `animation: none` below: the fade is only opacity. */
   .beacon {
@@ -1004,6 +1027,13 @@ pre.diff > span {
   -webkit-box-orient: vertical;
   overflow-wrap: anywhere;
 }
+/* Filter hits take the variant's accent, so they follow the variant and light/dark on their own. */
+.toc-hit {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  color: var(--ink);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
+}
 .toc-meta {
   color: var(--faint);
   font-size: 11px;
@@ -1025,6 +1055,11 @@ pre.diff > span {
 }
 .toc-item .toc-label {
   -webkit-line-clamp: 1;
+}
+/* Must follow the rule above: a hit past the clamp would be invisible, and its row is there because of it. */
+.toc-label:has(.toc-hit),
+.toc-item .toc-label:has(.toc-hit) {
+  -webkit-line-clamp: none;
 }
 .toc-glyph {
   flex: none;

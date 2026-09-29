@@ -18,6 +18,8 @@ export interface OutlineItem {
   kind: OutlineKind;
   label: string;
   error?: boolean;
+  /** Every step the item stands for, when it is more than the one at `id` (a run of tool calls). */
+  ids?: string[];
 }
 
 /** One tool call (or, in a brief/minimal view, one stand-in for several) for the rail's per-tool lists. */
@@ -413,17 +415,18 @@ function outline(turn: Turn, stepIds: string[]): { items: OutlineItem[]; tools: 
   const items: OutlineItem[] = [];
   let tools = 0;
   let errors = 0;
-  let run: { id: string; names: Map<string, number>; error: boolean } | undefined;
+  let run: { id: string; ids: string[]; names: Map<string, number>; error: boolean } | undefined;
   const flush = () => {
     if (!run) return;
     const label = [...run.names].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(" · ");
-    items.push({ id: run.id, kind: "tools", label, error: run.error });
+    items.push({ id: run.id, ids: run.ids, kind: "tools", label, error: run.error });
     run = undefined;
   };
   turn.steps.forEach((step, i) => {
     const id = stepIds[i]!;
     if (step.kind === "tool" || step.kind === "toolGroup") {
-      run ??= { id, names: new Map(), error: false };
+      run ??= { id, ids: [], names: new Map(), error: false };
+      run.ids.push(id);
       for (const c of callsOf(step)) {
         if (!c.errorsOnly) {
           run.names.set(c.label, (run.names.get(c.label) ?? 0) + c.count);

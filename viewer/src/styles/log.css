@@ -406,6 +406,9 @@
 [data-variant="log"] .toc-turn .toc-label {
   -webkit-line-clamp: 1;
 }
+[data-variant="log"] .toc-turn .toc-label:has(.toc-hit) {
+  -webkit-line-clamp: none;
+}
 [data-variant="log"] .toc-meta {
   color: var(--faint);
 }

@@ -317,7 +317,8 @@ describe("header mode switch", () => {
     setView: () => {},
     toggleTheme: () => {},
     toggleRail: () => {},
-    settings: { current: () => VARIANTS[0]!, onPick: () => {} },
+    settings: { current: () => VARIANTS[0]!, onPick: () => {}, defaults: () => ({ canSave: false, canReset: false }), saveDefault: () => {}, resetDefault: () => {} },
+    share: { source: { kind: "local" as const, name: "s.json" }, view: () => ({ ui: "", label: "" }), turn: () => undefined },
     local: false,
   });
   const buttons = (el: HTMLElement) =>

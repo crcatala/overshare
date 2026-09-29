@@ -1449,11 +1449,13 @@ button.bars-toggle:hover {
   color: var(--ink-2);
 }
 
-/* ---------- settings menu ---------- */
-button.settings svg {
+/* ---------- menus (settings, share) ---------- */
+button.settings svg,
+button.share svg {
   display: block;
 }
-button.settings[aria-expanded="true"] {
+button.settings[aria-expanded="true"],
+button.share[aria-expanded="true"] {
   color: var(--ink);
   background: var(--bg-3);
 }
@@ -1491,10 +1493,19 @@ button.settings[aria-expanded="true"] {
   cursor: pointer;
   color: var(--ink-2);
 }
-.menu-item:hover,
+.menu-item:hover:not(:disabled),
 .menu-item:focus-visible {
   background: var(--bg-2);
   outline: none;
+}
+.menu-item:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.menu-section {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
 }
 .menu-check {
   flex: none;
@@ -1516,6 +1527,11 @@ button.settings[aria-expanded="true"] {
 .menu-blurb {
   color: var(--dim);
   font-size: 11px;
+  /* A prompt's first line can be long. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 .menu-foot {
   margin-top: 4px;
@@ -1523,6 +1539,37 @@ button.settings[aria-expanded="true"] {
   border-top: 1px solid var(--line);
   color: var(--faint);
   font-size: 11px;
+}
+
+.toast {
+  position: fixed;
+  z-index: 70;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: 8px 14px;
+  background: var(--ink);
+  color: var(--bg);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  font: var(--fs-sm) / 1.4 var(--font-mono);
+  overflow-wrap: anywhere;
+  /* Invisible but never display:none or hidden, which would take the live region out of
+     the accessibility tree. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.toast.is-on {
+  opacity: 1;
+}
+/* Off-screen text for the fallback clipboard copy. */
+.copy-buffer {
+  position: fixed;
+  top: 0;
+  left: -9999px;
+  opacity: 0;
 }
 
 /* ---------- local picker ---------- */
@@ -1676,6 +1723,10 @@ button.settings[aria-expanded="true"] {
     max-width: none;
     flex: 1 1 auto;
   }
+  /* Just the counter here: keep it whole and let the title give way. */
+  .mb-turn {
+    flex: none;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   * {
@@ -1688,7 +1739,8 @@ button.settings[aria-expanded="true"] {
   .rail-tab,
   .minibar,
   .hcard,
-  .menu {
+  .menu,
+  .toast {
     display: none !important;
   }
 }

@@ -6,24 +6,26 @@ import "./styles/timeline.css";
 import "./styles/hybrid.css";
 import "./styles/log.css";
 import { plural } from "../../src/format.ts";
-import { availableModes, projectSession } from "../../src/modes.ts";
+import { projectSession } from "../../src/modes.ts";
 import { SCHEMA_VERSION, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
 import { beacon } from "./beacon.ts";
 import { clearHits, pulseHits, showHits } from "./findhits.ts";
 import { relayoutTables, releaseTables, setTableStyle } from "./asciitable.ts";
-import { h, hideTooltip } from "./dom.ts";
+import { h, hideTooltip, toast } from "./dom.ts";
 import { attribution } from "./attribution.ts";
 import { renderHeader, renderMinibar, type Controls } from "./header.ts";
+import { closeMenus } from "./menu.ts";
 import { closeHoverCard } from "./popover.ts";
-import { load, save } from "./prefs.ts";
-import { closeMenus, settingsButton, type SettingsOptions } from "./settings.ts";
+import type { SettingsOptions } from "./settings.ts";
+import type { ShareOptions } from "./share.ts";
 import { formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
 import { stepPrompt, typing, variantKeyStep, wheelMovesPage } from "./nav.ts";
-import { fetchLocalShares, renderPicker, setPickerVariant } from "./picker.ts";
+import { fetchLocalShares, renderPicker } from "./picker.ts";
 import { renderToc } from "./toc.ts";
 import { renderTokenRail } from "./tokens.ts";
 import { renderTranscript, type TurnInfo } from "./transcript.ts";
-import { DEFAULT_VARIANT, findVariant, VARIANTS, type Variant } from "./variants.ts";
+import { findVariant, VARIANTS, type Variant } from "./variants.ts";
+import { BUILT_IN, defaultsState, describe, formatUi, loadSaved, loadTab, parseUi, resolve, saveDefault, saveTab, viewFor, wantedView, type ViewSettings } from "./viewsettings.ts";
 
 const app = document.getElementById("app") as HTMLElement;
 const root = document.documentElement;
@@ -34,22 +36,51 @@ let state: HashState = parseHash(location.hash);
 /** Listeners and observers of the current render, dropped on the next one. */
 let teardown = new AbortController();
 
-// ---------- theme & variant ----------
-function applyTheme(theme: string | null): void {
-  if (theme === "light" || theme === "dark") root.dataset.theme = theme;
-  else delete root.dataset.theme;
+// ---------- view settings (see viewsettings.ts) ----------
+/**
+ * Take the view settings and prompt a link opened with, then drop them from the address
+ * bar: it always shows the plain share link, and the share menu makes the others.
+ */
+function takeLinkParams(): { ui: Partial<ViewSettings>; turn?: number } {
+  const ui = parseUi(state.params.get("ui"));
+  const n = Number(state.params.get("turn"));
+  if (state.params.has("ui") || state.params.has("turn")) {
+    state.params.delete("ui");
+    state.params.delete("turn");
+    history.replaceState(null, "", formatHash(state));
+  }
+  return { ui, turn: Number.isInteger(n) && n > 0 ? n : undefined };
 }
-applyTheme(load("theme"));
+
+const opened = takeLinkParams();
+let settings: ViewSettings = resolve(opened.ui, loadTab(), loadSaved() ?? {});
+saveTab(settings);
+/** A prompt the link asked to open at (`&turn=`), for the next render of a newly loaded share. */
+let openAt = opened.turn;
+
+function update(patch: Partial<ViewSettings>): void {
+  settings = { ...settings, ...patch };
+  saveTab(settings);
+}
+
+function shownTheme(): "light" | "dark" {
+  if (settings.theme !== "system") return settings.theme;
+  return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function applyTheme(): void {
+  if (settings.theme === "system") delete root.dataset.theme;
+  else root.dataset.theme = settings.theme;
+}
+applyTheme();
 
 function toggleTheme(): void {
-  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
-  const next = dark ? "light" : "dark";
-  applyTheme(next);
-  save("theme", next);
+  update({ theme: shownTheme() === "dark" ? "light" : "dark" });
+  applyTheme();
 }
 
 function currentVariant(): Variant {
-  return findVariant(state.params.get("variant")) ?? findVariant(load("variant")) ?? findVariant(DEFAULT_VARIANT)!;
+  return findVariant(settings.variant)!;
 }
 
 function applyVariant(v: Variant): void {
@@ -58,17 +89,17 @@ function applyVariant(v: Variant): void {
 }
 applyVariant(currentVariant());
 
-function setVariant(v: Variant): void {
-  save("variant", v.id);
-  state.params.set("variant", v.id);
-  history.replaceState(null, "", formatHash(state));
-  // render() applies the variant itself, after noting where the reader is.
+/** Show `settings` after more than one of them changed at once. */
+function applySettings(): void {
+  applyTheme();
+  // render() applies the variant and rails itself, after noting where the reader is.
   if (shared) render({ keepPlace: true });
-  else {
-    applyVariant(v);
-    // The local sessions page only needs its links updated; anything else has to reload.
-    if (!setPickerVariant(app, v.id)) void main();
-  }
+  else applyVariant(currentVariant());
+}
+
+function setVariant(v: Variant): void {
+  update({ variant: v.id });
+  applySettings();
 }
 
 /** The next (or previous) variant in the settings menu's order. */
@@ -77,11 +108,24 @@ function cycleVariant(dir: 1 | -1): void {
   setVariant(VARIANTS[(i + dir + VARIANTS.length) % VARIANTS.length]!);
 }
 
-const settings: SettingsOptions = { current: currentVariant, onPick: setVariant };
+const settingsMenu: SettingsOptions = {
+  current: currentVariant,
+  onPick: setVariant,
+  defaults: () => defaultsState(settings, loadSaved()),
+  saveDefault: () => {
+    saveDefault(settings);
+    toast("Saved as your default view");
+  },
+  resetDefault: () => {
+    saveDefault(null);
+    update(BUILT_IN);
+    applySettings();
+    toast("Back to the built-in default view");
+  },
+};
 
 // ---------- rails ----------
 type Side = "left" | "right";
-const railOpen: Record<Side, boolean> = { left: load("rail-left") !== "closed", right: load("rail-right") !== "closed" };
 /** In overlay mode (narrow windows) rails start closed and aren't remembered. */
 const overlayOpen: Record<Side, boolean> = { left: false, right: false };
 
@@ -101,7 +145,7 @@ function updateDock(): void {
 }
 
 function syncRails(): void {
-  const open = docked() ? railOpen : overlayOpen;
+  const open = docked() ? settings : overlayOpen;
   root.dataset.left = open.left ? "open" : "closed";
   root.dataset.right = open.right ? "open" : "closed";
   for (const side of ["left", "right"] as Side[]) {
@@ -111,8 +155,8 @@ function syncRails(): void {
 
 function toggleRail(side: Side, force?: boolean): void {
   if (docked()) {
-    railOpen[side] = force ?? !railOpen[side];
-    save(`rail-${side}`, railOpen[side] ? null : "closed");
+    const next = force ?? !settings[side];
+    update(side === "left" ? { left: next } : { right: next });
   } else {
     const next = force ?? !overlayOpen[side];
     overlayOpen.left = false;
@@ -161,8 +205,7 @@ function showError(message: string): void {
 }
 
 function currentView(): ShareMode {
-  const requested = state.params.get("view") as ShareMode | null;
-  return shared && requested && availableModes(shared.mode).includes(requested) ? requested : (shared?.mode ?? "full");
+  return shared ? viewFor(settings.view, shared.mode) : "full";
 }
 
 let activeTurn: TurnInfo | undefined;
@@ -203,7 +246,8 @@ function restoreAnchor(anchor: Anchor): void {
   window.scrollTo(0, window.scrollY + target.getBoundingClientRect().top - top);
 }
 
-function render(opts: { keepPlace?: boolean } = {}): void {
+/** `keepPlace`: keep what's at the top of the viewport there. `turn`: open at this prompt instead. */
+function render(opts: { keepPlace?: boolean; turn?: number } = {}): void {
   if (!shared) return;
   // Before anything changes the layout (the new variant's styles included).
   const anchor = opts.keepPlace ? captureAnchor() : undefined;
@@ -218,10 +262,19 @@ function render(opts: { keepPlace?: boolean } = {}): void {
   const variant = currentVariant();
   applyVariant(variant);
   const view = currentView();
-  const session = view === shared.mode ? shared : projectSession(shared, view);
+  const sharedMode = shared.mode;
+  const session = view === sharedMode ? shared : projectSession(shared, view);
   document.title = `${session.title ?? "Agent session"} · Agent Session`;
 
-  const controls: Controls = { sharedMode: shared.mode, view, setView, toggleTheme, toggleRail, settings, local: state.source?.kind === "local" };
+  const share: ShareOptions = {
+    source: state.source!,
+    view: () => {
+      const shown = { ...settings, view, theme: shownTheme() };
+      return { ui: formatUi({ ...shown, view: wantedView(view, sharedMode) }), label: describe(shown) };
+    },
+    turn: () => (activeTurn?.ordinal ? { ordinal: activeTurn.ordinal, label: activeTurn.label } : undefined),
+  };
+  const controls: Controls = { sharedMode, view, setView, toggleTheme, toggleRail, settings: settingsMenu, share, local: state.source?.kind === "local" };
   const { el: transcript, turns } = renderTranscript(session, { inlineThinking: variant.inlineThinking });
 
   const jump = (id: string, smooth = true) => {
@@ -240,7 +293,7 @@ function render(opts: { keepPlace?: boolean } = {}): void {
       else clearHits();
       jump(id);
     },
-    clearHits,
+    { detail: settings.toc, onDetail: (d) => update({ toc: d }), onClear: clearHits },
   );
   const tokens = renderTokenRail(
     session,
@@ -323,17 +376,20 @@ function render(opts: { keepPlace?: boolean } = {}): void {
 
   activeTurn = undefined;
   navCursor = undefined;
-  if (anchor) {
+  const target = opts.turn ? turns.find((t) => t.ordinal === opts.turn) : undefined;
+  const land = target ? () => target.el.scrollIntoView({ block: "start" }) : anchor ? () => restoreAnchor(anchor) : undefined;
+  if (land) {
     // Tables start at a default width until their observer fires; size them now so
-    // the heights above the anchor are final before measuring.
+    // the heights above the landing spot are final before measuring.
     relayoutTables();
-    restoreAnchor(anchor);
+    land();
+    if (target) beacon(target.el);
     // A variant's font may still be loading; once it lands, put the reader back unless
     // they've scrolled since.
     if (document.fonts?.status === "loading") {
       const settled = window.scrollY;
       void document.fonts.ready.then(() => {
-        if (!signal.aborted && Math.abs(window.scrollY - settled) < 2) restoreAnchor(anchor);
+        if (!signal.aborted && Math.abs(window.scrollY - settled) < 2) land();
       });
     }
   }
@@ -389,9 +445,7 @@ function onKey(e: KeyboardEvent, turns: TurnInfo[], jump: (id: string) => void, 
 }
 
 function setView(mode: ShareMode): void {
-  if (mode === shared?.mode) state.params.delete("view");
-  else state.params.set("view", mode);
-  history.replaceState(null, "", formatHash(state));
+  if (shared) update({ view: wantedView(mode, shared.mode) });
   render({ keepPlace: true });
 }
 
@@ -402,7 +456,7 @@ async function showLocalPicker(): Promise<boolean> {
   teardown.abort();
   teardown = new AbortController();
   document.title = "Local sessions · Agent Session";
-  app.replaceChildren(renderPicker(shares, { variant: state.params.get("variant"), settings, toggleTheme }));
+  app.replaceChildren(renderPicker(shares, { settings: settingsMenu, toggleTheme }));
   document.addEventListener(
     "keydown",
     (e) => {
@@ -416,7 +470,9 @@ async function showLocalPicker(): Promise<boolean> {
 
 async function main(): Promise<void> {
   // Forget the previous share first: if this load fails, a later same-source hash change
-  // (e.g. &view=brief) would otherwise re-render the old share under the new link.
+  // (e.g. &turn=3) would otherwise re-render the old share under the new link.
+  const turn = openAt;
+  openAt = undefined;
   shared = undefined;
   provenance = undefined;
   activeTurn = undefined;
@@ -433,18 +489,24 @@ async function main(): Promise<void> {
     if (!data || data.schema !== SCHEMA_VERSION) throw new Error(`Unsupported share format (${(data as { schema?: string })?.schema ?? "unknown"}).`);
     shared = data;
     provenance = loaded.provenance;
-    render();
+    render({ turn });
   } catch (err) {
     showError(err instanceof Error ? err.message : String(err));
   }
 }
 
 window.addEventListener("hashchange", () => {
-  const next = parseHash(location.hash);
-  const sameSource = JSON.stringify(next.source) === JSON.stringify(state.source);
-  state = next;
-  if (sameSource) render({ keepPlace: true });
-  else void main();
+  const previous = state.source;
+  state = parseHash(location.hash);
+  const { ui, turn } = takeLinkParams();
+  update(ui);
+  applyTheme();
+  if (JSON.stringify(state.source) !== JSON.stringify(previous)) {
+    openAt = turn;
+    void main();
+  } else if (shared) render({ keepPlace: true, turn });
+  // The picker or an error: nothing to re-render, only the variant to restyle with.
+  else applyVariant(currentVariant());
 });
 
 void main();

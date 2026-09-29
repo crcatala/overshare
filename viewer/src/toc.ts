@@ -7,10 +7,15 @@
 import { plural } from "../../src/format.ts";
 import { append, h } from "./dom.ts";
 import { fold, hitRanges, MIN_HIGHLIGHT, matchesAll, queryTokens, splitByRanges } from "./filter.ts";
-import { load, save } from "./prefs.ts";
 import type { TurnInfo } from "./transcript.ts";
+import type { TocDetail } from "./viewsettings.ts";
 
-type Detail = "prompts" | "all";
+export interface TocOptions {
+  detail: TocDetail;
+  onDetail: (d: TocDetail) => void;
+  /** The filter's words changed or were cleared. */
+  onClear?: () => void;
+}
 
 /** A label the filter can match and highlight: the rail's text for a prompt, reply or tool run. */
 interface Label {
@@ -47,10 +52,10 @@ interface Row {
 
 /**
  * `onJump` also gets the hit when the row was clicked while the filter matched it, so the
- * viewer can outline the words in the transcript; `onClear` fires when the filter changes.
+ * viewer can outline the words in the transcript; `opts.onClear` fires when the filter's words change.
  */
-export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) => void, onClear: () => void = () => {}) {
-  let detail: Detail = load("toc-detail") === "all" ? "all" : "prompts";
+export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) => void, opts: TocOptions) {
+  let detail = opts.detail;
   let tokens: string[] = [];
   const rows = new Map<number, Row>();
   const jump = (label: Label, id: string, ids = [id]) => onJump(id, tokens.length && matchesAll(label.folded, tokens) ? { ids, tokens } : undefined);
@@ -122,7 +127,7 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
   const seg = h(
     "div",
     { class: "toc-seg", role: "group", "aria-label": "Outline detail" },
-    ...(["prompts", "all"] as Detail[]).map((d) =>
+    ...(["prompts", "all"] as TocDetail[]).map((d) =>
       h(
         "button",
         {
@@ -130,7 +135,7 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
           "data-detail": d,
           onclick: () => {
             detail = d;
-            save("toc-detail", d);
+            opts.onDetail(d);
             apply();
           },
         },
@@ -144,7 +149,7 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
   search.addEventListener("input", () => {
     const next = queryTokens(search.value);
     // A trailing space or "-" leaves the words as they were, so their outlines still apply.
-    if (next.length !== tokens.length || next.some((t, i) => t !== tokens[i])) onClear();
+    if (next.length !== tokens.length || next.some((t, i) => t !== tokens[i])) opts.onClear?.();
     tokens = next;
     frame ||= requestAnimationFrame(() => {
       frame = 0;
@@ -157,7 +162,7 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string, hit?: TocHit) 
       frame = 0;
       search.value = "";
       tokens = [];
-      onClear();
+      opts.onClear?.();
       apply();
       search.blur();
     }

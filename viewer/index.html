@@ -16,6 +16,8 @@
   <body>
     <main id="app"><p class="status">Loading session…</p></main>
     <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+    <!-- In the page from the start: screen readers only announce changes to a live region they already know. -->
+    <div id="toast" class="toast" role="status"></div>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

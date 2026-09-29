@@ -49,11 +49,7 @@ function meta(s: LocalShare): HTMLElement {
   );
 }
 
-const hrefFor = (name: string, variant: string | null | undefined) => `#local:${encodeURIComponent(name)}${variant ? `&variant=${encodeURIComponent(variant)}` : ""}`;
-
 export interface PickerOptions {
-  /** The variant named in the link, carried on to the session links. */
-  variant: string | null;
   settings: SettingsOptions;
   toggleTheme: () => void;
 }
@@ -71,19 +67,9 @@ export function renderPicker(shares: LocalShare[], opts: PickerOptions): HTMLEle
     h(
       "ul",
       { class: "picker-list" },
-      ...shares.map((s) => h("li", {}, h("a", { href: hrefFor(s.name, opts.variant), "data-share": s.name }, s.title ?? s.name), meta(s))),
+      ...shares.map((s) => h("li", {}, h("a", { href: `#local:${encodeURIComponent(s.name)}` }, s.title ?? s.name), meta(s))),
     ),
     attribution(),
   );
 }
 
-/**
- * Point the session links at another variant, in place. A variant change only restyles the
- * page, so nothing is rebuilt and keyboard focus stays where it is. False when the picker
- * isn't the page showing.
- */
-export function setPickerVariant(root: ParentNode, variant: string): boolean {
-  const links = root.querySelectorAll<HTMLAnchorElement>(".picker a[data-share]");
-  for (const a of links) a.setAttribute("href", hrefFor(a.dataset.share!, variant));
-  return links.length > 0;
-}

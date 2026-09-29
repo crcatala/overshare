@@ -6,6 +6,9 @@ import type { TurnInfo } from "../viewer/src/transcript.ts";
 (globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
 const { renderToc } = await import("../viewer/src/toc.ts");
 
+/** The detail setting lives with the viewer's settings; a rail under test keeps it in a variable. */
+const opts = (onClear = () => {}) => ({ detail: "prompts" as const, onDetail: () => {}, onClear });
+
 const turn = (index: number, label: string, items: TurnInfo["items"] = []): TurnInfo => ({
   index,
   ordinal: index + 1,
@@ -49,7 +52,7 @@ beforeEach(() => {
   toc = renderToc(
     turns,
     (id, hit) => jumps.push({ id, hit }),
-    () => cleared++,
+    opts(() => cleared++),
   );
   document.body.append(toc.el);
 });
@@ -73,7 +76,7 @@ describe("clicking a result", () => {
   });
 
   it("hands over every step of a tool run", async () => {
-    const run = renderToc([turn(0, "Run tools", [{ id: "r1", ids: ["r1", "r2", "r3"], kind: "tools", label: "Bash(git) ×3" }])], (id, hit) => jumps.push({ id, hit }));
+    const run = renderToc([turn(0, "Run tools", [{ id: "r1", ids: ["r1", "r2", "r3"], kind: "tools", label: "Bash(git) ×3" }])], (id, hit) => jumps.push({ id, hit }), opts());
     document.body.append(run.el);
     const box = run.el.querySelector<HTMLInputElement>(".toc-search")!;
     box.value = "git";
@@ -206,7 +209,7 @@ describe("rail filter", () => {
   });
 
   it("renders labels as text, never as markup", async () => {
-    const evil = renderToc([turn(0, "<img src=x onerror=alert(1)> payload")], () => {});
+    const evil = renderToc([turn(0, "<img src=x onerror=alert(1)> payload")], () => {}, opts());
     document.body.append(evil.el);
     const box = evil.el.querySelector<HTMLInputElement>(".toc-search")!;
     box.value = "payload";

@@ -12,7 +12,8 @@ import { contextTokens, totalTokens, type NormalizedSession, type ResponseUsage,
 import { isExecTool, tallyCommands } from "./commands.ts";
 import { h, hideTooltip, withTooltip } from "./dom.ts";
 import { svg } from "./el.ts";
-import type { TurnInfo } from "./transcript.ts";
+import { closeHoverCard, hoverCard } from "./popover.ts";
+import type { ToolCall, TurnInfo } from "./transcript.ts";
 
 const SEGMENTS: [keyof Usage, string, string][] = [
   ["cacheRead", "seg-cache-read", "cache read"],
@@ -161,6 +162,29 @@ function responseTip(r: ResponseUsage, i: number, n: number): string[] {
 /** Programs listed under a shell tool in the rail; the rest are summed. */
 const SHELL_ROWS = 8;
 
+/** The list a tool row opens on hover: its calls, each a line that jumps to it. */
+function callsCard(title: string, count: number, calls: (ToolCall & { turn: number })[], onPick: (id: string) => void): HTMLElement {
+  return h(
+    "div",
+    { class: "hc" },
+    h("div", { class: "hc-head" }, h("span", { class: "hc-title" }, title), h("span", { class: "hc-count" }, plural(count, "call"))),
+    h(
+      "div",
+      { class: "hc-list" },
+      ...calls.map((c) =>
+        h(
+          "button",
+          { type: "button", class: `hc-item${c.error ? " is-error" : ""}`, "data-hc-item": "", title: c.preview, onclick: () => onPick(c.id) },
+          h("span", { class: "hc-turn" }, c.turn ? String(c.turn) : "·"),
+          h("span", { class: "hc-text" }, c.preview),
+          c.count && c.count > 1 ? h("span", { class: "hc-n" }, `×${c.count}`) : null,
+          c.error ? h("span", { class: "hc-err" }, "error") : null,
+        ),
+      ),
+    ),
+  );
+}
+
 /** Shell calls by program, per shell tool name. Empty for a view that dropped the commands (minimal). */
 function shellBreakdown(session: NormalizedSession): Map<string, [program: string, count: number][]> {
   const commands = new Map<string, string[]>();
@@ -186,7 +210,11 @@ function shellBreakdown(session: NormalizedSession): Map<string, [program: strin
   return out;
 }
 
-export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], onJump: (turn: number) => void) {
+/**
+ * `onJump` goes to a turn (the context chart); `onJumpTo` to a step (a call picked from a
+ * tool row's list).
+ */
+export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], onJump: (turn: number) => void, onJumpTo?: (id: string) => void) {
   const st = session.stats;
   const total = totalTokens(st.tokens);
   const ctxAll = contextTokens(st.tokens);
@@ -225,30 +253,70 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
   const tools = Object.entries(st.tools).sort((a, b) => b[1] - a[1]);
   const maxTool = tools[0]?.[1] ?? 1;
   const shell = shellBreakdown(session);
-  const toolRow = (name: string, count: number, sub = false) => {
+  const calls = turns.flatMap((t) => t.calls.map((c) => ({ ...c, turn: t.ordinal })));
+  /** Shell tools whose full program list is showing. */
+  const expanded = new Set<string>();
+
+  /** `program`: only that program's calls; null: the shell calls that couldn't be named; undefined: all of the tool's. */
+  const toolRow = (name: string, count: number, program?: string | null) => {
+    const sub = program !== undefined;
+    const label = program ?? name;
     const bar = h("span", { class: "bar" });
     bar.style.setProperty("--w", `${Math.max(3, (count / maxTool) * 100)}%`);
-    return h("div", { class: `bars-row${sub ? " bars-sub" : ""}` }, h("span", { class: "bars-name", title: name }, name), h("span", { class: "bars-track" }, bar), h("span", { class: "bars-n" }, String(count)));
-  };
-  const toolList = tools.length
-    ? h(
-        "div",
-        { class: "bars" },
-        ...tools.slice(0, 12).flatMap(([name, count]) => {
-          const parts = shell.get(name);
-          if (!parts) return [toolRow(name, count)];
-          // The shell total stays on its own row; what it ran is nested below it.
-          const shown = parts.slice(0, SHELL_ROWS);
-          const rest = count - shown.reduce((n, [, k]) => n + k, 0);
-          return [
-            toolRow(name, count),
-            ...shown.map(([program, k]) => toolRow(program, k, true)),
-            rest > 0 ? h("div", { class: "bars-more bars-sub" }, parts.length > SHELL_ROWS ? `+${plural(parts.length - SHELL_ROWS, "more program")} (${plural(rest, "call")})` : `+${rest} other`) : null,
-          ];
+    const row = h("div", { class: `bars-row${sub ? " bars-sub" : ""}` }, h("span", { class: "bars-name", title: program === null ? `${name}: other` : sub ? `${name}(${program})` : name }, program === null ? "other" : label), h("span", { class: "bars-track" }, bar), h("span", { class: "bars-n" }, String(count)));
+    const mine = calls.filter((c) => c.tool === name && (program === undefined || (program === null ? !c.program : c.program === program)));
+    if (mine.length) {
+      hoverCard(row, {
+        label: `${name} calls`,
+        beside: () => row.closest(".rail") ?? row,
+        build: (close) => callsCard(program === undefined ? name : program === null ? `${name} · other` : `${name}(${program})`, count, mine, (id) => {
+          close();
+          onJumpTo?.(id);
         }),
-        tools.length > 12 ? h("div", { class: "bars-more" }, `+${plural(tools.length - 12, "more tool")}`) : null,
-      )
-    : null;
+      });
+    }
+    return row;
+  };
+
+  const toolRows = ([name, count]: [string, number]): HTMLElement[] => {
+    const parts = shell.get(name);
+    if (!parts) return [toolRow(name, count)];
+    // The shell total stays on its own row; what it ran is nested below it.
+    const named = parts.reduce((n, [, k]) => n + k, 0);
+    const unnamed = count - named;
+    const rows: [string | null, number][] = [...parts, ...(unnamed > 0 ? [[null, unnamed] as [null, number]] : [])];
+    const open = expanded.has(name);
+    const hidden = rows.length > SHELL_ROWS + 1 ? rows.slice(SHELL_ROWS) : [];
+    const shown = open || !hidden.length ? rows : rows.slice(0, SHELL_ROWS);
+    const list: HTMLElement[] = [toolRow(name, count), ...shown.map(([program, k]) => toolRow(name, k, program))];
+    if (hidden.length) {
+      list.push(
+        h(
+          "button",
+          {
+            type: "button",
+            class: "bars-more bars-sub bars-toggle",
+            "aria-expanded": String(open),
+            onclick: () => {
+              if (open) expanded.delete(name);
+              else expanded.add(name);
+              fill();
+            },
+          },
+          open ? "show fewer" : `+${hidden.length} more`,
+        ),
+      );
+    }
+    return list;
+  };
+
+  const toolBox = h("div", { class: "bars" });
+  const fill = () => {
+    closeHoverCard();
+    toolBox.replaceChildren(...tools.slice(0, 12).flatMap(toolRows), ...(tools.length > 12 ? [h("div", { class: "bars-more" }, `+${plural(tools.length - 12, "more tool")}`)] : []));
+  };
+  fill();
+  const toolList = tools.length ? toolBox : null;
   const files = st.files.read + st.files.edited + st.files.written;
 
   const el = h(

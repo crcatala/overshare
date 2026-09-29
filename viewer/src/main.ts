@@ -13,6 +13,7 @@ import { relayoutTables, releaseTables, setTableStyle } from "./asciitable.ts";
 import { h, hideTooltip } from "./dom.ts";
 import { attribution } from "./attribution.ts";
 import { formatDate, HARNESS_LABEL, iconButton, renderHeader, renderMinibar, type Controls } from "./header.ts";
+import { closeHoverCard } from "./popover.ts";
 import { load, save } from "./prefs.ts";
 import { closeMenus, settingsButton, type SettingsOptions } from "./settings.ts";
 import { formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
@@ -142,6 +143,7 @@ function rail(side: Side, title: string, glyph: string, body: HTMLElement): HTML
 // ---------- rendering ----------
 function showError(message: string): void {
   teardown.abort();
+  closeHoverCard();
   hideTooltip();
   releaseTables();
   app.replaceChildren(
@@ -206,6 +208,7 @@ function render(opts: { keepPlace?: boolean } = {}): void {
   teardown = new AbortController();
   const signal = teardown.signal;
   closeMenus();
+  closeHoverCard();
   hideTooltip();
   releaseTables();
   const variant = currentVariant();
@@ -225,7 +228,16 @@ function render(opts: { keepPlace?: boolean } = {}): void {
     beacon(target);
   };
   const toc = renderToc(turns, (id) => jump(id));
-  const tokens = renderTokenRail(session, turns, (turn) => jump(`turn-${turn}`));
+  const tokens = renderTokenRail(
+    session,
+    turns,
+    (turn) => jump(`turn-${turn}`),
+    (id) => {
+      jump(id);
+      // An overlay rail would cover what was just scrolled to.
+      if (!docked()) toggleRail("right", false);
+    },
+  );
   const header = renderHeader(session, provenance, controls);
   const minibar = renderMinibar(session, turns, controls);
 

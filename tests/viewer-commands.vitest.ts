@@ -20,6 +20,8 @@ describe("commandName", () => {
     ["npx -y prettier --check .", "prettier"],
     ["cat a.txt | grep foo", "cat"],
     ["(cd x && make)", "make"],
+    ["env | sort", "env"],
+    ["sudo", "sudo"],
   ])("%s → %s", (command, name) => {
     expect(commandName(command)).toBe(name);
   });

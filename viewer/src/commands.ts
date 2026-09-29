@@ -27,16 +27,23 @@ const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 export function commandName(command: string): string | undefined {
   // Leading `cd <dir> &&` / `cd <dir>;` only sets the scene for the real command.
   const words = command.replace(/^[\s(]*(cd\s+\S+\s*(&&|;)\s*)+/, "").trim().split(/\s+/);
+  let wrapper: string | undefined;
   for (let i = 0; i < words.length; i++) {
     const w = words[i]!.replace(/^[("'`!{]+/, "").replace(/["'`]+$/, "");
-    if (!w || ASSIGNMENT.test(w) || WRAPPERS.has(w) || w.startsWith("-")) continue;
+    // The command ended before a program was named: `env | sort` is env.
+    if (/^(\|\|?|&&?|;)$/.test(w)) break;
+    if (!w || ASSIGNMENT.test(w) || w.startsWith("-")) continue;
+    if (WRAPPERS.has(w)) {
+      wrapper ??= w;
+      continue;
+    }
     if (RUNNERS.has(w)) {
       const next = words.slice(i + 1).find((x) => !x.startsWith("-"));
       if (next) return shorten(next);
     }
     return shorten(w);
   }
-  return undefined;
+  return wrapper;
 }
 
 function shorten(word: string): string | undefined {

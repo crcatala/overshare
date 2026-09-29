@@ -1266,6 +1266,133 @@ button.col {
   padding-left: 2ch;
 }
 
+/* tool rows open a card of their calls */
+.bars-row[aria-haspopup] {
+  margin: 0 -4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  cursor: default;
+}
+.bars-row.bars-sub[aria-haspopup] {
+  padding-left: calc(2ch + 4px);
+}
+.bars-row[aria-haspopup]:hover,
+.bars-row[aria-expanded="true"] {
+  background: var(--bg-2);
+}
+.bars-row[aria-haspopup]:focus-visible {
+  outline-offset: 0;
+}
+button.bars-toggle {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0 0 0 2ch;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  color: var(--dim);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+button.bars-toggle:hover {
+  color: var(--accent);
+}
+
+/* ---------- hover card ---------- */
+.hcard {
+  position: fixed;
+  z-index: 55;
+  width: min(340px, calc(100vw - 16px));
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  font: var(--fs-sm) / 1.4 var(--font-mono);
+  overflow: hidden;
+}
+.hc {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: inherit;
+}
+.hc-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px 6px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.hc-title {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hc-count {
+  color: var(--dim);
+  flex: none;
+}
+.hc-list {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 3px;
+  min-height: 0;
+}
+.hc-item {
+  appearance: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink-2);
+}
+.hc-item:hover,
+.hc-item:focus-visible {
+  background: var(--bg-2);
+  color: var(--ink);
+  outline: none;
+}
+.hc-turn {
+  flex: none;
+  min-width: 2ch;
+  text-align: right;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.hc-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hc-n {
+  flex: none;
+  color: var(--dim);
+}
+.hc-err,
+.hc-item.is-error .hc-text {
+  color: var(--err);
+}
+.hc-err {
+  flex: none;
+  font-size: 11px;
+}
+
 /* tooltip */
 .tooltip {
   position: fixed;
@@ -1525,6 +1652,7 @@ button.settings[aria-expanded="true"] {
   .rail,
   .rail-tab,
   .minibar,
+  .hcard,
   .menu {
     display: none !important;
   }

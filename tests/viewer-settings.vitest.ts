@@ -9,7 +9,7 @@ const { shareButton, shareLink } = await import("../viewer/src/share.ts");
 const { closeMenus } = await import("../viewer/src/menu.ts");
 const { VARIANTS } = await import("../viewer/src/variants.ts");
 
-const { BUILT_IN, parseUi, formatUi, resolve, viewFor } = vs;
+const { BUILT_IN, defaultsState, parseUi, formatUi, resolve, viewFor, wantedView } = vs;
 type ViewSettings = import("../viewer/src/viewsettings.ts").ViewSettings;
 
 describe("&ui= tokens", () => {
@@ -62,6 +62,36 @@ describe("viewFor", () => {
     expect(viewFor("full", "brief")).toBe("brief");
     expect(viewFor("brief", "minimal")).toBe("minimal");
     expect(viewFor("minimal", "brief")).toBe("minimal");
+  });
+});
+
+describe("wantedView", () => {
+  // The share-with-view link and the mode switch both keep this, so a brief-only share
+  // never turns the reader's tab or saved default into brief.
+  it("keeps the most a share has as full, and anything less as itself", () => {
+    expect(wantedView("brief", "brief")).toBe("full");
+    expect(wantedView("minimal", "minimal")).toBe("full");
+    expect(wantedView("full", "full")).toBe("full");
+    expect(wantedView("minimal", "brief")).toBe("minimal");
+    expect(wantedView("brief", "full")).toBe("brief");
+  });
+});
+
+describe("defaultsState", () => {
+  const cli: ViewSettings = { ...BUILT_IN, variant: "cli" };
+
+  it("with nothing saved: can save anything but built-in, and reset back to it", () => {
+    expect(defaultsState(BUILT_IN, undefined)).toEqual({ saved: undefined, canSave: false, canReset: false });
+    expect(defaultsState(cli, undefined)).toEqual({ saved: undefined, canSave: true, canReset: true });
+  });
+
+  it("with a default saved: describes it, offers saving anything else, and always offers reset", () => {
+    expect(defaultsState(cli, cli)).toEqual({ saved: "cli · full · system theme · both rails", canSave: false, canReset: true });
+    expect(defaultsState(BUILT_IN, cli)).toMatchObject({ canSave: true, canReset: true });
+  });
+
+  it("compares against the saved default filled out with built-in values", () => {
+    expect(defaultsState(cli, { variant: "cli" }).canSave).toBe(false);
   });
 });
 
@@ -171,6 +201,8 @@ describe("settings menu", () => {
 });
 
 describe("share menu", () => {
+  // index.html has the toast's live region from the start.
+  beforeEach(() => document.body.append(Object.assign(document.createElement("div"), { id: "toast" })));
   const BASE = "https://view.example/session/?x=1#old";
   const source = { kind: "raw-gist" as const, owner: "someone", id: "0123456789abcdef0123" };
 

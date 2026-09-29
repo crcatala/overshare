@@ -1520,6 +1520,14 @@ button.share[aria-expanded="true"] {
   box-shadow: var(--shadow);
   font: var(--fs-sm) / 1.4 var(--font-mono);
   overflow-wrap: anywhere;
+  /* Invisible but never display:none or hidden, which would take the live region out of
+     the accessibility tree. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.toast.is-on {
+  opacity: 1;
 }
 /* Off-screen text for the fallback clipboard copy. */
 .copy-buffer {

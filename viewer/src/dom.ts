@@ -193,13 +193,21 @@ export function lazyDetails(summary: Node, build: () => Node, opts: { open?: boo
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-/** A short confirmation at the bottom of the window ("Link copied"), read out by screen readers. */
+/**
+ * A short confirmation at the bottom of the window ("Link copied"), read out by screen
+ * readers: #toast is a live region in index.html. It is emptied when it fades, so the
+ * same message is announced again next time.
+ */
 export function toast(text: string, ms = 2200): void {
-  const el = document.getElementById("toast") ?? document.body.appendChild(h("div", { id: "toast", class: "toast", role: "status" }));
+  const el = document.getElementById("toast");
+  if (!el) return;
   el.textContent = text;
-  el.hidden = false;
+  el.classList.add("is-on");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.hidden = true), ms);
+  toastTimer = setTimeout(() => {
+    el.classList.remove("is-on");
+    el.textContent = "";
+  }, ms);
 }
 
 const tooltip = () => document.getElementById("tooltip") as HTMLDivElement;

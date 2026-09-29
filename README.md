@@ -218,9 +218,10 @@ Around the transcript, without pushing it off-center:
   bar per model call on the same session-wide scale (so turns can be compared), tool
   counts and files. Each chart labels the top of its scale.
 - **Header**: title, agent/model/project/date, key stats, where the share was loaded
-  from and that it isn't verified, and the controls (view mode, theme, settings, share). Once it
-  scrolls away a one-line **minibar** takes over with the turn in view, reading progress
-  and the controls; it spans the window, with its contents lined up with the rails.
+  from and that it isn't verified, and the controls (view mode, theme, settings, share).
+  Once it scrolls away a one-line **minibar** takes over with the turn in view, reading
+  progress and the controls; it spans the window, with its contents lined up with the
+  rails.
 
 Both rails collapse (`«`/`»`, or `[` and `]`). When the window is too narrow to fit them beside the column they become overlays opened from the
 minibar or the corner buttons. Keys: `j`/`k` next/previous prompt, `[`/`]` rails, `/`
@@ -240,18 +241,21 @@ settings menu (the sliders icon next to the theme toggle), with `v`/`V`, or with
 
 **View settings.** How a session is shown — variant, view (full/brief/minimal), theme,
 which rails are open and what the contents rail lists — as opposed to which session.
-Each one comes from the first of these that has it:
+Where they come from, first match wins:
 
-1. `&ui=` in the link. It is read when the link opens and then removed, so the address
-   bar always shows the plain share link.
-2. This tab's settings (sessionStorage), so a reload keeps what you were looking at.
+1. `&ui=` in the link, for just the fields it names. It is read when the link opens and
+   then removed, so the address bar always shows the plain share link.
+2. This tab's settings (sessionStorage), so a reload keeps what you were looking at. The
+   tab keeps every field, so a default saved later (say, in another tab) applies to new
+   tabs, not this one.
 3. Your saved default: **Save as my default** in the settings menu (localStorage).
    **Reset to built-in default** forgets it.
 4. The viewer's built-in default (`classic`, full, system theme, both rails, prompts).
 
 Changing a control changes only this tab; nothing is remembered for other sessions until
 you save it as your default, and the URL never tracks it. A view the share wasn't
-published with falls back to the most it has.
+published with falls back to the most it has; picking the most a share has is kept as
+`full`, so a brief share never holds later ones to brief.
 
 `&ui=` is dot-separated tokens that each say what they are, in any order: a variant id,
 `full`/`brief`/`minimal`, `system`/`light`/`dark`, the open rails as `LR`/`L`/`R`/`-`, and

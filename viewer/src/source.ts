@@ -7,7 +7,8 @@
  *   #url:<path>           same-origin path
  *   #<source>:<id>        a source configured at build time in viewer.config.json,
  *                         e.g. #r2:<id> → https://shares.example.com/s/<id>.json
- * Extra `&key=value` params follow the source, e.g. `&view=minimal`.
+ * Extra `&key=value` params follow the source, e.g. `&turn=3`. Local names and `url:`
+ * paths are written with `%`, `&` and `#` escaped, so they read back whole.
  */
 export type Source =
   | { kind: "raw-gist"; owner: string; id: string }
@@ -46,6 +47,9 @@ export function parseHash(hash: string): HashState {
   return { source, params };
 }
 
+/** What parseHash would misread, `%` (it decodes) and `&` (it splits), plus `#`, which isn't safe twice in a link. Spaces and `/` stay readable. */
+const escapeHead = (s: string) => s.replace(/[%&#]/g, encodeURIComponent);
+
 export function formatHash(state: HashState): string {
   const s = state.source;
   const head = !s
@@ -55,10 +59,10 @@ export function formatHash(state: HashState): string {
       : s.kind === "api-gist"
         ? `gist:${s.id}`
         : s.kind === "local"
-          ? `local:${s.name}`
+          ? `local:${escapeHead(s.name)}`
           : s.kind === "configured"
             ? `${s.source}:${s.id}`
-            : `url:${s.path}`;
+            : `url:${escapeHead(s.path)}`;
   const params = state.params.toString();
   return `#${head}${params ? `&${params}` : ""}`;
 }

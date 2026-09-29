@@ -71,13 +71,28 @@ describe("viewer share links", () => {
   it("parses configured sources, gists and local files", async () => {
     (globalThis as Record<string, unknown>).__AGENT_SHARE_SOURCES__ = { r2: "https://shares.example.com/s/{id}.json" };
     const { parseHash, formatHash } = await import("../viewer/src/source.ts");
-    expect(parseHash("#r2:AbCdEfGhIjKlMnOpQrStUv&view=brief")).toMatchObject({
+    expect(parseHash("#r2:AbCdEfGhIjKlMnOpQrStUv&ui=brief")).toMatchObject({
       source: { kind: "configured", source: "r2", id: "AbCdEfGhIjKlMnOpQrStUv" },
     });
-    expect(parseHash("#r2:AbCdEfGhIjKlMnOpQrStUv&view=brief").params.get("view")).toBe("brief");
+    expect(parseHash("#r2:AbCdEfGhIjKlMnOpQrStUv&ui=brief").params.get("ui")).toBe("brief");
     expect(parseHash("#octo/5260b8cf9b1baae31a40717ac1ab5f08").source).toEqual({ kind: "raw-gist", owner: "octo", id: "5260b8cf9b1baae31a40717ac1ab5f08" });
     expect(parseHash("#local:x.json").source).toEqual({ kind: "local", name: "x.json" });
-    const state = parseHash("#r2:AbCdEfGhIjKlMnOpQrStUv&view=minimal");
-    expect(formatHash(state)).toBe("#r2:AbCdEfGhIjKlMnOpQrStUv&view=minimal");
+    const state = parseHash("#r2:AbCdEfGhIjKlMnOpQrStUv&turn=3");
+    expect(formatHash(state)).toBe("#r2:AbCdEfGhIjKlMnOpQrStUv&turn=3");
+  });
+
+  // Regression: names were written raw, so `&` cut a copied link short and `%` made the
+  // viewer throw (URIError) when the rewritten address was read back on reload.
+  it("writes local names and url paths so they read back whole, through a real URL", async () => {
+    const { parseHash, formatHash } = await import("../viewer/src/source.ts");
+    const trip = (source: Parameters<typeof formatHash>[0]["source"]) =>
+      parseHash(new URL(formatHash({ source, params: new URLSearchParams({ turn: "2" }) }), "https://v.example/session/").hash);
+    for (const name of ["a&b.json", "100%.json", "x#y.json", "b c.json", "a%20b.json", "ünï.json"]) {
+      const back = trip({ kind: "local", name });
+      expect(back.source).toEqual({ kind: "local", name });
+      expect(back.params.get("turn")).toBe("2");
+    }
+    expect(trip({ kind: "url", path: "/shares/a&b.json?v=1" }).source).toEqual({ kind: "url", path: "/shares/a&b.json?v=1" });
+    expect(formatHash({ source: { kind: "url", path: "/shares/x.json" }, params: new URLSearchParams() })).toBe("#url:/shares/x.json");
   });
 });

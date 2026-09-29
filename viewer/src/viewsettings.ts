@@ -1,8 +1,11 @@
 /**
  * View settings: how a session is shown (design variant, detail, theme, which rails are
- * open, how much the contents rail lists), as opposed to which session. Each field comes from the first of these that has it:
- *   1. `&ui=` in the link, read when the link opens and then dropped from the address bar
- *   2. this tab's settings (sessionStorage), so a reload keeps what the reader was looking at
+ * open, how much the contents rail lists), as opposed to which session. Where they come from:
+ *   1. `&ui=` in the link, per field, over whatever the tab would otherwise show; read
+ *      when the link opens and then dropped from the address bar
+ *   2. this tab's settings (sessionStorage), so a reload keeps what the reader was looking
+ *      at. The tab stores every field, so once it has settings a default saved later (in
+ *      another tab, say) only applies to new tabs.
  *   3. the reader's saved default (localStorage; "Save as my default" in the settings menu)
  *   4. BUILT_IN
  * Changing a setting updates only this tab's copy; the URL never tracks it.
@@ -75,6 +78,33 @@ export function resolve(link: Partial<ViewSettings>, tab: Partial<ViewSettings>,
 /** The view to show: the one wanted if the share has it, else the most detail it was published with. */
 export function viewFor(wanted: ShareMode, sharedMode: ShareMode): ShareMode {
   return availableModes(sharedMode).includes(wanted) ? wanted : sharedMode;
+}
+
+/**
+ * The view to keep for one shown on a share: the most it has means "as much as there
+ * is", kept as "full", so a brief share doesn't hold every later share to brief.
+ */
+export function wantedView(shown: ShareMode, sharedMode: ShareMode): ShareMode {
+  return shown === sharedMode ? "full" : shown;
+}
+
+export interface DefaultsState {
+  /** The saved default in words, or undefined when there is none. */
+  saved?: string;
+  /** What's showing differs from the default in effect (saved, or built-in). */
+  canSave: boolean;
+  /** There is a saved default, or what's showing differs from the built-in one. */
+  canReset: boolean;
+}
+
+/** What the settings menu can offer for saving `current` as the default, given the one saved (if any). */
+export function defaultsState(current: ViewSettings, saved: Partial<ViewSettings> | undefined): DefaultsState {
+  const effective = resolve({}, {}, saved ?? {});
+  return {
+    saved: saved ? describe(effective) : undefined,
+    canSave: !sameSettings(effective, current),
+    canReset: Boolean(saved) || !sameSettings(BUILT_IN, current),
+  };
 }
 
 // ---------- storage ----------

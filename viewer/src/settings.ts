@@ -5,6 +5,7 @@
 import { h, svg } from "./el.ts";
 import { menuButton, menuItem } from "./menu.ts";
 import { VARIANTS, type Variant } from "./variants.ts";
+import type { DefaultsState } from "./viewsettings.ts";
 
 /** Two horizontal sliders with their knobs: "adjust how this looks". */
 export function slidersIcon(): SVGElement {
@@ -17,15 +18,6 @@ export function slidersIcon(): SVGElement {
   return icon;
 }
 
-export interface DefaultsState {
-  /** The saved default in words, or undefined when there is none. */
-  saved?: string;
-  /** What's showing differs from the default in effect (saved, or built-in). */
-  canSave: boolean;
-  /** There is a saved default, or what's showing differs from the built-in one. */
-  canReset: boolean;
-}
-
 export interface SettingsOptions {
   current: () => Variant;
   onPick: (v: Variant) => void;
@@ -33,8 +25,6 @@ export interface SettingsOptions {
   saveDefault: () => void;
   resetDefault: () => void;
 }
-
-export { closeMenus } from "./menu.ts";
 
 export function settingsButton(opts: SettingsOptions): HTMLElement {
   const button = h("button", { type: "button", class: "icon settings", "aria-label": "Settings", title: "Settings" });
@@ -47,7 +37,7 @@ export function settingsButton(opts: SettingsOptions): HTMLElement {
     };
     const variants = VARIANTS.map((v) => menuItem(v.label, v.blurb, pick(() => opts.onPick(v)), { checked: v.id === current.id }));
     const d = opts.defaults();
-    const save = menuItem("Save as my default", d.canSave ? "Variant, view, theme and open rails, for every session you open" : "This is your default view", pick(opts.saveDefault), { disabled: !d.canSave });
+    const save = menuItem("Save as my default", d.canSave ? "Variant, view, theme, open rails and contents detail, for every session you open" : "This is your default view", pick(opts.saveDefault), { disabled: !d.canSave });
     const resetBlurb = d.saved ? `Forget your default (${d.saved})` : d.canReset ? "Go back to the viewer's own settings" : "Showing the viewer's own settings";
     const reset = menuItem("Reset to built-in default", resetBlurb, pick(opts.resetDefault), { disabled: !d.canReset });
     const items = [...variants, save, reset];

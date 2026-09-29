@@ -24,7 +24,7 @@ import { renderToc } from "./toc.ts";
 import { renderTokenRail } from "./tokens.ts";
 import { renderTranscript, type TurnInfo } from "./transcript.ts";
 import { findVariant, VARIANTS, type Variant } from "./variants.ts";
-import { BUILT_IN, describe, formatUi, loadSaved, loadTab, parseUi, resolve, sameSettings, saveDefault, saveTab, viewFor, type ViewSettings } from "./viewsettings.ts";
+import { BUILT_IN, defaultsState, describe, formatUi, loadSaved, loadTab, parseUi, resolve, saveDefault, saveTab, viewFor, wantedView, type ViewSettings } from "./viewsettings.ts";
 
 const app = document.getElementById("app") as HTMLElement;
 const root = document.documentElement;
@@ -107,23 +107,10 @@ function cycleVariant(dir: 1 | -1): void {
   setVariant(VARIANTS[(i + dir + VARIANTS.length) % VARIANTS.length]!);
 }
 
-/** The default in effect when this tab has no settings of its own: the saved one, else built-in. */
-function effectiveDefault(): { settings: ViewSettings; saved: boolean } {
-  const saved = loadSaved();
-  return { settings: resolve({}, {}, saved ?? {}), saved: Boolean(saved) };
-}
-
 const settingsMenu: SettingsOptions = {
   current: currentVariant,
   onPick: setVariant,
-  defaults: () => {
-    const d = effectiveDefault();
-    return {
-      saved: d.saved ? describe(d.settings) : undefined,
-      canSave: !sameSettings(d.settings, settings),
-      canReset: d.saved || !sameSettings(BUILT_IN, settings),
-    };
-  },
+  defaults: () => defaultsState(settings, loadSaved()),
   saveDefault: () => {
     saveDefault(settings);
     toast("Saved as your default view");
@@ -273,18 +260,19 @@ function render(opts: { keepPlace?: boolean; turn?: number } = {}): void {
   const variant = currentVariant();
   applyVariant(variant);
   const view = currentView();
-  const session = view === shared.mode ? shared : projectSession(shared, view);
+  const sharedMode = shared.mode;
+  const session = view === sharedMode ? shared : projectSession(shared, view);
   document.title = `${session.title ?? "Agent session"} · Agent Session`;
 
   const share: ShareOptions = {
     source: state.source!,
     view: () => {
       const shown = { ...settings, view, theme: shownTheme() };
-      return { ui: formatUi(shown), label: describe(shown) };
+      return { ui: formatUi({ ...shown, view: wantedView(view, sharedMode) }), label: describe(shown) };
     },
     turn: () => (activeTurn?.ordinal ? { ordinal: activeTurn.ordinal, label: activeTurn.label } : undefined),
   };
-  const controls: Controls = { sharedMode: shared.mode, view, setView, toggleTheme, toggleRail, settings: settingsMenu, share, local: state.source?.kind === "local" };
+  const controls: Controls = { sharedMode, view, setView, toggleTheme, toggleRail, settings: settingsMenu, share, local: state.source?.kind === "local" };
   const { el: transcript, turns } = renderTranscript(session, { inlineThinking: variant.inlineThinking });
 
   const jump = (id: string, smooth = true) => {
@@ -445,8 +433,7 @@ function onKey(e: KeyboardEvent, turns: TurnInfo[], jump: (id: string) => void, 
 }
 
 function setView(mode: ShareMode): void {
-  // The most a share has means "as much as there is", so other shares open in full.
-  update({ view: mode === shared?.mode ? "full" : mode });
+  if (shared) update({ view: wantedView(mode, shared.mode) });
   render({ keepPlace: true });
 }
 
@@ -502,11 +489,12 @@ window.addEventListener("hashchange", () => {
   const { ui, turn } = takeLinkParams();
   update(ui);
   applyTheme();
-  if (JSON.stringify(state.source) === JSON.stringify(previous)) render({ keepPlace: true, turn });
-  else {
+  if (JSON.stringify(state.source) !== JSON.stringify(previous)) {
     openAt = turn;
     void main();
-  }
+  } else if (shared) render({ keepPlace: true, turn });
+  // The picker or an error: nothing to re-render, only the variant to restyle with.
+  else applyVariant(currentVariant());
 });
 
 void main();

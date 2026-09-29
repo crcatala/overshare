@@ -1,29 +1,10 @@
 import DOMPurify, { type Config } from "dompurify";
 import { marked } from "marked";
+import { asciiTable } from "./asciitable.ts";
+import { h } from "./el.ts";
 import type { Provenance } from "./source.ts";
 
-type Child = Node | string | number | false | null | undefined;
-type Attrs = Record<string, string | number | boolean | undefined | EventListener>;
-
-/** Tiny element builder. Strings become text nodes (never HTML). */
-export function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs = {}, ...children: Child[]): HTMLElementTagNameMap[K] {
-  const el = document.createElement(tag);
-  for (const [key, value] of Object.entries(attrs)) {
-    if (value === undefined || value === false) continue;
-    if (key.startsWith("on") && typeof value === "function") el.addEventListener(key.slice(2), value as EventListener);
-    else if (key === "class") el.className = String(value);
-    else el.setAttribute(key, value === true ? "" : String(value));
-  }
-  append(el, children);
-  return el;
-}
-
-export function append(el: Element, children: Child[]): void {
-  for (const c of children) {
-    if (c === false || c === null || c === undefined) continue;
-    el.append(typeof c === "string" || typeof c === "number" ? document.createTextNode(String(c)) : c);
-  }
-}
+export { append, h } from "./el.ts";
 
 // Only marked's code-block language classes survive. Any other class would let transcript
 // markdown borrow the viewer's own styles and draw a fake "You" prompt or tool call.
@@ -152,9 +133,33 @@ export function sanitizeHtml(html: string): string {
   return div.innerHTML;
 }
 
+/**
+ * Viewer presentation added after sanitizing (so these classes are ours, never the
+ * share's): tables become text grids that re-wrap to the width, and code blocks get a
+ * language label.
+ */
+function present(fragment: DocumentFragment): DocumentFragment {
+  for (const table of fragment.querySelectorAll("table")) {
+    // Nested tables (raw HTML) stay inside their parent's cell text.
+    if (table.parentElement?.closest("table")) continue;
+    // The grid keeps the table inside it (for screen readers), so swap via a placeholder.
+    const spot = document.createComment("");
+    table.replaceWith(spot);
+    spot.replaceWith(asciiTable(table));
+  }
+  for (const pre of fragment.querySelectorAll("pre")) {
+    if (pre.closest(".atable")) continue;
+    const lang = pre.querySelector(":scope > code")?.className.match(/language-([\w+#.-]+)/)?.[1];
+    const block = h("div", { class: "codeblock" }, lang ? h("span", { class: "codeblock-lang", "aria-hidden": "true" }, lang) : null);
+    pre.replaceWith(block);
+    block.append(pre);
+  }
+  return fragment;
+}
+
 /** Render untrusted markdown to sanitized HTML. */
 export function markdown(text: string): HTMLElement {
-  return h("div", { class: "md" }, sanitize(marked.parse(text, { async: false }) as string));
+  return h("div", { class: "md" }, present(sanitize(marked.parse(text, { async: false }) as string)));
 }
 
 /** Where the share was fetched from; everything else in the header is the sharer's own claim. */
@@ -188,21 +193,53 @@ export function lazyDetails(summary: Node, build: () => Node, opts: { open?: boo
 
 const tooltip = () => document.getElementById("tooltip") as HTMLDivElement;
 
-/** Attach a hover/focus tooltip with plain-text lines. */
-export function withTooltip(el: HTMLElement | SVGElement, lines: () => string[]): void {
+/**
+ * Hide the tooltip. Needed when its element is replaced while hovered: removed nodes
+ * get no pointerleave, so the tooltip would stay up with stale content.
+ */
+export function hideTooltip(): void {
+  const tip = document.getElementById("tooltip");
+  if (tip) tip.hidden = true;
+}
+
+export interface TooltipOptions {
+  /**
+   * Pin the tooltip instead of following the pointer, for explanations: "below" the
+   * element, or "left" of `beside` (default: the element), top-aligned with the element
+   * — falling back to below when there's no room on the left.
+   */
+  anchor?: "below" | "left";
+  beside?: () => Element;
+  className?: string;
+}
+
+/** Attach a hover/focus tooltip with plain-text lines (the first is the title). */
+export function withTooltip(el: HTMLElement | SVGElement, lines: () => string[], opts: TooltipOptions = {}): void {
   const show = (x: number, y: number) => {
     const tip = tooltip();
+    tip.className = `tooltip${opts.className ? ` ${opts.className}` : ""}`;
     tip.replaceChildren(...lines().map((l, i) => h("div", { class: i === 0 ? "tip-title" : "tip-line" }, l)));
     tip.hidden = false;
     const pad = 12;
     const { width, height } = tip.getBoundingClientRect();
+    if (opts.anchor) {
+      const r = el.getBoundingClientRect();
+      const edge = (opts.beside?.() ?? el).getBoundingClientRect().left - 10;
+      if (opts.anchor === "left" && edge - width >= 8) {
+        tip.style.left = `${edge - width}px`;
+        tip.style.top = `${Math.max(8, Math.min(window.innerHeight - height - 8, r.top - 7))}px`;
+        return;
+      }
+      x = r.left - pad;
+      y = r.bottom - 6;
+    }
     const left = Math.min(window.innerWidth - width - 8, Math.max(8, x + pad));
     const top = y + pad + height > window.innerHeight ? y - height - pad : y + pad;
     tip.style.left = `${left}px`;
     tip.style.top = `${Math.max(8, top)}px`;
   };
   el.addEventListener("pointerenter", (e) => show((e as PointerEvent).clientX, (e as PointerEvent).clientY));
-  el.addEventListener("pointermove", (e) => show((e as PointerEvent).clientX, (e as PointerEvent).clientY));
+  if (!opts.anchor) el.addEventListener("pointermove", (e) => show((e as PointerEvent).clientX, (e as PointerEvent).clientY));
   el.addEventListener("pointerleave", () => (tooltip().hidden = true));
   el.addEventListener("focus", () => {
     const r = el.getBoundingClientRect();

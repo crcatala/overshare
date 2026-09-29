@@ -1,0 +1,505 @@
+/*
+ * log — a TUI session log: every entry is a row of time │ role │ text, turns are
+ * dashed rules, rails are bordered panes with their title set into the frame, the
+ * sticky header is a statusline, and tables are plain ASCII. Gruvbox colors, square
+ * corners.
+ */
+:root[data-variant="log"] {
+  --bg: light-dark(#fbf1c7, #1d2021);
+  --bg-2: light-dark(#f2e5bc, #282828);
+  --bg-3: light-dark(#ebdbb2, #32302f);
+  --ink: light-dark(#3c3836, #ebdbb2);
+  --ink-2: light-dark(#504945, #d5c4a1);
+  --dim: light-dark(#7c6f64, #a89984);
+  --faint: light-dark(#a89984, #665c54);
+  --line: light-dark(#d5c4a1, #3c3836);
+  --accent: light-dark(#b57614, #fabd2f);
+  --accent-ink: light-dark(#fbf1c7, #1d2021);
+  --user: light-dark(#427b58, #8ec07c);
+  --ok: light-dark(#79740e, #b8bb26);
+  --err: light-dark(#9d0006, #fb4934);
+  --err-bg: light-dark(#f9d9c4, #3c1f1e);
+  --warn: light-dark(#af3a03, #fe8019);
+  --heading: light-dark(#af3a03, #fe8019);
+  --code: light-dark(#076678, #83a598);
+  --link: light-dark(#076678, #83a598);
+  --purple: light-dark(#8f3f71, #d3869b);
+  --add: light-dark(#79740e, #b8bb26);
+  --del: light-dark(#9d0006, #fb4934);
+  --add-bg: transparent;
+  --del-bg: transparent;
+  --seg-cache-read: light-dark(#076678, #83a598);
+  --seg-cache-write: light-dark(#af3a03, #fe8019);
+  --seg-input: light-dark(#79740e, #b8bb26);
+  --seg-output: light-dark(#8f3f71, #d3869b);
+  --shadow: none;
+  --content-w: 840px;
+  /* Room above the framed header and rails for the titles set into their borders. */
+  --page-top: 36px;
+  --rail-w: 252px;
+  --rail-gap: 20px;
+  --gut-w: 13ch;
+  --mb-h: 26px;
+  --fs: 13px;
+  --fs-sm: 12px;
+  --lh: 1.55;
+}
+[data-variant="log"] * {
+  border-radius: 0 !important;
+}
+
+/* header: a framed key/value block */
+[data-variant="log"] .hdr {
+  position: relative;
+  border: 1px solid var(--line);
+  padding: 14px 2ch 10px;
+}
+[data-variant="log"] .hdr-title {
+  font-size: 1em;
+  color: var(--user);
+}
+[data-variant="log"] .hdr-title::before {
+  content: "session: ";
+  color: var(--dim);
+  font-weight: 400;
+}
+[data-variant="log"] .hdr .facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(34ch, 1fr));
+  margin: 8px 0 0;
+  clip-path: none;
+}
+[data-variant="log"] .hdr .facts > div::before {
+  display: none;
+}
+[data-variant="log"] .hdr .facts > div {
+  display: grid;
+  grid-template-columns: 11ch minmax(0, 1fr);
+  gap: 0;
+}
+[data-variant="log"] .hdr .facts dt {
+  display: block;
+  order: 0;
+  color: var(--dim);
+}
+[data-variant="log"] .hdr .facts dt::after {
+  content: ":";
+}
+[data-variant="log"] .hdr .facts dd {
+  color: var(--ink);
+}
+[data-variant="log"] .facts-stats dd {
+  color: var(--accent) !important;
+}
+[data-variant="log"] .hdr-fine {
+  border-top: 1px dashed var(--line);
+  padding-top: 6px;
+}
+[data-variant="log"] .hdr-fine .facts {
+  grid-template-columns: 1fr;
+}
+[data-variant="log"] .hdr-fine .facts dd {
+  color: var(--dim) !important;
+}
+[data-variant="log"] .modes {
+  background: none;
+  border: 1px solid var(--line);
+  padding: 0;
+}
+[data-variant="log"] .modes button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: none;
+}
+
+/* rows: time │ role │ text */
+[data-variant="log"] .turn {
+  padding: 14px 0 4px;
+}
+[data-variant="log"] .turn-head {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+  color: var(--faint);
+  font-size: var(--fs-sm);
+  margin-bottom: 6px;
+}
+[data-variant="log"] .turn-head::before {
+  content: "";
+  width: 2ch;
+  border-top: 1px dashed var(--line);
+}
+[data-variant="log"] .turn-head::after {
+  content: "";
+  flex: 1;
+  border-top: 1px dashed var(--line);
+}
+[data-variant="log"] .turn-n::before {
+  content: "turn ";
+}
+[data-variant="log"] .turn-n {
+  color: var(--accent);
+}
+[data-variant="log"] .turn-head time::before {
+  content: "@ ";
+}
+[data-variant="log"] .entry {
+  grid-template-columns: var(--gut-w) minmax(0, 1fr);
+  margin: 0;
+  padding: 1px 0;
+}
+[data-variant="log"] .gut {
+  display: flex;
+  justify-content: space-between;
+  gap: 1ch;
+  padding-right: 1ch;
+  color: var(--faint);
+  font-size: var(--fs-sm);
+  line-height: calc(var(--fs) * var(--lh));
+  white-space: nowrap;
+}
+[data-variant="log"] .gut time {
+  order: -1;
+}
+[data-variant="log"] .gut .who {
+  margin-left: auto;
+}
+[data-variant="log"] .body {
+  border-left: 1px solid var(--line);
+  padding-left: 1.5ch;
+}
+[data-variant="log"] .k-user .who {
+  color: var(--user);
+  font-weight: 700;
+}
+[data-variant="log"] .k-text .who {
+  color: var(--ink);
+}
+[data-variant="log"] .k-tool .who,
+[data-variant="log"] .k-group .who {
+  color: var(--accent);
+}
+[data-variant="log"] .k-sub .who {
+  color: var(--purple);
+}
+[data-variant="log"] .k-think .who {
+  color: var(--faint);
+}
+[data-variant="log"] .k-event .who {
+  color: var(--dim);
+}
+[data-variant="log"] .is-error .who,
+[data-variant="log"] .has-error .who {
+  color: var(--err);
+}
+[data-variant="log"] .k-user .body {
+  color: var(--ink);
+  font-weight: 600;
+  border-left-color: var(--user);
+}
+[data-variant="log"] .k-user {
+  padding: 3px 0;
+}
+[data-variant="log"] .k-text {
+  padding: 2px 0;
+}
+[data-variant="log"] .tname {
+  color: var(--accent);
+  font-weight: 400;
+}
+[data-variant="log"] .k-tool[data-action="exec"] .tname::after {
+  content: " $";
+  color: var(--faint);
+}
+[data-variant="log"] .targ {
+  color: var(--ink);
+}
+[data-variant="log"] .tmeta::before {
+  content: "[";
+}
+[data-variant="log"] .tmeta::after {
+  content: "]";
+}
+[data-variant="log"] .tmeta {
+  color: var(--faint);
+}
+[data-variant="log"] .tstat.is-error::before {
+  content: "[";
+}
+[data-variant="log"] .tstat.is-error::after {
+  content: "]";
+}
+[data-variant="log"] .tstat.is-error {
+  font-weight: 400;
+}
+[data-variant="log"] pre.out {
+  color: var(--dim);
+}
+[data-variant="log"] .tfull {
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+  padding: 4px 0;
+  margin: 4px 0;
+}
+[data-variant="log"] .chip {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: var(--accent);
+}
+[data-variant="log"] .chip::before {
+  content: "[";
+  color: var(--faint);
+}
+[data-variant="log"] .chip::after {
+  content: "]";
+  color: var(--faint);
+}
+[data-variant="log"] .chip-n {
+  color: var(--ink);
+}
+[data-variant="log"] .chip.is-error {
+  background: none;
+  color: var(--err);
+}
+[data-variant="log"] .chip-think {
+  color: var(--faint);
+  font-style: normal;
+}
+[data-variant="log"] .k-think .tname,
+[data-variant="log"] .k-think .targ {
+  font-style: normal;
+  color: var(--faint);
+}
+[data-variant="log"] .k-sub .tname {
+  color: var(--purple);
+}
+[data-variant="log"] .turn-foot {
+  padding-left: calc(var(--gut-w) + 1.5ch + 1px);
+}
+[data-variant="log"] .turn-foot::before {
+  content: "∑ ";
+  color: var(--accent);
+}
+[data-variant="log"] pre.diff .d-add::before,
+[data-variant="log"] pre.diff .d-del::before {
+  content: none;
+}
+
+/* markdown */
+[data-variant="log"] .md h1,
+[data-variant="log"] .md h2,
+[data-variant="log"] .md h3 {
+  text-transform: none;
+}
+[data-variant="log"] .md h1::before,
+[data-variant="log"] .md h2::before {
+  content: "» ";
+  color: var(--faint);
+}
+[data-variant="log"] .md h3::before,
+[data-variant="log"] .md h4::before {
+  content: "› ";
+  color: var(--faint);
+}
+[data-variant="log"] .md strong {
+  color: var(--accent);
+}
+[data-variant="log"] .md em {
+  color: var(--purple);
+}
+[data-variant="log"] .md li::marker {
+  color: var(--accent);
+}
+[data-variant="log"] .md ul > li {
+  list-style: "* ";
+}
+[data-variant="log"] .md blockquote {
+  border-left: 0;
+  padding-left: 0;
+  color: var(--dim);
+}
+[data-variant="log"] .md blockquote p::before {
+  content: "> ";
+  color: var(--faint);
+}
+[data-variant="log"] .codeblock {
+  background: var(--bg-2);
+  padding: 6px 1.5ch;
+}
+[data-variant="log"] .codeblock-lang::before {
+  content: "[";
+}
+[data-variant="log"] .codeblock-lang::after {
+  content: "]";
+}
+[data-variant="log"] .codeblock-lang {
+  float: right;
+  margin-left: 2ch;
+}
+[data-variant="log"] .at-h {
+  color: var(--accent);
+}
+
+/* rails: framed panes, title set into the border */
+[data-variant="log"] .rail {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  padding: 14px 1.5ch 10px;
+}
+[data-variant="log"] .rail-head {
+  position: absolute;
+  top: -0.8em;
+  left: 1ch;
+  right: 1ch;
+  padding: 0;
+  pointer-events: none;
+}
+[data-variant="log"] .rail-head h2 {
+  background: var(--bg);
+  padding: 0 1ch;
+  color: var(--accent);
+  font-weight: 400;
+  text-transform: none;
+}
+[data-variant="log"] .rail-head h2::before {
+  content: "┤ ";
+  color: var(--line);
+}
+[data-variant="log"] .rail-head h2::after {
+  content: " ├";
+  color: var(--line);
+}
+[data-variant="log"] .rail-x {
+  pointer-events: auto;
+  background: var(--bg);
+  width: 3ch;
+  height: 1.4em;
+}
+[data-variant="log"] .toc-search {
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  padding-left: 0;
+}
+[data-variant="log"] .toc-search::placeholder {
+  color: var(--faint);
+}
+[data-variant="log"] .toc-seg button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+[data-variant="log"] .toc-link {
+  padding: 1px 0.5ch;
+}
+[data-variant="log"] .toc-link:hover {
+  background: var(--bg-2);
+}
+[data-variant="log"] .toc-turn.on > .toc-link {
+  background: var(--bg-3);
+}
+[data-variant="log"] .toc-turn.on > .toc-link .toc-n::before {
+  content: "▶";
+  margin-right: 2px;
+  color: var(--accent);
+}
+[data-variant="log"] .toc-turn .toc-label {
+  -webkit-line-clamp: 1;
+}
+[data-variant="log"] .toc-meta {
+  color: var(--faint);
+}
+[data-variant="log"] .rail-sec h3 {
+  color: var(--accent);
+  font-weight: 400;
+  justify-content: flex-start;
+}
+[data-variant="log"] .h3-meta {
+  margin-left: auto;
+}
+[data-variant="log"] .rail-sec h3::before {
+  content: "# ";
+  color: var(--faint);
+}
+[data-variant="log"] .rail-sec + .rail-sec {
+  border-top: 1px dashed var(--line);
+  padding-top: 10px;
+}
+[data-variant="log"] .tokens {
+  gap: 10px;
+}
+[data-variant="log"] .bar {
+  background: var(--accent);
+  opacity: 1;
+}
+[data-variant="log"] .rail-tab {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--accent);
+}
+:root[data-dock="overlay"][data-variant="log"] .rail {
+  box-shadow: 0 0 0 100vmax color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+/* statusline */
+[data-variant="log"] .minibar {
+  background: var(--bg-3);
+  border-bottom: 0;
+  backdrop-filter: none;
+}
+[data-variant="log"] .mb-inner {
+  gap: 0;
+}
+[data-variant="log"] .minibar button.icon {
+  height: var(--mb-h);
+  width: 4ch;
+  color: var(--ink-2);
+}
+[data-variant="log"] .mb-title {
+  background: var(--accent);
+  color: var(--accent-ink);
+  align-self: stretch;
+  padding: 0 1.5ch;
+  font-weight: 700;
+}
+[data-variant="log"] .mb-title::after {
+  content: "";
+}
+[data-variant="log"] .mb-where {
+  background: var(--bg-2);
+  color: var(--accent);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 0 1.5ch;
+}
+[data-variant="log"] .mb-turn {
+  gap: 1.5ch;
+  align-self: stretch;
+  align-items: center;
+}
+[data-variant="log"] .mb-label {
+  color: var(--ink-2);
+}
+[data-variant="log"] .minibar .modes {
+  border: 0;
+  align-self: stretch;
+}
+[data-variant="log"] .minibar .modes button {
+  padding: 0 1ch;
+}
+[data-variant="log"] .mb-progress {
+  height: 1px;
+  background: var(--accent);
+}
+@media (max-width: 720px) {
+  :root[data-variant="log"] {
+    --gut-w: 7ch;
+  }
+  [data-variant="log"] .gut time {
+    display: none;
+  }
+  [data-variant="log"] .hdr .facts > div {
+    grid-template-columns: 11ch minmax(0, 1fr);
+  }
+}

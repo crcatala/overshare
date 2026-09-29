@@ -37,8 +37,13 @@ export default defineConfig(({ command }) => {
     // DNS-rebinding protection. To keep that safe, Vite may only read the viewer and the
     // shared src/ modules: without fs.allow it would serve any file in the checkout via
     // /@fs/ (raw fixture transcripts, a secrets file kept here, …). Local shares are served
-    // separately by the plugin below, and only the files it was given.
-    server: { port: 3000, allowedHosts: true, fs: { strict: true, allow: [viewerRoot, resolve(repo, "src")] } },
+    // separately by the plugin below, and only the files it was given. The one package
+    // allowed is the bundled prose font (the build inlines it as a hashed asset).
+    server: {
+      port: 3000,
+      allowedHosts: true,
+      fs: { strict: true, allow: [viewerRoot, resolve(repo, "src"), resolve(repo, "node_modules/@fontsource-variable/ibm-plex-sans")] },
+    },
     build: { outDir: "dist/session", emptyOutDir: true, sourcemap: true, target: "es2022" },
     plugins: [cspPlugin(sources, dev), deployFilesPlugin(sources), localSharesPlugin()],
   };

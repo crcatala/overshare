@@ -1,63 +1,140 @@
-import "./styles.css";
-import { formatCost, formatDuration, formatTokens, plural } from "../../src/format.ts";
+import "./styles/fonts.css";
+import "./styles/base.css";
+import "./styles/classic.css";
+import "./styles/cli.css";
+import "./styles/timeline.css";
+import "./styles/hybrid.css";
+import "./styles/log.css";
+import { plural } from "../../src/format.ts";
 import { availableModes, projectSession } from "../../src/modes.ts";
-import {
-  SCHEMA_VERSION,
-  totalTokens,
-  type EventStep,
-  type NormalizedSession,
-  type ShareMode,
-  type Step,
-  type SubagentStep,
-  type ThinkingStep,
-  type ToolGroupStep,
-  type ToolStep,
-  type Turn,
-} from "../../src/schema.ts";
-import { h, lazyDetails, markdown, provenanceLine } from "./dom.ts";
-import { buildScale, railLegend, renderRail, type RailScale } from "./rail.ts";
+import { SCHEMA_VERSION, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
+import { relayoutTables, releaseTables, setTableStyle } from "./asciitable.ts";
+import { h, hideTooltip } from "./dom.ts";
+import { HARNESS_LABEL, renderHeader, renderMinibar, type Controls } from "./header.ts";
+import { load, save } from "./prefs.ts";
+import { closeMenus, settingsButton, type SettingsOptions } from "./settings.ts";
 import { formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
+import { renderToc } from "./toc.ts";
+import { renderTokenRail } from "./tokens.ts";
+import { renderTranscript, type TurnInfo } from "./transcript.ts";
+import { DEFAULT_VARIANT, findVariant, VARIANTS, type Variant } from "./variants.ts";
 
 const app = document.getElementById("app") as HTMLElement;
-const HARNESS_LABEL: Record<string, string> = { "claude-code": "Claude Code", pi: "pi" };
-const EVENT_ICON: Record<string, string> = {
-  model_change: "⇄",
-  thinking_level: "◐",
-  compaction: "⤓",
-  command: "⌘",
-  skill: "✦",
-  subagent_notice: "🤖",
-  interrupted: "⏹",
-  error: "⚠",
-};
+const root = document.documentElement;
 
 let shared: NormalizedSession | undefined;
 let provenance: Provenance | undefined;
 let state: HashState = parseHash(location.hash);
+/** Listeners and observers of the current render, dropped on the next one. */
+let teardown = new AbortController();
 
-// ---------- theme ----------
+// ---------- theme & variant ----------
 function applyTheme(theme: string | null): void {
-  if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
-  else delete document.documentElement.dataset.theme;
+  if (theme === "light" || theme === "dark") root.dataset.theme = theme;
+  else delete root.dataset.theme;
 }
-function storedTheme(): string | null {
-  try {
-    return localStorage.getItem("agent-share-theme");
-  } catch {
-    return null;
+applyTheme(load("theme"));
+
+function toggleTheme(): void {
+  const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const next = dark ? "light" : "dark";
+  applyTheme(next);
+  save("theme", next);
+}
+
+function currentVariant(): Variant {
+  return findVariant(state.params.get("variant")) ?? findVariant(load("variant")) ?? findVariant(DEFAULT_VARIANT)!;
+}
+
+function applyVariant(v: Variant): void {
+  root.dataset.variant = v.id;
+  setTableStyle(v.table);
+}
+applyVariant(currentVariant());
+
+function setVariant(v: Variant): void {
+  save("variant", v.id);
+  state.params.set("variant", v.id);
+  history.replaceState(null, "", formatHash(state));
+  // render() applies the variant itself, after noting where the reader is.
+  if (shared) render({ keepPlace: true });
+  else {
+    applyVariant(v);
+    void main();
   }
 }
-function storeTheme(theme: string): void {
-  try {
-    localStorage.setItem("agent-share-theme", theme);
-  } catch {
-    // storage unavailable (private mode, sandbox)
+
+const settings: SettingsOptions = { current: currentVariant, onPick: setVariant };
+
+// ---------- rails ----------
+type Side = "left" | "right";
+const railOpen: Record<Side, boolean> = { left: load("rail-left") !== "closed", right: load("rail-right") !== "closed" };
+/** In overlay mode (narrow windows) rails start closed and aren't remembered. */
+const overlayOpen: Record<Side, boolean> = { left: false, right: false };
+
+function cssPx(name: string): number {
+  return parseFloat(getComputedStyle(root).getPropertyValue(name)) || 0;
+}
+
+function docked(): boolean {
+  return root.dataset.dock === "docked";
+}
+
+function updateDock(): void {
+  // Rails float beside the centered transcript only when both fit without covering it.
+  const need = cssPx("--content-w") + 2 * (cssPx("--rail-w") + cssPx("--rail-gap")) + 24;
+  root.dataset.dock = window.innerWidth >= need ? "docked" : "overlay";
+  syncRails();
+}
+
+function syncRails(): void {
+  const open = docked() ? railOpen : overlayOpen;
+  root.dataset.left = open.left ? "open" : "closed";
+  root.dataset.right = open.right ? "open" : "closed";
+  for (const side of ["left", "right"] as Side[]) {
+    document.querySelector(`.rail-${side}`)?.toggleAttribute("inert", !open[side]);
   }
 }
-applyTheme(storedTheme());
+
+function toggleRail(side: Side, force?: boolean): void {
+  if (docked()) {
+    railOpen[side] = force ?? !railOpen[side];
+    save(`rail-${side}`, railOpen[side] ? null : "closed");
+  } else {
+    const next = force ?? !overlayOpen[side];
+    overlayOpen.left = false;
+    overlayOpen.right = false;
+    overlayOpen[side] = next;
+  }
+  syncRails();
+}
+
+function rail(side: Side, title: string, glyph: string, body: HTMLElement): HTMLElement[] {
+  const panel = h(
+    "aside",
+    { class: `rail rail-${side}`, "aria-label": title },
+    h(
+      "div",
+      { class: "rail-head" },
+      h("h2", {}, title),
+      h("button", { type: "button", class: "icon rail-x", "aria-label": `Hide ${title.toLowerCase()}`, title: `Hide ${title.toLowerCase()} (${side === "left" ? "[" : "]"})`, onclick: () => toggleRail(side, false) }, side === "left" ? "«" : "»"),
+    ),
+    h("div", { class: "rail-body" }, body),
+  );
+  const tab = h(
+    "button",
+    { type: "button", class: `rail-tab rail-tab-${side}`, "aria-label": `Show ${title.toLowerCase()}`, title: `Show ${title.toLowerCase()} (${side === "left" ? "[" : "]"})`, onclick: () => toggleRail(side, true) },
+    h("span", { class: "rail-tab-glyph", "aria-hidden": "true" }, glyph),
+    h("span", { class: "rail-tab-label" }, title.toLowerCase()),
+  );
+  return [panel, tab];
+}
 
 // ---------- rendering ----------
 function showError(message: string): void {
+  teardown.abort();
+  hideTooltip();
+  releaseTables();
   app.replaceChildren(
     h(
       "div",
@@ -69,304 +146,211 @@ function showError(message: string): void {
   );
 }
 
-function tile(label: string, value: string, hint?: string): HTMLElement {
-  return h("div", { class: "tile" }, h("div", { class: "tile-label" }, label), h("div", { class: "tile-value" }, value), hint ? h("div", { class: "tile-hint" }, hint) : null);
-}
-
-function formatDate(iso?: string): string | undefined {
-  if (!iso) return undefined;
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? undefined : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
-function renderHeader(s: NormalizedSession, view: ShareMode): HTMLElement {
-  const st = s.stats;
-  const meta = [
-    `${HARNESS_LABEL[s.harness.name] ?? s.harness.name}${s.harness.version ? ` ${s.harness.version}` : ""}`,
-    s.models.join(", "),
-    s.project?.name ? `${s.project.name}${s.project.branch ? ` @ ${s.project.branch}` : ""}` : undefined,
-    formatDate(s.startedAt),
-    s.durationMs ? formatDuration(s.durationMs) : undefined,
-  ].filter(Boolean) as string[];
-
-  const tiles = h(
-    "div",
-    { class: "tiles" },
-    tile("Turns", String(st.turns)),
-    tile("Tool calls", String(st.toolCalls), st.toolErrors ? `${st.toolErrors} errors` : undefined),
-    tile("Tokens", formatTokens(totalTokens(st.tokens)), `out ${formatTokens(st.tokens.output)}`),
-    tile("Peak context", formatTokens(st.peakContext)),
-    st.cost !== undefined ? tile("Cost", formatCost(st.cost), st.costSource === "session-total" ? "session total" : undefined) : null,
-    st.subagents ? tile("Subagents", String(st.subagents)) : null,
-    st.thinking.tokens || st.thinking.blocks ? tile("Thinking", st.thinking.tokens ? `${formatTokens(st.thinking.tokens)} tok` : plural(st.thinking.blocks, "block")) : null,
-  );
-
-  const modes = availableModes(s.mode);
-  const switcher = h(
-    "div",
-    { class: "segmented", role: "group", "aria-label": "View mode" },
-    ...(["full", "brief", "minimal"] as ShareMode[]).map((m) =>
-      h(
-        "button",
-        {
-          type: "button",
-          class: m === view ? "active" : "",
-          disabled: !modes.includes(m),
-          title: modes.includes(m) ? `Show ${m} view` : `Shared as ${s.mode}; ${m} detail was not published`,
-          "aria-pressed": String(m === view),
-          onclick: () => setView(m),
-        },
-        m,
-      ),
-    ),
-  );
-
-  const themeBtn = h(
-    "button",
-    {
-      type: "button",
-      class: "ghost",
-      "aria-label": "Toggle color theme",
-      onclick: () => {
-        const dark = document.documentElement.dataset.theme
-          ? document.documentElement.dataset.theme === "dark"
-          : matchMedia("(prefers-color-scheme: dark)").matches;
-        const next = dark ? "light" : "dark";
-        applyTheme(next);
-        storeTheme(next);
-      },
-    },
-    "◑",
-  );
-
-  const tools = Object.entries(st.tools).sort((a, b) => b[1] - a[1]);
-  const maxTool = tools[0]?.[1] ?? 1;
-  const toolBars = tools.length
-    ? lazyDetails(
-        h("span", {}, `Tool usage · ${plural(tools.length, "tool")}`),
-        () =>
-          h(
-            "div",
-            { class: "barlist" },
-            ...tools.map(([name, count]) => {
-              const bar = h("div", { class: "barlist-bar" });
-              bar.style.width = `${Math.max(2, (count / maxTool) * 100)}%`;
-              return h("div", { class: "barlist-row" }, h("span", { class: "barlist-name" }, name), h("div", { class: "barlist-track" }, bar), h("span", { class: "barlist-value" }, String(count)));
-            }),
-          ),
-        { open: tools.length <= 8, className: "panel" },
-      )
-    : null;
-
-  const red = s.redaction;
-  const redParts = red ? Object.entries(red.byCategory).map(([k, n]) => `${n} ${k}`) : [];
-  const files = st.files.read + st.files.edited + st.files.written;
-  return h(
-    "header",
-    { class: "session-header" },
-    h("div", { class: "header-top" }, h("h1", {}, s.title ?? "Agent session"), h("div", { class: "header-actions" }, switcher, themeBtn)),
-    h("p", { class: "meta" }, meta.join(" · ")),
-    state.source?.kind === "local" ? h("p", { class: "fine" }, h("a", { href: "#" }, "← All local sessions")) : null,
-    tiles,
-    files ? h("p", { class: "meta" }, `Files: ${st.files.read} read · ${st.files.edited} edited · ${st.files.written} written`) : null,
-    toolBars,
-    h(
-      "p",
-      { class: "fine" },
-      `Shared as ${s.mode}`,
-      s.generator ? ` · ${formatDate(s.generator.sharedAt) ?? ""} via ${s.generator.name} ${s.generator.version}` : "",
-      redParts.length ? ` · redacted: ${redParts.join(", ")}` : " · no redactions",
-    ),
-    provenance ? provenanceLine(provenance) : null,
-    s.responses.length ? railLegend() : null,
-  );
-}
-
-function pre(text: string, className = ""): HTMLElement {
-  return h("pre", { class: className }, h("code", {}, text));
-}
-
-function renderToolInput(step: ToolStep): Node {
-  const input = (step.input ?? {}) as Record<string, unknown>;
-  const n = step.name.toLowerCase();
-  if ((n === "bash" || n === "shell") && typeof input.command === "string") return pre(input.command, "cmd");
-  if (n === "edit" && typeof input.old_string === "string") {
-    return h("div", { class: "diff" }, pre(String(input.old_string), "del"), pre(String(input.new_string ?? ""), "add"));
-  }
-  if (n === "edit" && Array.isArray(input.edits)) {
-    return h(
-      "div",
-      { class: "diff" },
-      ...(input.edits as Record<string, unknown>[]).flatMap((e) => [pre(String(e.oldText ?? e.old_string ?? ""), "del"), pre(String(e.newText ?? e.new_string ?? ""), "add")]),
-    );
-  }
-  if (n === "write" && typeof input.content === "string") return pre(input.content);
-  return pre(JSON.stringify(input, null, 2));
-}
-
-function renderTool(step: ToolStep): HTMLElement {
-  const summary = h(
-    "span",
-    { class: "tool-summary" },
-    h("span", { class: `badge tool-name${step.isError ? " is-error" : ""}` }, step.name),
-    h("span", { class: "tool-desc" }, step.summary || ""),
-    step.isError ? h("span", { class: "err-mark", title: "Tool returned an error" }, "error") : null,
-  );
-  const hasDetail = step.input !== undefined || step.result;
-  if (!hasDetail) return h("div", { class: "tool" }, summary);
-  return lazyDetails(
-    summary,
-    () =>
-      h(
-        "div",
-        { class: "tool-body" },
-        step.input !== undefined ? h("div", { class: "io-label" }, "Input") : null,
-        step.input !== undefined ? renderToolInput(step) : null,
-        step.result ? h("div", { class: "io-label" }, step.result.isError ? "Error" : "Result", step.result.images ? ` · ${plural(step.result.images, "image")} omitted` : "") : null,
-        step.result ? pre(step.result.text || "(empty)", step.result.isError ? "result is-error" : "result") : null,
-      ),
-    { className: "tool" },
-  );
-}
-
-function renderGroup(g: ToolGroupStep): HTMLElement {
-  const chips = h(
-    "span",
-    { class: "chips" },
-    ...g.calls.map((c) => h("span", { class: `chip${c.errors ? " is-error" : ""}` }, `${c.name} ×${c.count}`)),
-    g.thinking ? h("span", { class: "chip chip-muted" }, `thinking ${g.thinking.tokens ? `${formatTokens(g.thinking.tokens)} tok` : plural(g.thinking.blocks, "block")}`) : null,
-  );
-  const fileLine = (label: string, list: string[]) =>
-    list.length ? h("div", { class: "group-files" }, h("span", { class: "io-label" }, `${label} (${list.length})`), h("ul", {}, ...list.map((f) => h("li", {}, h("code", {}, f))))) : null;
-  const hasDetail = g.commands.length || g.files.read.length || g.files.edited.length || g.files.written.length;
-  const summaryText = [
-    g.files.read.length ? `read ${plural(g.files.read.length, "file")}` : "",
-    g.files.edited.length ? `edited ${plural(g.files.edited.length, "file")}` : "",
-    g.files.written.length ? `wrote ${plural(g.files.written.length, "file")}` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const summary = h("span", { class: "tool-summary" }, chips, summaryText ? h("span", { class: "tool-desc" }, summaryText) : null);
-  if (!hasDetail) return h("div", { class: "group" }, summary);
-  return lazyDetails(
-    summary,
-    () =>
-      h(
-        "div",
-        { class: "tool-body" },
-        g.commands.length ? h("div", { class: "io-label" }, `Commands (${g.commands.length})`) : null,
-        g.commands.length ? pre(g.commands.join("\n"), "cmd") : null,
-        fileLine("Read", g.files.read),
-        fileLine("Edited", g.files.edited),
-        fileLine("Written", g.files.written),
-      ),
-    { className: "group" },
-  );
-}
-
-function renderThinking(t: ThinkingStep): HTMLElement {
-  const label = `Thinking${t.blocks > 1 ? ` · ${t.blocks} blocks` : ""}${t.tokens ? ` · ${formatTokens(t.tokens)} tok` : t.chars ? ` · ${formatTokens(t.chars)} chars` : ""}`;
-  if (!t.text) return h("div", { class: "thinking" }, h("span", { class: "chip chip-muted" }, label));
-  return lazyDetails(h("span", { class: "chip chip-muted" }, label), () => markdown(t.text ?? ""), { className: "thinking" });
-}
-
-function renderSubagent(s: SubagentStep): HTMLElement {
-  const u = s.usage;
-  const stats = u
-    ? [
-        u.totalTokens ? `${formatTokens(u.totalTokens)} tok` : u.input !== undefined ? `${formatTokens((u.input ?? 0) + (u.cacheRead ?? 0) + (u.output ?? 0))} tok` : "",
-        u.turns ? plural(u.turns, "turn") : "",
-        u.toolUses ? plural(u.toolUses, "tool call") : "",
-        u.durationMs ? formatDuration(u.durationMs) : "",
-        u.cost !== undefined ? formatCost(u.cost) : "",
-      ].filter(Boolean)
-    : [];
-  const head = h(
-    "div",
-    { class: "subagent-head" },
-    h("span", { class: "badge subagent-badge" }, "🤖 subagent"),
-    h("strong", {}, s.agents.length ? s.agents.join(", ") : s.tool),
-    s.mode ? h("span", { class: "muted" }, s.mode) : null,
-    s.async ? h("span", { class: "muted" }, "async") : null,
-    s.isError ? h("span", { class: "err-mark" }, "error") : null,
-  );
-  return h(
-    "div",
-    { class: "subagent" },
-    head,
-    s.description ? h("div", { class: "subagent-desc" }, s.description) : null,
-    stats.length ? h("div", { class: "muted small" }, stats.join(" · ")) : null,
-    s.result ? lazyDetails(h("span", {}, "Result"), () => pre(s.result?.text ?? ""), { className: "subagent-result" }) : null,
-  );
-}
-
-function renderEvent(e: EventStep): HTMLElement {
-  const label = h("span", { class: "event-text" }, `${EVENT_ICON[e.event] ?? "•"} ${e.text}`);
-  if (!e.detail) return h("div", { class: `event event-${e.event}` }, label);
-  return lazyDetails(label, () => (e.event === "compaction" ? markdown(e.detail ?? "") : pre(e.detail ?? "")), { className: `event event-${e.event}` });
-}
-
-function renderStep(step: Step): HTMLElement {
-  switch (step.kind) {
-    case "text":
-      return h("div", { class: "assistant" }, markdown(step.text));
-    case "thinking":
-      return renderThinking(step);
-    case "tool":
-      return renderTool(step);
-    case "toolGroup":
-      return renderGroup(step);
-    case "subagent":
-      return renderSubagent(step);
-    case "event":
-      return renderEvent(step);
-  }
-}
-
-function renderTurn(turn: Turn, scale: RailScale, ordinal: number): HTMLElement {
-  const u = turn.user;
-  const prompt = u
-    ? h(
-        "div",
-        { class: "prompt" },
-        h("div", { class: "prompt-label" }, u.command ? h("span", { class: "badge" }, "command") : "You", u.images ? h("span", { class: "muted" }, ` · ${plural(u.images, "image")} omitted`) : null),
-        u.command && !u.expanded ? h("pre", { class: "cmd" }, h("code", {}, u.text)) : markdown(u.text),
-        u.expanded ? lazyDetails(h("span", {}, "Expanded prompt"), () => markdown(u.expanded ?? ""), { className: "expanded" }) : null,
-      )
-    : null;
-  const time = turn.timestamp ? new Date(turn.timestamp).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "";
-  return h(
-    "section",
-    { class: "turn", id: `turn-${turn.index}` },
-    h(
-      "div",
-      { class: "turn-main" },
-      h("a", { class: "turn-anchor", href: `#turn-${turn.index}`, onclick: (e: Event) => e.preventDefault() }, u ? `Turn ${ordinal}${time ? ` · ${time}` : ""}` : "Session start"),
-      prompt,
-      ...turn.steps.map(renderStep),
-    ),
-    renderRail(turn.index, scale) ?? h("aside", { class: "rail rail-empty" }),
-  );
-}
-
-function render(): void {
-  if (!shared) return;
+function currentView(): ShareMode {
   const requested = state.params.get("view") as ShareMode | null;
-  const modes = availableModes(shared.mode);
-  const view = requested && modes.includes(requested) ? requested : shared.mode;
+  return shared && requested && availableModes(shared.mode).includes(requested) ? requested : (shared?.mode ?? "full");
+}
+
+let activeTurn: TurnInfo | undefined;
+
+/** What's at the top of the viewport, so a re-render (variant, view mode) can keep it there. */
+type Anchor = { atTop: true } | { atTop: false; id: string; top: number; turnId?: string };
+
+function captureAnchor(): Anchor | undefined {
+  const entries = document.querySelectorAll<HTMLElement>(".transcript .entry[id]");
+  if (!entries.length) return undefined;
+  if (window.scrollY < 1) return { atTop: true };
+  // The last entry whose top has passed the top edge (below the minibar).
+  const line = cssPx("--top") + 8;
+  let lo = 0;
+  let hi = entries.length - 1;
+  let found = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (entries[mid]!.getBoundingClientRect().top <= line) {
+      found = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  const el = entries[found]!;
+  return { atTop: false, id: el.id, top: el.getBoundingClientRect().top, turnId: el.closest(".turn")?.id };
+}
+
+function restoreAnchor(anchor: Anchor): void {
+  if (anchor.atTop) return window.scrollTo(0, 0);
+  // Brief/minimal views group steps differently, so an entry may not exist there; then
+  // fall back to the start of its turn.
+  const el = document.getElementById(anchor.id);
+  const target = el ?? (anchor.turnId ? document.getElementById(anchor.turnId) : null);
+  if (!target) return;
+  const top = el ? anchor.top : Math.min(anchor.top, cssPx("--top") + 8);
+  window.scrollTo(0, window.scrollY + target.getBoundingClientRect().top - top);
+}
+
+function render(opts: { keepPlace?: boolean } = {}): void {
+  if (!shared) return;
+  // Before anything changes the layout (the new variant's styles included).
+  const anchor = opts.keepPlace ? captureAnchor() : undefined;
+  teardown.abort();
+  teardown = new AbortController();
+  const signal = teardown.signal;
+  closeMenus();
+  hideTooltip();
+  releaseTables();
+  const variant = currentVariant();
+  applyVariant(variant);
+  const view = currentView();
   const session = view === shared.mode ? shared : projectSession(shared, view);
-  const scale = buildScale(session);
   document.title = `${session.title ?? "Agent session"} · Agent Session`;
-  let ordinal = 0;
-  const turns = session.turns.filter((t) => t.user || t.steps.length).map((t) => renderTurn(t, scale, t.user ? ++ordinal : 0));
-  app.replaceChildren(renderHeader(session, view), h("div", { class: "turns" }, ...turns));
+
+  const controls: Controls = { view, setView, toggleTheme, toggleRail, settings, local: state.source?.kind === "local" };
+  const { el: transcript, turns } = renderTranscript(session, { inlineThinking: variant.inlineThinking });
+
+  const jump = (id: string, smooth = true) => {
+    const target = document.getElementById(id);
+    if (!target) return;
+    target.scrollIntoView({ behavior: smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches ? "smooth" : "auto", block: "start" });
+    if (!docked()) toggleRail("left", false);
+    target.classList.remove("flash");
+    void target.offsetWidth;
+    target.classList.add("flash");
+  };
+  const toc = renderToc(turns, (id) => jump(id));
+  const tokens = renderTokenRail(session, turns, (turn) => jump(`turn-${turn}`));
+  const header = renderHeader(session, provenance, controls);
+  const minibar = renderMinibar(session, turns, controls);
+
+  const end = h("footer", { class: "end" }, h("span", {}, `end of session · ${plural(turns.filter((t) => t.ordinal).length, "prompt")}`));
+  const page = h("div", { class: "page" }, header, transcript, end);
+  app.replaceChildren(minibar.el, page, ...rail("left", "Contents", "≡", toc.el), ...rail("right", "Tokens", "∑", tokens.el));
+  updateDock();
+
+  // Scroll spy: the active turn is the last one whose top has passed a line near the
+  // top of the viewport. Turns are in document order, so binary search.
+  const spy = () => {
+    const line = Math.min(window.innerHeight * 0.3, 160) + cssPx("--top");
+    let lo = 0;
+    let hi = turns.length - 1;
+    let found = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (turns[mid]!.el.getBoundingClientRect().top <= line) {
+        found = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    const t = turns[found];
+    if (t && t !== activeTurn) {
+      activeTurn = t;
+      toc.setActive(t.index);
+      tokens.setActive(t.index);
+      minibar.setActive(t);
+    }
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    minibar.setProgress(max > 0 ? window.scrollY / max : 0);
+    root.dataset.compact = String(header.getBoundingClientRect().bottom < 0);
+  };
+  let queued = false;
+  const onScroll = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      spy();
+    });
+  };
+  window.addEventListener("scroll", onScroll, { passive: true, signal });
+  window.addEventListener(
+    "resize",
+    () => {
+      updateDock();
+      onScroll();
+    },
+    { signal },
+  );
+  // Close an overlay rail when clicking outside it.
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (docked() || (!overlayOpen.left && !overlayOpen.right)) return;
+      const target = e.target as Element;
+      if (target.closest(".rail, .rail-tab, .minibar")) return;
+      overlayOpen.left = overlayOpen.right = false;
+      syncRails();
+    },
+    { signal },
+  );
+  document.addEventListener("keydown", (e) => onKey(e, turns, jump, toc.focusSearch), { signal });
+
+  activeTurn = undefined;
+  if (anchor) {
+    // Tables start at a default width until their observer fires; size them now so
+    // the heights above the anchor are final before measuring.
+    relayoutTables();
+    restoreAnchor(anchor);
+    // A variant's font may still be loading; once it lands, put the reader back unless
+    // they've scrolled since.
+    if (document.fonts?.status === "loading") {
+      const settled = window.scrollY;
+      void document.fonts.ready.then(() => {
+        if (!signal.aborted && Math.abs(window.scrollY - settled) < 2) restoreAnchor(anchor);
+      });
+    }
+  }
+  spy();
+}
+
+function onKey(e: KeyboardEvent, turns: TurnInfo[], jump: (id: string) => void, focusSearch: () => void): void {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const el = e.target as HTMLElement | null;
+  if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+  const prompts = turns.filter((t) => t.ordinal);
+  // Where a jump puts a turn's top; "next"/"previous" are relative to that line.
+  const land = (t: TurnInfo) => parseFloat(getComputedStyle(t.el).scrollMarginTop) || 0;
+  switch (e.key) {
+    case "j": {
+      const next = prompts.find((t) => t.el.getBoundingClientRect().top > land(t) + 8);
+      if (next) jump(next.id);
+      break;
+    }
+    case "k": {
+      const prev = [...prompts].reverse().find((t) => t.el.getBoundingClientRect().top < land(t) - 8);
+      if (prev) jump(prev.id);
+      break;
+    }
+    case "[":
+      toggleRail("left");
+      break;
+    case "]":
+      toggleRail("right");
+      break;
+    case "/":
+      e.preventDefault();
+      toggleRail("left", true);
+      focusSearch();
+      break;
+    case "v":
+    case "V": {
+      const i = VARIANTS.findIndex((v) => v.id === currentVariant().id);
+      setVariant(VARIANTS[(i + (e.key === "V" ? VARIANTS.length - 1 : 1)) % VARIANTS.length]!);
+      break;
+    }
+    case "Escape":
+      if (!docked()) {
+        overlayOpen.left = overlayOpen.right = false;
+        syncRails();
+      }
+      break;
+    default:
+      return;
+  }
 }
 
 function setView(mode: ShareMode): void {
   if (mode === shared?.mode) state.params.delete("view");
   else state.params.set("view", mode);
   history.replaceState(null, "", formatHash(state));
-  render();
+  render({ keepPlace: true });
 }
 
 interface LocalShare {
@@ -389,13 +373,19 @@ async function showLocalPicker(): Promise<boolean> {
     return false;
   }
   if (!Array.isArray(shares) || shares.length === 0) return false;
+  teardown.abort();
   document.title = "Local sessions · Agent Session";
+  const variant = state.params.get("variant");
   app.replaceChildren(
     h(
-      "section",
-      { class: "session-header picker" },
-      h("h1", {}, "Local sessions"),
-      h("p", { class: "meta" }, `Served by agent-share serve · ${plural(shares.length, "file")}`),
+      "div",
+      { class: "page picker" },
+      h(
+        "header",
+        { class: "hdr" },
+        h("div", { class: "hdr-top" }, h("h1", { class: "hdr-title" }, "Local sessions"), h("div", { class: "hdr-actions" }, settingsButton(settings))),
+        h("p", { class: "fine" }, `Served by agent-share serve · ${plural(shares.length, "file")}`),
+      ),
       h(
         "ul",
         { class: "picker-list" },
@@ -403,12 +393,8 @@ async function showLocalPicker(): Promise<boolean> {
           h(
             "li",
             {},
-            h("a", { href: `#local:${encodeURIComponent(s.name)}` }, s.title ?? s.name),
-            h(
-              "span",
-              { class: "muted small" },
-              s.error ? ` · ${s.name} · unreadable (${s.error})` : ` · ${[s.name, HARNESS_LABEL[s.harness ?? ""] ?? s.harness, s.mode, s.turns !== undefined ? plural(s.turns, "turn") : ""].filter(Boolean).join(" · ")}`,
-            ),
+            h("a", { href: `#local:${encodeURIComponent(s.name)}${variant ? `&variant=${encodeURIComponent(variant)}` : ""}` }, s.title ?? s.name),
+            h("span", { class: "fine" }, s.error ? `${s.name} · unreadable (${s.error})` : [s.name, HARNESS_LABEL[s.harness ?? ""] ?? s.harness, s.mode, s.turns !== undefined ? plural(s.turns, "turn") : ""].filter(Boolean).join(" · ")),
           ),
         ),
       ),
@@ -422,6 +408,9 @@ async function main(): Promise<void> {
   // (e.g. &view=brief) would otherwise re-render the old share under the new link.
   shared = undefined;
   provenance = undefined;
+  activeTurn = undefined;
+  applyVariant(currentVariant());
+  closeMenus();
   if (!state.source) {
     if (await showLocalPicker()) return;
     return showError("No session in the link.");
@@ -442,7 +431,7 @@ window.addEventListener("hashchange", () => {
   const next = parseHash(location.hash);
   const sameSource = JSON.stringify(next.source) === JSON.stringify(state.source);
   state = next;
-  if (sameSource) render();
+  if (sameSource) render({ keepPlace: true });
   else void main();
 });
 

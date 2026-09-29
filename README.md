@@ -187,6 +187,7 @@ server):
 | `#local:<name>` | file served by `agent-share serve` |
 | `#url:<path>` | same-origin path |
 | `…&view=minimal` | step the view down |
+| `…&variant=log` | pick a design variant (`classic`, `cli`, `timeline`, `hybrid`, `log`) |
 
 Transcripts are untrusted: anyone can make a gist and send a link to your viewer. The
 header says where the share was loaded from (for gists, the owner as GitHub reports it)
@@ -198,11 +199,57 @@ resource references (`<image>`, `<use>`, `url()` in `fill`, `mask`, `cursor`, �
 removed. The CSP (checked against the real build by the tests) blocks scripts and remote
 requests as a second layer.
 
-It renders prompts/replies, tool calls with
-lazily-built detail, grouped work, subagent cards, events, and a per-turn **token rail**:
-one column per model response showing prompt size (cache read / cache write / new input,
-scaled to the session's peak context) plus a separate output row, with per-turn and
-cumulative session totals and hover tooltips.
+It reads like a terminal transcript: a centered mono column (640–840px depending on the
+variant) you can scroll straight through. Each tool call is one line (`Bash(npm test)`,
+`Edit(src/x.ts) +2 −1`) with a short preview of its output or diff under it; the full
+input/output is built only when you open it. Brief/minimal shares show grouped work as
+count badges (`Bash ×5 · Edit ×3`) with the files and commands involved. Code blocks and
+output wrap instead of scrolling sideways, and markdown tables are drawn as text grids
+that re-lay themselves out to the width (see below).
+
+Around the transcript, without pushing it off-center:
+
+- **Contents rail** (left): one row per prompt with its time and tool count; "all" adds
+  the replies, tool runs and events inside each turn. Filter with `/`, click to jump; the
+  turn in view is highlighted.
+- **Token rail** (right): session totals; *context by turn* — the largest prompt sent in
+  each turn (stacked cache read / cache write / new input) with its output on a row below;
+  the turn in view is marked and bars jump to their turn — then *the turn in view*, one
+  bar per model call on the same session-wide scale (so turns can be compared), tool
+  counts and files. Each chart labels the top of its scale.
+- **Header**: title, agent/model/project/date, key stats, where the share was loaded
+  from and that it isn't verified, and the controls (view mode, theme, settings). Once it
+  scrolls away a one-line **minibar** takes over with the turn in view, reading progress
+  and the controls; it spans the window, with its contents lined up with the rails.
+
+Both rails collapse (`«`/`»`, or `[` and `]`) and stay collapsed per browser. When the
+window is too narrow to fit them beside the column they become overlays opened from the
+minibar or the corner buttons. Keys: `j`/`k` next/previous prompt, `[`/`]` rails, `/`
+filter the contents, `v`/`V` cycle design variants.
+
+**Design variants.** Five looks share one DOM, for picking a direction. Pick one from the
+settings menu (the sliders icon next to the theme toggle), with `v`/`V`, or with
+`&variant=` in the link; the choice is remembered:
+
+| variant | look |
+| --- | --- |
+| `classic` (default) | After pi's session export: one text edge, prompts and tool calls as tinted blocks (different tints), a bold `$ command` over its output, thinking in dim italics; warm cli/gruvbox palette. |
+| `cli` | The agent's own terminal: `❯` prompts on a faint band, `●` tool lines with `└` output, markdown shown with its `##` markers, rounded tables, floating rail panels. |
+| `timeline` | A vertical line with a node per step; turn numbers and times in a gutter; docs-style rails; the minibar is a floating pill. |
+| `hybrid` | Proportional prose (IBM Plex Sans) for prompts and replies, mono for everything the agent did; tool activity on a quiet hairline; numbered turn rules. |
+| `log` | A TUI log: `time │ role │ text` rows, framed panes with titles set into the border, a statusline and plain ASCII tables (gruvbox). |
+
+**Text tables.** Markdown tables become box-drawn grids sized in characters: columns
+keep their longest word where possible, spare width goes to the columns with the most
+body text (so a long header wraps before a long cell), emoji/CJK count as two columns,
+and when even whole words can't fit, rows are shown as stacked `header  value` records.
+The grid redraws when its container changes width; the original table stays in the DOM,
+visually hidden, for screen readers. Inline code, emphasis and links are kept.
+
+**Fonts.** The viewer bundles its fonts (no font CDN): a subset of JetBrains Mono that
+includes box-drawing, block and geometric characters — the stock web subsets leave box
+drawing out, and text tables only line up when every character comes from one font —
+and IBM Plex Sans for the `hybrid` prose. The CSP allows `font-src 'self'`.
 
 **Build-time config** — `viewer.config.json` lists extra share sources as URL templates:
 
@@ -227,6 +274,10 @@ viewer, with relative asset URLs so any base path works), `_headers` (CSP with
 npm run dev     # Vite dev server → http://localhost:3000/session/
 ```
 
+- **Variants:** `viewer/src/styles/<variant>.css` (scoped by `html[data-variant]`) over
+  `base.css`; `viewer/src/variants.ts` lists them. Point the dev server at longer sessions
+  to judge them: `agent-share fixtures --out /tmp/big --turns 120` then
+  `AGENT_SHARE_DEV_SHARES="/tmp/big/shares/claude-code-full.json" npm run dev`.
 - **HMR:** CSS edits hot-swap in place; TypeScript edits reload the page (the viewer is
   framework-free), which keeps the open session because it lives in the URL hash.
 - **Data:** the fixture sessions are served at `/session/local/` (generated into
@@ -234,9 +285,9 @@ npm run dev     # Vite dev server → http://localhost:3000/session/
   exports with `AGENT_SHARE_DEV_SHARES="a.json b.json" npm run dev`.
 - **CSP:** dev only allows inline styles and the HMR WebSocket; builds keep the strict
   policy.
-- **File access:** Vite may only read `viewer/` and `src/` (`server.fs.allow`), so the
-  any-hostname setting cannot be used to read other files in the checkout (raw
-  transcripts, a secrets file) via `/@fs/`.
+- **File access:** Vite may only read `viewer/`, `src/` and the bundled prose font's
+  package (`server.fs.allow`), so the any-hostname setting cannot be used to read other
+  files in the checkout (raw transcripts, a secrets file) via `/@fs/`.
 - **Network:** listens on localhost only; `npm run dev -- --host` exposes it on all
   interfaces. Any hostname is accepted (VPS domain, Tailscale name, tunnel).
 - `npm run preview:cf` builds and runs the viewer in Cloudflare's local runtime

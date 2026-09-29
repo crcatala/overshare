@@ -1,0 +1,320 @@
+/*
+ * hybrid — prompts and replies in a proportional face, everything the agent *did*
+ * (tools, output, code, tables, numbers) in mono. Tool activity runs down a quiet
+ * hairline so prose stays the main read; turns are divided by a numbered rule.
+ */
+:root[data-variant="hybrid"] {
+  --font-prose: "IBM Plex Sans Variable", "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --bg: light-dark(#f8f6f1, #161513);
+  --bg-2: light-dark(#efece4, #201e1b);
+  --bg-3: light-dark(#e6e2d8, #2a2825);
+  --ink: light-dark(#211f1b, #ede8de);
+  --ink-2: light-dark(#4a463f, #c8c2b5);
+  --dim: light-dark(#7b756a, #958e81);
+  --faint: light-dark(#ada699, #625d54);
+  --line: light-dark(#e1dccf, #2d2b27);
+  --accent: light-dark(#1b7768, #5ec6b4);
+  --ok: light-dark(#2e7d4f, #74c694);
+  --err: light-dark(#b23a2e, #ef8175);
+  --heading: var(--ink);
+  --code: light-dark(#8e3a60, #e7a0c3);
+  --link: var(--accent);
+  --content-w: 720px;
+  --rail-w: 236px;
+  --rail-gap: 36px;
+  --fs: 13px;
+  --fs-sm: 12px;
+}
+
+[data-variant="hybrid"] .md,
+[data-variant="hybrid"] .hdr-title,
+[data-variant="hybrid"] .toc-label,
+[data-variant="hybrid"] .mb-name,
+[data-variant="hybrid"] .mb-label,
+[data-variant="hybrid"] .sub-desc {
+  font-family: var(--font-prose);
+}
+[data-variant="hybrid"] .md {
+  font-size: 15.5px;
+  line-height: 1.68;
+}
+[data-variant="hybrid"] .md :not(pre) > code {
+  font-size: 0.86em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-2);
+}
+[data-variant="hybrid"] .md .codeblock,
+[data-variant="hybrid"] .md .atable {
+  font-size: 13px;
+}
+
+/* header */
+[data-variant="hybrid"] .hdr {
+  margin-bottom: 8px;
+}
+[data-variant="hybrid"] .hdr-title {
+  font-size: 1.9em;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+[data-variant="hybrid"] .hdr-top {
+  align-items: center;
+}
+[data-variant="hybrid"] .facts {
+  font-size: var(--fs-sm);
+}
+[data-variant="hybrid"] .facts-meta {
+  margin-top: 10px;
+  color: var(--dim);
+}
+[data-variant="hybrid"] .facts-stats dd {
+  color: var(--ink);
+}
+[data-variant="hybrid"] .hdr-fine {
+  font-size: 11.5px;
+}
+
+/* turns: a numbered rule */
+[data-variant="hybrid"] .turn {
+  padding: 34px 0 6px;
+}
+[data-variant="hybrid"] .turn-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--faint);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  margin-bottom: 14px;
+}
+[data-variant="hybrid"] .turn-head::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--line);
+}
+[data-variant="hybrid"] .turn-n {
+  color: var(--accent);
+  font-weight: 600;
+}
+[data-variant="hybrid"] .turn-n::before {
+  content: "TURN ";
+  color: var(--faint);
+  font-weight: 400;
+}
+[data-variant="hybrid"] .turn-start .turn-n::before {
+  content: "BEFORE THE FIRST PROMPT";
+}
+[data-variant="hybrid"] .turn-start .turn-n {
+  font-size: 0;
+}
+[data-variant="hybrid"] .turn-start .turn-n::before {
+  font-size: 11px;
+}
+
+/* prompt: larger, with a hanging marker in the margin */
+[data-variant="hybrid"] .k-user {
+  position: relative;
+  margin-bottom: 14px;
+}
+[data-variant="hybrid"] .k-user::before {
+  content: "›";
+  position: absolute;
+  left: -1.4em;
+  top: -2px;
+  font: 600 22px/1.4 var(--font-prose);
+  color: var(--accent);
+}
+[data-variant="hybrid"] .k-user .md {
+  font-size: 17.5px;
+  line-height: 1.55;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+}
+[data-variant="hybrid"] .k-user .command {
+  font-size: 15px;
+}
+[data-variant="hybrid"] .k-text {
+  margin: 12px 0;
+}
+
+/* tool activity: a quiet hairline */
+[data-variant="hybrid"] .k-tool,
+[data-variant="hybrid"] .k-group,
+[data-variant="hybrid"] .k-think,
+[data-variant="hybrid"] .k-sub,
+[data-variant="hybrid"] .k-event {
+  margin: 0;
+  padding: 2px 0 2px 14px;
+  border-left: 1px solid var(--line);
+  font-size: 12.5px;
+}
+[data-variant="hybrid"] .k-tool + .k-text,
+[data-variant="hybrid"] .k-group + .k-text,
+[data-variant="hybrid"] .k-think + .k-text,
+[data-variant="hybrid"] .k-sub + .k-text,
+[data-variant="hybrid"] .k-event + .k-text {
+  margin-top: 14px;
+}
+[data-variant="hybrid"] .k-tool.is-error,
+[data-variant="hybrid"] .k-group.has-error {
+  border-left-color: var(--err);
+}
+[data-variant="hybrid"] .k-sub {
+  border-left-color: var(--accent);
+}
+[data-variant="hybrid"] .tname {
+  font-weight: 500;
+  color: var(--ink-2);
+}
+[data-variant="hybrid"] .targ {
+  color: var(--dim);
+}
+[data-variant="hybrid"] .k-tool .tprev pre.out {
+  color: var(--faint);
+}
+[data-variant="hybrid"] .chip {
+  background: none;
+  padding: 0;
+  font-size: 12.5px;
+}
+[data-variant="hybrid"] .chip + .chip::before {
+  content: "·";
+  color: var(--faint);
+  margin-right: 6px;
+}
+[data-variant="hybrid"] .chip-name {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+[data-variant="hybrid"] .chip.is-error .chip-name {
+  color: var(--err);
+}
+[data-variant="hybrid"] .sub-desc {
+  font-size: 14px;
+  color: var(--ink-2);
+}
+[data-variant="hybrid"] .turn-foot {
+  font-size: 11px;
+  margin-top: 12px;
+}
+
+/* markdown */
+[data-variant="hybrid"] .md h1,
+[data-variant="hybrid"] .md h2 {
+  font-size: 1.2em;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin-top: 1.4em;
+}
+[data-variant="hybrid"] .md h3 {
+  font-size: 1.05em;
+  font-weight: 650;
+  margin-top: 1.3em;
+}
+[data-variant="hybrid"] .md li::marker {
+  color: var(--faint);
+}
+[data-variant="hybrid"] .md blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 14px;
+  color: var(--ink-2);
+  font-style: italic;
+}
+[data-variant="hybrid"] .codeblock {
+  background: var(--bg-2);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+[data-variant="hybrid"] .codeblock-lang {
+  float: right;
+  margin: -2px 0 0 2ch;
+  font-size: 11px;
+}
+[data-variant="hybrid"] .at-grid {
+  color: var(--ink-2);
+}
+[data-variant="hybrid"] .at-b {
+  color: var(--line);
+}
+[data-variant="hybrid"] .at-h {
+  color: var(--dim);
+  font-weight: 600;
+}
+
+/* rails */
+[data-variant="hybrid"] .rail-head h2 {
+  font-family: var(--font-prose);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-transform: none;
+}
+[data-variant="hybrid"] .rail-head h2::first-letter {
+  text-transform: uppercase;
+}
+[data-variant="hybrid"] .toc-label {
+  font-size: 13px;
+  line-height: 1.4;
+}
+[data-variant="hybrid"] .toc-item .toc-label {
+  font-size: 12px;
+}
+[data-variant="hybrid"] .toc-link {
+  padding: 5px 8px;
+  border-radius: 8px;
+}
+[data-variant="hybrid"] .toc-turn.on > .toc-link {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+[data-variant="hybrid"] .toc-turn.on > .toc-link .toc-label {
+  color: var(--ink);
+}
+[data-variant="hybrid"] .toc-search {
+  border-radius: 8px;
+  background: var(--bg-2);
+  border-color: transparent;
+}
+[data-variant="hybrid"] .rail-right {
+  border-left: 1px solid var(--line);
+  padding-left: 18px;
+}
+[data-variant="hybrid"] .rail-left {
+  border-right: 1px solid var(--line);
+  padding-right: 18px;
+}
+:root[data-dock="overlay"][data-variant="hybrid"] .rail {
+  border: 1px solid var(--line);
+  padding: 12px;
+}
+[data-variant="hybrid"] .rail-sec h3 {
+  font-family: var(--font-prose);
+  font-weight: 600;
+}
+[data-variant="hybrid"] .bar {
+  background: var(--accent);
+  border-radius: 3px;
+}
+
+/* minibar */
+[data-variant="hybrid"] .mb-name {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+[data-variant="hybrid"] .mb-label {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+@media (max-width: 720px) {
+  [data-variant="hybrid"] .k-user::before {
+    display: none;
+  }
+  [data-variant="hybrid"] .hdr-title {
+    font-size: 1.5em;
+  }
+  [data-variant="hybrid"] .hdr-top {
+    align-items: flex-start;
+  }
+}

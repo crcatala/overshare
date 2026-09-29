@@ -12,7 +12,12 @@ export interface Variant {
   label: string;
   blurb: string;
   table: TableStyle;
-  /** Show thinking text in full (italic) instead of a one-line preview that opens. */
+  /**
+   * Show thinking text in full (italic) instead of a one-line preview that opens. This
+   * renders every thinking block's markdown up front, like replies: measured on a
+   * 128-turn session with 124 blocks of ~3k characters, about +80ms (~0.7ms a block).
+   * If long real sessions make that noticeable, render them as they scroll into view.
+   */
   inlineThinking?: boolean;
 }
 

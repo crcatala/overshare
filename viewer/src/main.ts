@@ -8,8 +8,8 @@ import "./styles/log.css";
 import { plural } from "../../src/format.ts";
 import { availableModes, projectSession } from "../../src/modes.ts";
 import { SCHEMA_VERSION, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
-import { relayoutTables, setTableStyle } from "./asciitable.ts";
-import { h } from "./dom.ts";
+import { relayoutTables, releaseTables, setTableStyle } from "./asciitable.ts";
+import { h, hideTooltip } from "./dom.ts";
 import { HARNESS_LABEL, renderHeader, renderMinibar, type Controls } from "./header.ts";
 import { load, save } from "./prefs.ts";
 import { closeMenus, settingsButton, type SettingsOptions } from "./settings.ts";
@@ -133,6 +133,8 @@ function rail(side: Side, title: string, glyph: string, body: HTMLElement): HTML
 // ---------- rendering ----------
 function showError(message: string): void {
   teardown.abort();
+  hideTooltip();
+  releaseTables();
   app.replaceChildren(
     h(
       "div",
@@ -193,6 +195,8 @@ function render(opts: { keepPlace?: boolean } = {}): void {
   teardown = new AbortController();
   const signal = teardown.signal;
   closeMenus();
+  hideTooltip();
+  releaseTables();
   const variant = currentVariant();
   applyVariant(variant);
   const view = currentView();

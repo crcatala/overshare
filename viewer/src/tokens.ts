@@ -9,7 +9,7 @@
  */
 import { formatCost, formatTokens, plural } from "../../src/format.ts";
 import { contextTokens, totalTokens, type NormalizedSession, type ResponseUsage, type Usage } from "../../src/schema.ts";
-import { h, withTooltip } from "./dom.ts";
+import { h, hideTooltip, withTooltip } from "./dom.ts";
 import { svg } from "./el.ts";
 import type { TurnInfo } from "./transcript.ts";
 
@@ -244,6 +244,8 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     if (turnIndex === current) return;
     current = turnIndex;
     sessionChart.setActive(turnIndex);
+    // The turn box is rebuilt below; a tooltip from one of its bars would outlive it.
+    if (turnBox.matches(":hover")) hideTooltip();
     const t = turns.find((x) => x.index === turnIndex);
     if (!t || !t.responses.length) {
       turnBox.replaceChildren(h("h3", {}, t ? (t.ordinal ? `Turn ${t.ordinal}` : "Start") : "Turn"), h("p", { class: "rail-empty" }, "No model responses in this turn."));

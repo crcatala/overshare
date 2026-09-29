@@ -253,6 +253,11 @@ function stacked(model: TableModel, cols: number, style: TableStyle): Line[] {
   const labelW = Math.max(1, Math.min(Math.max(...model.head.map(naturalWidth)), Math.floor(cols * 0.4)));
   const valueW = Math.max(4, cols - labelW - 2);
   const lines: Line[] = [];
+  // A table with only a header still shows its labels.
+  if (!model.body.length) {
+    for (const label of model.head) for (const l of wrapCell(label, cols)) lines.push([{ kind: "cell", glyphs: l, head: true }]);
+    return lines;
+  }
   model.body.forEach((row, r) => {
     if (r > 0) lines.push([{ kind: "border", text: style === "minimal" ? "" : BORDERS[style].h.repeat(Math.min(cols, labelW + 2 + valueW)) }]);
     model.head.forEach((label, i) => {
@@ -303,6 +308,9 @@ export function lineWidth(line: Line): number {
 
 // ---------- DOM ----------
 
+/** Elements whose text would otherwise run into the next block's inside a cell. */
+const BLOCK_TAGS = new Set(["p", "div", "li", "ul", "ol", "tr", "td", "th", "table", "blockquote", "pre", "h1", "h2", "h3", "h4", "h5", "h6"]);
+
 /** Read a sanitized <table> into cell glyphs, keeping inline formatting and links. */
 export function tableModel(table: HTMLTableElement): TableModel {
   const styles: RunStyle[] = [{}];
@@ -332,12 +340,14 @@ export function tableModel(table: HTMLTableElement): TableModel {
         return;
       }
       const next = { ...style };
+      if (BLOCK_TAGS.has(tag)) out.push({ c: " ", w: 1, s: 0 });
       if (tag === "strong" || tag === "b") next.strong = true;
       if (tag === "em" || tag === "i") next.em = true;
       if (tag === "code") next.code = true;
       if (tag === "del" || tag === "s") next.del = true;
       if (tag === "a" && el.getAttribute("href")) next.href = el.getAttribute("href")!;
       for (const child of Array.from(el.childNodes)) walk(child, next);
+      if (BLOCK_TAGS.has(tag)) out.push({ c: " ", w: 1, s: 0 });
     };
     for (const child of Array.from(cell.childNodes)) walk(child, {});
     // Trim leading whitespace (trailing is trimmed per line in the layout).
@@ -349,8 +359,9 @@ export function tableModel(table: HTMLTableElement): TableModel {
   let headRows = rowsOf("thead");
   let bodyRows = [...rowsOf("tbody"), ...rowsOf(":not(thead):not(tbody)")];
   if (!headRows.length) {
-    // Raw HTML tables may skip <thead>; treat the first row as the header.
-    const all = Array.from(table.querySelectorAll("tr")).map((tr) => Array.from(tr.children));
+    // Raw HTML tables may skip <thead>; treat the first row as the header. Only this
+    // table's own rows: a nested table stays inside its cell's text.
+    const all = Array.from(table.querySelectorAll(":scope > tbody > tr, :scope > tr, :scope > tfoot > tr")).map((tr) => Array.from(tr.children));
     headRows = all.slice(0, 1);
     bodyRows = all.slice(1);
   }
@@ -414,6 +425,16 @@ function renderLines(pre: HTMLElement, lines: Line[], model: TableModel): void {
 const relayouts = new WeakMap<Element, () => void>();
 let observer: ResizeObserver | undefined;
 
+/**
+ * Stop watching the tables drawn so far. The viewer calls this before each re-render
+ * (variant or view switch); an observer that kept watching replaced tables could keep
+ * them, and the whole page they hang from, in memory.
+ */
+export function releaseTables(): void {
+  observer?.disconnect();
+  observer = undefined;
+}
+
 /** Lay out every table to its container now (e.g. right after inserting a new render). */
 export function relayoutTables(): void {
   for (const el of document.querySelectorAll(".atable")) relayouts.get(el)?.();
@@ -435,6 +456,9 @@ export function asciiTable(table: HTMLTableElement): HTMLElement {
   const probe = h("span", { class: "at-probe", "aria-hidden": "true" }, "0".repeat(20));
   const grid = h("pre", { class: "at-grid", "aria-hidden": "true" });
   table.classList.add("sr-only");
+  // Links are clickable (and tabbable) in the grid; the hidden table's copies stay
+  // readable by screen readers but out of the tab order, so each link is one tab stop.
+  for (const a of table.querySelectorAll("a")) a.setAttribute("tabindex", "-1");
   const wrap = h("div", { class: "atable" }, grid, probe, table);
   let last = "";
   const relayout = () => {

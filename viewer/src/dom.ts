@@ -193,6 +193,15 @@ export function lazyDetails(summary: Node, build: () => Node, opts: { open?: boo
 
 const tooltip = () => document.getElementById("tooltip") as HTMLDivElement;
 
+/**
+ * Hide the tooltip. Needed when its element is replaced while hovered: removed nodes
+ * get no pointerleave, so the tooltip would stay up with stale content.
+ */
+export function hideTooltip(): void {
+  const tip = document.getElementById("tooltip");
+  if (tip) tip.hidden = true;
+}
+
 export interface TooltipOptions {
   /**
    * Pin the tooltip instead of following the pointer, for explanations: "below" the

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** Text layout helpers the viewer renders with: responsive text tables and edit diffs. */
 import { describe, expect, it } from "vitest";
-import { columnWidths, layoutTable, lineWidth, linesToText, tableModel, toGlyphs, wrapCell, type TableModel, type TableStyle } from "../viewer/src/asciitable.ts";
+import { asciiTable, columnWidths, layoutTable, lineWidth, linesToText, releaseTables, tableModel, toGlyphs, wrapCell, type TableModel, type TableStyle } from "../viewer/src/asciitable.ts";
 import { lineDiff, preview, trimContext } from "../viewer/src/text.ts";
 
 (globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
@@ -74,6 +74,23 @@ describe("text tables", () => {
     expect(lines).toEqual(["alpha", "beta", "supercal", "ifragili", "stic"]);
   });
 
+  it("keeps the labels of a header-only table, even when stacked", () => {
+    const headOnly = model(["Severity", "Finding", "Where", "Owner", "Status"], []);
+    expect(text(headOnly, 80)).toContain("│ Severity │ Finding │");
+    const stacked = text(headOnly, 20);
+    for (const label of ["Severity", "Finding", "Where", "Owner", "Status"]) expect(stacked).toContain(label);
+  });
+
+  it("keeps a nested raw-HTML table inside its cell instead of adding its rows", () => {
+    const t = document.createElement("table");
+    t.innerHTML = "<tr><td>a</td><td>b</td></tr><tr><td>c</td><td><table><tr><td>inner1</td></tr><tr><td>inner2</td></tr></table></td></tr>";
+    const m = tableModel(t);
+    // Whitespace as the layout draws it (runs collapse to one space).
+    const cells = (r: typeof m.head) => r.map((c) => c.map((g) => g.c).join("").replace(/\s+/g, " ").trim());
+    expect(cells(m.head)).toEqual(["a", "b"]);
+    expect(m.body.map(cells)).toEqual([["c", "inner1 inner2"]]);
+  });
+
   it("reads alignment, inline formatting and links from the rendered table", () => {
     const md = markdown("| Name | Count |\n| :--- | ---: |\n| **bold** `code` [link](https://example.com) | 7 |");
     const table = md.querySelector("table")!;
@@ -104,10 +121,57 @@ describe("markdown tables", () => {
     for (const a of md.querySelectorAll("a")) expect(a.getAttribute("href") ?? "").not.toMatch(/javascript:/i);
   });
 
+  it("give each link one tab stop: the grid's copy is focusable, the hidden table's isn't", () => {
+    const md = markdown("| site |\n| - |\n| [docs](https://example.com) |");
+    const gridLink = md.querySelector(".at-grid a");
+    const tableLink = md.querySelector("table a");
+    expect(gridLink?.getAttribute("href")).toBe("https://example.com");
+    expect(gridLink?.hasAttribute("tabindex")).toBe(false);
+    expect(tableLink?.getAttribute("tabindex")).toBe("-1");
+  });
+
   it("label code blocks with their language", () => {
     const md = markdown("```ts\nconst x = 1;\n```");
     expect(md.querySelector(".codeblock .codeblock-lang")?.textContent).toBe("ts");
     expect(md.querySelector(".codeblock pre code")?.className).toBe("language-ts");
+  });
+});
+
+describe("table resize observing", () => {
+  it("stops watching a render's tables when the viewer re-renders", () => {
+    const observers: { targets: Element[]; disconnected: boolean }[] = [];
+    const saved = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      state = { targets: [] as Element[], disconnected: false };
+      constructor() {
+        observers.push(this.state);
+      }
+      observe(el: Element) {
+        this.state.targets.push(el);
+      }
+      unobserve() {}
+      disconnect() {
+        this.state.disconnected = true;
+      }
+    } as unknown as typeof ResizeObserver;
+    try {
+      const table = () => {
+        const t = document.createElement("table");
+        t.innerHTML = "<thead><tr><th>a</th></tr></thead><tbody><tr><td>1</td></tr></tbody>";
+        return t;
+      };
+      asciiTable(table());
+      asciiTable(table());
+      expect(observers).toHaveLength(1); // one observer per render…
+      releaseTables();
+      expect(observers[0]!.disconnected).toBe(true); // …released before the next one
+      asciiTable(table());
+      expect(observers).toHaveLength(2);
+      expect(observers[1]!.targets).toHaveLength(1);
+    } finally {
+      releaseTables();
+      globalThis.ResizeObserver = saved;
+    }
   });
 });
 

@@ -282,3 +282,7 @@
   content: "❯ ";
   color: var(--accent);
 }
+
+[data-variant="cli"] .badge {
+  border-radius: 999px;
+}

@@ -23,7 +23,7 @@ export interface Controls {
   local: boolean;
 }
 
-function formatDate(iso?: string): string | undefined {
+export function formatDate(iso?: string): string | undefined {
   if (!iso) return undefined;
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? undefined : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -50,7 +50,7 @@ function modeSwitch(c: Controls): HTMLElement {
   );
 }
 
-function iconButton(label: string, glyph: string, onclick: () => void, cls = ""): HTMLElement {
+export function iconButton(label: string, glyph: string, onclick: () => void, cls = ""): HTMLElement {
   return h("button", { type: "button", class: `icon ${cls}`.trim(), "aria-label": label, title: label, onclick }, glyph);
 }
 

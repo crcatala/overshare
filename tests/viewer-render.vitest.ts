@@ -72,6 +72,49 @@ describe("token rail", () => {
   });
 });
 
+describe("token rail tools", () => {
+  const shell = (id: string, command: string): Step => ({ kind: "tool", id, name: "Bash", action: "exec", summary: command, input: { command } });
+  const withTools = (steps: Step[], tools: Record<string, number>) => {
+    const s = session([turn(0, steps)]);
+    s.stats.tools = tools;
+    s.stats.toolCalls = Object.values(tools).reduce((a, b) => a + b, 0);
+    return s;
+  };
+  const rows = (s: NormalizedSession) => {
+    const { turns } = renderTranscript(s);
+    return Array.from(renderTokenRail(s, turns, () => {}).el.querySelectorAll(".bars-row"), (r) => [r.classList.contains("bars-sub"), r.querySelector(".bars-name")?.textContent, r.querySelector(".bars-n")?.textContent]);
+  };
+
+  it("nests shell calls by program under the shell tool's total", () => {
+    const s = withTools([shell("a", "git status"), shell("b", "git diff"), shell("c", "npm test"), { kind: "tool", id: "d", name: "Edit", action: "edit", summary: "a.ts" }], { Bash: 3, Edit: 1 });
+    expect(rows(s)).toEqual([
+      [false, "Bash", "3"],
+      [true, "git", "2"],
+      [true, "npm", "1"],
+      [false, "Edit", "1"],
+    ]);
+  });
+
+  it("does the same from a brief view's groups, and lists no programs in minimal", () => {
+    const full = withTools([shell("a", "git status"), shell("b", "git diff"), shell("c", "ls")], { Bash: 3 });
+    expect(rows(projectSession(full, "brief"))).toEqual([
+      [false, "Bash", "3"],
+      [true, "git", "2"],
+      [true, "ls", "1"],
+    ]);
+    expect(rows(projectSession(full, "minimal"))).toEqual([[false, "Bash", "3"]]);
+  });
+
+  it("sums programs beyond the first few", () => {
+    const programs = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+    const s = withTools(programs.map((p, i) => shell(`s${i}`, `${p} x`)), { Bash: programs.length });
+    const list = rows(s);
+    expect(list.filter(([sub]) => sub)).toHaveLength(8);
+    const { turns } = renderTranscript(s);
+    expect(renderTokenRail(s, turns, () => {}).el.querySelector(".bars-more.bars-sub")?.textContent).toBe("+2 more programs (2 calls)");
+  });
+});
+
 describe("transcript tool entries", () => {
   const tool = (step: Partial<Extract<Step, { kind: "tool" }>>): Step => ({ kind: "tool", id: "t", name: "Bash", action: "exec", summary: "", ...step }) as Step;
 
@@ -135,9 +178,31 @@ describe("transcript tool entries", () => {
       },
     ]);
     const chips = Array.from(group!.querySelectorAll(".chip"), (c) => c.textContent);
-    expect(chips).toEqual(["Bash×3", "Edit"]);
-    expect(group!.querySelector(".chip.is-error")?.textContent).toBe("Bash×3");
+    expect(chips).toEqual(["Bash(npm)", "Bash×2", "Bash errors×1", "Edit"]);
+    expect(group!.querySelector(".chip.is-error")?.textContent).toBe("Bash errors×1");
     expect(group!.querySelector(".tprev pre")?.textContent).toBe("~ src/a.ts\n$ npm test");
+  });
+
+  it("names shell calls by program in group chips and the outline", () => {
+    const shell = (id: string, command: string): Step => tool({ id, summary: command, input: { command } });
+    const group: Step = {
+      kind: "toolGroup",
+      id: "g",
+      calls: [{ name: "Bash", count: 3, errors: 0 }],
+      total: 3,
+      files: { read: [], edited: [], written: [] },
+      commands: ["git status", "git diff", "ls"],
+      responseIds: [],
+    };
+    const [chips] = render([group]);
+    expect(Array.from(chips!.querySelectorAll(".chip"), (c) => c.textContent)).toEqual(["Bash(git)×2", "Bash(ls)"]);
+
+    const full = renderTranscript(session([turn(0, [shell("a", "git status"), shell("b", "cd app && git diff"), shell("c", "ls -la"), tool({ id: "d", name: "Edit", action: "edit", summary: "a.ts" })])]));
+    expect(full.turns[0]!.items.map((i) => i.label)).toEqual(["Bash(git) ×2 · Bash(ls) · Edit"]);
+    expect(full.turns[0]!.tools).toBe(4);
+    const brief = renderTranscript(session([turn(0, [group])]));
+    expect(brief.turns[0]!.items.map((i) => i.label)).toEqual(["Bash(git) ×2 · Bash(ls)"]);
+    expect(brief.turns[0]!.tools).toBe(3);
   });
 
   it("shows thinking in full when the variant asks for it", () => {

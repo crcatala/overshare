@@ -7,6 +7,7 @@
  */
 import { formatCost, formatDuration, formatTokens, plural } from "../../src/format.ts";
 import { contextTokens, type EventStep, type NormalizedSession, type ResponseUsage, type Step, type SubagentStep, type ThinkingStep, type ToolGroupStep, type ToolStep, type Turn } from "../../src/schema.ts";
+import { commandName, groupCalls, isExecTool, type CallCount } from "./commands.ts";
 import { h, markdown } from "./dom.ts";
 import { firstLine, lineDiff, preview, splitLines, trimContext, type DiffLine } from "./text.ts";
 
@@ -237,8 +238,8 @@ function renderGroup(g: ToolGroupStep, id: string, ctx: Ctx): HTMLElement {
   const chips = h(
     "span",
     { class: "chips" },
-    ...g.calls.map((c) =>
-      h("span", { class: `chip${c.errors ? " is-error" : ""}`, title: c.errors ? `${plural(c.errors, "error")}` : undefined }, h("span", { class: "chip-name" }, c.name), c.count > 1 ? h("span", { class: "chip-n" }, `×${c.count}`) : null),
+    ...groupCalls(g).map((c) =>
+      h("span", { class: `chip${c.errors ? " is-error" : ""}`, title: c.errors ? `${plural(c.errors, "error")}` : undefined }, h("span", { class: "chip-name" }, c.label), c.count > 1 || c.errorsOnly ? h("span", { class: "chip-n" }, `×${c.count}`) : null),
     ),
     g.thinking ? h("span", { class: "chip chip-think" }, h("span", { class: "chip-name" }, "thinking"), h("span", { class: "chip-n" }, g.thinking.tokens ? formatTokens(g.thinking.tokens) : `×${g.thinking.blocks}`)) : null,
   );
@@ -384,7 +385,15 @@ export function plainLine(text: string, max = 120): string {
   return firstLine(plain, max);
 }
 
-/** Consecutive tool calls become one outline item ("Bash ×3 · Edit"). */
+/** The calls a work step stands for, shell calls named by program: "Bash(git)". */
+function callsOf(step: ToolStep | ToolGroupStep): CallCount[] {
+  if (step.kind === "toolGroup") return groupCalls(step);
+  const input = (step.input ?? {}) as Record<string, unknown>;
+  const program = isExecTool(step.name) ? commandName(str(input.command) ?? str(input.cmd) ?? step.summary) : undefined;
+  return [{ label: program ? `${step.name}(${program})` : step.name, count: 1, errors: step.isError || step.result?.isError ? 1 : 0 }];
+}
+
+/** Consecutive tool calls become one outline item ("Bash(git) ×3 · Edit"). */
 function outline(turn: Turn, stepIds: string[]): { items: OutlineItem[]; tools: number; errors: number } {
   const items: OutlineItem[] = [];
   let tools = 0;
@@ -400,10 +409,11 @@ function outline(turn: Turn, stepIds: string[]): { items: OutlineItem[]; tools: 
     const id = stepIds[i]!;
     if (step.kind === "tool" || step.kind === "toolGroup") {
       run ??= { id, names: new Map(), error: false };
-      const calls = step.kind === "tool" ? [{ name: step.name, count: 1, errors: step.isError || step.result?.isError ? 1 : 0 }] : step.calls;
-      for (const c of calls) {
-        run.names.set(c.name, (run.names.get(c.name) ?? 0) + c.count);
-        tools += c.count;
+      for (const c of callsOf(step)) {
+        if (!c.errorsOnly) {
+          run.names.set(c.label, (run.names.get(c.label) ?? 0) + c.count);
+          tools += c.count;
+        }
         errors += c.errors;
         if (c.errors) run.error = true;
       }

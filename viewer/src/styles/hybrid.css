@@ -318,3 +318,10 @@
     align-items: flex-start;
   }
 }
+
+[data-variant="hybrid"] .badge {
+  background: none;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 3px;
+  font-size: 11px;
+}

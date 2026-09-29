@@ -503,3 +503,17 @@
     grid-template-columns: 11ch minmax(0, 1fr);
   }
 }
+
+[data-variant="log"] .badge {
+  background: none !important;
+  padding: 0;
+  font-size: inherit;
+}
+[data-variant="log"] .badge::before {
+  content: "[";
+  color: var(--faint);
+}
+[data-variant="log"] .badge::after {
+  content: "]";
+  color: var(--faint);
+}

@@ -130,7 +130,8 @@ let helpIds = 0;
 function helpHeading(label: string, help: string[], ...extra: (Node | null)[]): HTMLElement {
   const id = `chart-help-${++helpIds}`;
   const target = h("span", { class: "help", tabindex: "0", "aria-describedby": id }, label, infoIcon());
-  withTooltip(target, () => [label, ...help], { anchor: true, className: "tip-help" });
+  // To the left of the rail, so it never covers the charts it explains.
+  withTooltip(target, () => [label, ...help], { anchor: "left", beside: () => target.closest(".rail") ?? target, className: "tip-help" });
   return h("h3", {}, target, h("span", { class: "sr-only", id }, help.join(" ")), ...extra);
 }
 

@@ -193,23 +193,37 @@ export function lazyDetails(summary: Node, build: () => Node, opts: { open?: boo
 
 const tooltip = () => document.getElementById("tooltip") as HTMLDivElement;
 
-/**
- * Attach a hover/focus tooltip with plain-text lines (the first is the title). By default
- * it follows the pointer; `anchor` pins it under the element instead, for explanations.
- */
-export function withTooltip(el: HTMLElement | SVGElement, lines: () => string[], opts: { anchor?: boolean; className?: string } = {}): void {
+export interface TooltipOptions {
+  /**
+   * Pin the tooltip instead of following the pointer, for explanations: "below" the
+   * element, or "left" of `beside` (default: the element), top-aligned with the element
+   * — falling back to below when there's no room on the left.
+   */
+  anchor?: "below" | "left";
+  beside?: () => Element;
+  className?: string;
+}
+
+/** Attach a hover/focus tooltip with plain-text lines (the first is the title). */
+export function withTooltip(el: HTMLElement | SVGElement, lines: () => string[], opts: TooltipOptions = {}): void {
   const show = (x: number, y: number) => {
     const tip = tooltip();
     tip.className = `tooltip${opts.className ? ` ${opts.className}` : ""}`;
     tip.replaceChildren(...lines().map((l, i) => h("div", { class: i === 0 ? "tip-title" : "tip-line" }, l)));
     tip.hidden = false;
-    if (opts.anchor) {
-      const r = el.getBoundingClientRect();
-      x = r.left - 12;
-      y = r.bottom - 6;
-    }
     const pad = 12;
     const { width, height } = tip.getBoundingClientRect();
+    if (opts.anchor) {
+      const r = el.getBoundingClientRect();
+      const edge = (opts.beside?.() ?? el).getBoundingClientRect().left - 10;
+      if (opts.anchor === "left" && edge - width >= 8) {
+        tip.style.left = `${edge - width}px`;
+        tip.style.top = `${Math.max(8, Math.min(window.innerHeight - height - 8, r.top - 7))}px`;
+        return;
+      }
+      x = r.left - pad;
+      y = r.bottom - 6;
+    }
     const left = Math.min(window.innerWidth - width - 8, Math.max(8, x + pad));
     const top = y + pad + height > window.innerHeight ? y - height - pad : y + pad;
     tip.style.left = `${left}px`;

@@ -52,6 +52,9 @@
   --mb-reserve: var(--mb-h);
   --top: 0px;
   --gut-w: 0px;
+  /* Where the page's first box starts; docked rails start at the same line. */
+  --page-top: 28px;
+  --rail-top: var(--page-top);
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -61,6 +64,7 @@
 }
 :root[data-compact="true"] {
   --top: var(--mb-reserve);
+  --rail-top: 20px;
 }
 
 * {
@@ -155,7 +159,7 @@ button.theme::before {
 .page {
   max-width: var(--content-w);
   margin: 0 auto;
-  padding: 28px 16px 96px;
+  padding: var(--page-top) 16px 96px;
 }
 .status {
   max-width: var(--content-w);
@@ -773,9 +777,9 @@ pre.diff > span {
 .rail {
   position: fixed;
   z-index: 15;
-  top: calc(var(--top) + 20px);
+  top: calc(var(--top) + var(--rail-top));
   width: var(--rail-w);
-  max-height: calc(100vh - var(--top) - 40px);
+  max-height: calc(100vh - var(--top) - var(--rail-top) - 20px);
   display: flex;
   flex-direction: column;
   font-size: var(--fs-sm);
@@ -836,7 +840,7 @@ pre.diff > span {
 .rail-tab {
   position: fixed;
   z-index: 14;
-  top: calc(var(--top) + 20px);
+  top: calc(var(--top) + var(--rail-top));
   appearance: none;
   border: 0;
   cursor: pointer;
@@ -1380,8 +1384,8 @@ button.settings[aria-expanded="true"] {
   :root {
     --fs: 13px;
   }
-  .page {
-    padding-top: 18px;
+  :root {
+    --page-top: 18px;
   }
   .hdr-top {
     flex-direction: column;

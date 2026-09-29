@@ -34,6 +34,8 @@
   --seg-output: light-dark(#8f3f71, #d3869b);
   --shadow: none;
   --content-w: 840px;
+  /* Room above the framed header and rails for the titles set into their borders. */
+  --page-top: 36px;
   --rail-w: 252px;
   --rail-gap: 20px;
   --gut-w: 13ch;
@@ -51,7 +53,6 @@
   position: relative;
   border: 1px solid var(--line);
   padding: 14px 2ch 10px;
-  margin-top: 8px;
 }
 [data-variant="log"] .hdr-title {
   font-size: 1em;

@@ -115,6 +115,9 @@ export interface LocalShareSummary {
   harness?: string;
   mode?: string;
   turns?: number;
+  /** "name" or "name @ branch". */
+  project?: string;
+  startedAt?: string;
   error?: string;
 }
 
@@ -140,8 +143,16 @@ export function localShares(files: string[]): { names: string[]; respond(name: s
 function summarize(byName: Map<string, string>): LocalShareSummary[] {
   return [...byName].map(([name, file]) => {
     try {
-      const s = JSON.parse(readFileSync(file, "utf8")) as { title?: string; harness?: { name?: string }; mode?: string; stats?: { turns?: number } };
-      return { name, title: s.title, harness: s.harness?.name, mode: s.mode, turns: s.stats?.turns };
+      const s = JSON.parse(readFileSync(file, "utf8")) as {
+        title?: string;
+        harness?: { name?: string };
+        mode?: string;
+        stats?: { turns?: number };
+        project?: { name?: string; branch?: string };
+        startedAt?: string;
+      };
+      const project = s.project?.name ? `${s.project.name}${s.project.branch ? ` @ ${s.project.branch}` : ""}` : undefined;
+      return { name, title: s.title, harness: s.harness?.name, mode: s.mode, turns: s.stats?.turns, project, startedAt: s.startedAt };
     } catch (err) {
       return { name, error: (err as Error).message };
     }

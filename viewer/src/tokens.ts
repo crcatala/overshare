@@ -9,6 +9,7 @@
  */
 import { formatCost, formatTokens, plural } from "../../src/format.ts";
 import { contextTokens, totalTokens, type NormalizedSession, type ResponseUsage, type Usage } from "../../src/schema.ts";
+import { isExecTool, tallyCommands } from "./commands.ts";
 import { h, hideTooltip, withTooltip } from "./dom.ts";
 import { svg } from "./el.ts";
 import type { TurnInfo } from "./transcript.ts";
@@ -157,6 +158,34 @@ function responseTip(r: ResponseUsage, i: number, n: number): string[] {
   ];
 }
 
+/** Programs listed under a shell tool in the rail; the rest are summed. */
+const SHELL_ROWS = 8;
+
+/** Shell calls by program, per shell tool name. Empty for a view that dropped the commands (minimal). */
+function shellBreakdown(session: NormalizedSession): Map<string, [program: string, count: number][]> {
+  const commands = new Map<string, string[]>();
+  const add = (tool: string, list: string[]) => commands.set(tool, [...(commands.get(tool) ?? []), ...list]);
+  for (const turn of session.turns) {
+    for (const step of turn.steps) {
+      if (step.kind === "tool" && isExecTool(step.name)) {
+        const input = (step.input ?? {}) as Record<string, unknown>;
+        const cmd = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : step.summary;
+        add(step.name, [cmd]);
+      } else if (step.kind === "toolGroup") {
+        // A group's commands aren't attributed to a tool; they belong to its only shell tool.
+        const exec = step.calls.filter((c) => isExecTool(c.name));
+        if (exec.length === 1) add(exec[0]!.name, step.commands);
+      }
+    }
+  }
+  const out = new Map<string, [string, number][]>();
+  for (const [tool, list] of commands) {
+    const tally = tallyCommands(list);
+    if (tally.length) out.set(tool, tally);
+  }
+  return out;
+}
+
 export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], onJump: (turn: number) => void) {
   const st = session.stats;
   const total = totalTokens(st.tokens);
@@ -195,14 +224,27 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
   const turnBox = h("div", { class: "rail-turn" });
   const tools = Object.entries(st.tools).sort((a, b) => b[1] - a[1]);
   const maxTool = tools[0]?.[1] ?? 1;
+  const shell = shellBreakdown(session);
+  const toolRow = (name: string, count: number, sub = false) => {
+    const bar = h("span", { class: "bar" });
+    bar.style.setProperty("--w", `${Math.max(3, (count / maxTool) * 100)}%`);
+    return h("div", { class: `bars-row${sub ? " bars-sub" : ""}` }, h("span", { class: "bars-name", title: name }, name), h("span", { class: "bars-track" }, bar), h("span", { class: "bars-n" }, String(count)));
+  };
   const toolList = tools.length
     ? h(
         "div",
         { class: "bars" },
-        ...tools.slice(0, 12).map(([name, count]) => {
-          const bar = h("span", { class: "bar" });
-          bar.style.setProperty("--w", `${Math.max(3, (count / maxTool) * 100)}%`);
-          return h("div", { class: "bars-row" }, h("span", { class: "bars-name", title: name }, name), h("span", { class: "bars-track" }, bar), h("span", { class: "bars-n" }, String(count)));
+        ...tools.slice(0, 12).flatMap(([name, count]) => {
+          const parts = shell.get(name);
+          if (!parts) return [toolRow(name, count)];
+          // The shell total stays on its own row; what it ran is nested below it.
+          const shown = parts.slice(0, SHELL_ROWS);
+          const rest = count - shown.reduce((n, [, k]) => n + k, 0);
+          return [
+            toolRow(name, count),
+            ...shown.map(([program, k]) => toolRow(program, k, true)),
+            rest > 0 ? h("div", { class: "bars-more bars-sub" }, parts.length > SHELL_ROWS ? `+${plural(parts.length - SHELL_ROWS, "more program")} (${plural(rest, "call")})` : `+${rest} other`) : null,
+          ];
         }),
         tools.length > 12 ? h("div", { class: "bars-more" }, `+${plural(tools.length - 12, "more tool")}`) : null,
       )

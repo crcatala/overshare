@@ -139,12 +139,12 @@ describe("local share index", () => {
     const dir = mkdtempSync(join(tmpdir(), "as-idx-"));
     const good = join(dir, "a.json");
     const bad = join(dir, "b.json");
-    writeFileSync(good, JSON.stringify({ schema: "agentshare/1", title: "T", harness: { name: "pi" }, mode: "brief", stats: { turns: 3 } }));
+    writeFileSync(good, JSON.stringify({ schema: "agentshare/1", title: "T", harness: { name: "pi" }, mode: "brief", stats: { turns: 3 }, project: { name: "app", branch: "main" }, startedAt: "2026-01-01T00:00:00Z" }));
     writeFileSync(bad, "{not json");
     const { server, url } = await startViewerServer({ port: 0, host: "127.0.0.1", files: [good, bad] });
     try {
       const index = await (await fetch(`${url}local/index.json`)).json();
-      expect(index[0]).toEqual({ name: "a.json", title: "T", harness: "pi", mode: "brief", turns: 3 });
+      expect(index[0]).toEqual({ name: "a.json", title: "T", harness: "pi", mode: "brief", turns: 3, project: "app @ main", startedAt: "2026-01-01T00:00:00Z" });
       expect(index[1]).toMatchObject({ name: "b.json" });
       expect(index[1].error).toBeTruthy();
       expect((await fetch(`${url}local/a.json`)).status).toBe(200);

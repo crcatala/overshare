@@ -11,7 +11,8 @@ import { SCHEMA_VERSION, type NormalizedSession, type ShareMode } from "../../sr
 import { beacon } from "./beacon.ts";
 import { relayoutTables, releaseTables, setTableStyle } from "./asciitable.ts";
 import { h, hideTooltip } from "./dom.ts";
-import { HARNESS_LABEL, renderHeader, renderMinibar, type Controls } from "./header.ts";
+import { attribution } from "./attribution.ts";
+import { formatDate, HARNESS_LABEL, iconButton, renderHeader, renderMinibar, type Controls } from "./header.ts";
 import { load, save } from "./prefs.ts";
 import { closeMenus, settingsButton, type SettingsOptions } from "./settings.ts";
 import { formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
@@ -64,6 +65,12 @@ function setVariant(v: Variant): void {
     applyVariant(v);
     void main();
   }
+}
+
+/** The next (or previous) variant in the settings menu's order. */
+function cycleVariant(dir: 1 | -1): void {
+  const i = VARIANTS.findIndex((v) => v.id === currentVariant().id);
+  setVariant(VARIANTS[(i + dir + VARIANTS.length) % VARIANTS.length]!);
 }
 
 const settings: SettingsOptions = { current: currentVariant, onPick: setVariant };
@@ -222,7 +229,7 @@ function render(opts: { keepPlace?: boolean } = {}): void {
   const header = renderHeader(session, provenance, controls);
   const minibar = renderMinibar(session, turns, controls);
 
-  const end = h("footer", { class: "end" }, h("span", {}, `end of session · ${plural(turns.filter((t) => t.ordinal).length, "prompt")}`));
+  const end = h("footer", { class: "end" }, h("span", {}, `end of session · ${plural(turns.filter((t) => t.ordinal).length, "prompt")}`), attribution());
   const page = h("div", { class: "page" }, header, transcript, end);
   app.replaceChildren(minibar.el, page, ...rail("left", "Contents", "≡", toc.el), ...rail("right", "Tokens", "∑", tokens.el));
   updateDock();
@@ -307,11 +314,16 @@ function render(opts: { keepPlace?: boolean } = {}): void {
   spy();
 }
 
+/** Whether the key was pressed while typing in a field. */
+function typing(e: KeyboardEvent): boolean {
+  const el = e.target as HTMLElement | null;
+  return Boolean(el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)));
+}
+
 function onKey(e: KeyboardEvent, turns: TurnInfo[], jump: (id: string) => void, focusSearch: () => void): void {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key !== "j" && e.key !== "k") navCursor = undefined;
-  const el = e.target as HTMLElement | null;
-  if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return;
+  if (typing(e)) return;
   const prompts = turns.filter((t) => t.ordinal);
   // Where a jump puts a turn's top; "next"/"previous" are relative to that line.
   const land = parseFloat(getComputedStyle(prompts[0]?.el ?? document.body).scrollMarginTop) || 0;
@@ -342,11 +354,9 @@ function onKey(e: KeyboardEvent, turns: TurnInfo[], jump: (id: string) => void, 
       focusSearch();
       break;
     case "v":
-    case "V": {
-      const i = VARIANTS.findIndex((v) => v.id === currentVariant().id);
-      setVariant(VARIANTS[(i + (e.key === "V" ? VARIANTS.length - 1 : 1)) % VARIANTS.length]!);
+    case "V":
+      cycleVariant(e.key === "V" ? -1 : 1);
       break;
-    }
     case "Escape":
       if (!docked()) {
         overlayOpen.left = overlayOpen.right = false;
@@ -371,7 +381,26 @@ interface LocalShare {
   harness?: string;
   mode?: string;
   turns?: number;
+  project?: string;
+  startedAt?: string;
   error?: string;
+}
+
+/** A row's details as small labels in the variant's palette, after the file name. */
+function pickerMeta(s: LocalShare): HTMLElement {
+  const badge = (text: string, cls = "", attrs: Record<string, string> = {}) => h("span", { class: `badge ${cls}`.trim(), ...attrs }, text);
+  const started = formatDate(s.startedAt);
+  return h(
+    "div",
+    { class: "picker-meta" },
+    h("span", { class: "picker-file" }, s.name),
+    s.error ? badge("unreadable", "is-error", { title: s.error }) : null,
+    s.harness ? badge(HARNESS_LABEL[s.harness] ?? s.harness, "badge-harness") : null,
+    s.mode ? badge(s.mode, "badge-mode", { "data-mode": s.mode }) : null,
+    s.turns !== undefined ? badge(plural(s.turns, "turn")) : null,
+    s.project ? badge(s.project, "badge-project") : null,
+    started ? h("span", { class: "picker-date" }, started) : null,
+  );
 }
 
 /** `agent-share serve` exposes ./local/index.json; on a deployed viewer it simply 404s. */
@@ -386,6 +415,7 @@ async function showLocalPicker(): Promise<boolean> {
   }
   if (!Array.isArray(shares) || shares.length === 0) return false;
   teardown.abort();
+  teardown = new AbortController();
   document.title = "Local sessions · Agent Session";
   const variant = state.params.get("variant");
   app.replaceChildren(
@@ -395,7 +425,7 @@ async function showLocalPicker(): Promise<boolean> {
       h(
         "header",
         { class: "hdr" },
-        h("div", { class: "hdr-top" }, h("h1", { class: "hdr-title" }, "Local sessions"), h("div", { class: "hdr-actions" }, settingsButton(settings))),
+        h("div", { class: "hdr-top" }, h("h1", { class: "hdr-title" }, "Local sessions"), h("div", { class: "hdr-actions" }, iconButton("Toggle color theme", "", toggleTheme, "theme"), settingsButton(settings))),
         h("p", { class: "fine" }, `Served by agent-share serve · ${plural(shares.length, "file")}`),
       ),
       h(
@@ -406,11 +436,20 @@ async function showLocalPicker(): Promise<boolean> {
             "li",
             {},
             h("a", { href: `#local:${encodeURIComponent(s.name)}${variant ? `&variant=${encodeURIComponent(variant)}` : ""}` }, s.title ?? s.name),
-            h("span", { class: "fine" }, s.error ? `${s.name} · unreadable (${s.error})` : [s.name, HARNESS_LABEL[s.harness ?? ""] ?? s.harness, s.mode, s.turns !== undefined ? plural(s.turns, "turn") : ""].filter(Boolean).join(" · ")),
+            pickerMeta(s),
           ),
         ),
       ),
+      attribution(),
     ),
+  );
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || typing(e)) return;
+      if (e.key === "v" || e.key === "V") cycleVariant(e.key === "V" ? -1 : 1);
+    },
+    { signal: teardown.signal },
   );
   return true;
 }

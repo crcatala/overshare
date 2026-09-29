@@ -369,3 +369,13 @@
     padding-left: 0;
   }
 }
+
+/* the picker has no time gutter to make room for */
+[data-variant="timeline"] .picker .hdr {
+  padding-left: 0;
+}
+[data-variant="timeline"] .badge {
+  background: none;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 999px;
+}

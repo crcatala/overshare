@@ -150,8 +150,8 @@ describe("transcript tool entries", () => {
 });
 
 describe("header mode switch", () => {
-  const controls = (view: ShareMode) => ({
-    sharedMode: "full" as const,
+  const controls = (view: ShareMode, sharedMode: ShareMode = "full") => ({
+    sharedMode,
     view,
     setView: () => {},
     toggleTheme: () => {},
@@ -171,5 +171,11 @@ describe("header mode switch", () => {
       expect(buttons(el)).toEqual({ full: false, brief: false, minimal: false });
       expect(el.querySelector(".facts-share dd")?.textContent).toBe("full");
     }
+  });
+
+  it("keeps modes that weren't published unavailable", () => {
+    const el = renderHeader(projectSession(session([turn(0, [])]), "brief"), undefined, controls("minimal", "brief"));
+    expect(buttons(el)).toEqual({ full: true, brief: false, minimal: false });
+    expect(el.querySelector<HTMLButtonElement>(".modes button")?.title).toBe("Shared as brief; full detail was not published");
   });
 });

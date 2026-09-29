@@ -26,6 +26,7 @@ export function availableModes(mode: ShareMode): ShareMode[] {
   return (["full", "brief", "minimal"] as ShareMode[]).filter((m) => RANK[m] <= RANK[mode]);
 }
 
+/** The result's `mode` is `mode`, not the mode `session` was published in; keep that if you need it. */
 export function projectSession(session: NormalizedSession, mode: ShareMode, opts: ProjectOptions = {}): NormalizedSession {
   if (RANK[mode] > RANK[session.mode]) throw new Error(`Cannot project a ${session.mode} session up to ${mode}`);
   const project = mode === "full" ? (t: Turn) => fullTurn(t, opts.maxToolChars ?? 20_000) : mode === "brief" ? briefTurn : minimalTurn;

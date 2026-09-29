@@ -6,13 +6,16 @@
  */
 import { plural } from "../../src/format.ts";
 import { h } from "./dom.ts";
-import { load, save } from "./prefs.ts";
 import type { TurnInfo } from "./transcript.ts";
+import type { TocDetail } from "./viewsettings.ts";
 
-type Detail = "prompts" | "all";
+export interface TocOptions {
+  detail: TocDetail;
+  onDetail: (d: TocDetail) => void;
+}
 
-export function renderToc(turns: TurnInfo[], onJump: (id: string) => void) {
-  let detail: Detail = load("toc-detail") === "all" ? "all" : "prompts";
+export function renderToc(turns: TurnInfo[], onJump: (id: string) => void, opts: TocOptions) {
+  let detail = opts.detail;
   let query = "";
   const rows = new Map<number, HTMLElement>();
 
@@ -69,7 +72,7 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string) => void) {
   const seg = h(
     "div",
     { class: "toc-seg", role: "group", "aria-label": "Outline detail" },
-    ...(["prompts", "all"] as Detail[]).map((d) =>
+    ...(["prompts", "all"] as TocDetail[]).map((d) =>
       h(
         "button",
         {
@@ -77,7 +80,7 @@ export function renderToc(turns: TurnInfo[], onJump: (id: string) => void) {
           "data-detail": d,
           onclick: () => {
             detail = d;
-            save("toc-detail", d);
+            opts.onDetail(d);
             apply();
           },
         },

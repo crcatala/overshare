@@ -191,6 +191,17 @@ export function lazyDetails(summary: Node, build: () => Node, opts: { open?: boo
   return details;
 }
 
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** A short confirmation at the bottom of the window ("Link copied"), read out by screen readers. */
+export function toast(text: string, ms = 2200): void {
+  const el = document.getElementById("toast") ?? document.body.appendChild(h("div", { id: "toast", class: "toast", role: "status" }));
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (el.hidden = true), ms);
+}
+
 const tooltip = () => document.getElementById("tooltip") as HTMLDivElement;
 
 /**

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-/** The local sessions page: what each row shows, and that changing variant leaves the page (and focus) alone. */
+/** The local sessions page: what each row shows and where it links. */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 (globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
-const { fetchLocalShares, renderPicker, setPickerVariant } = await import("../viewer/src/picker.ts");
+const { fetchLocalShares, renderPicker } = await import("../viewer/src/picker.ts");
 const { variantKeyStep } = await import("../viewer/src/nav.ts");
 const { VARIANTS } = await import("../viewer/src/variants.ts");
 
@@ -12,7 +12,8 @@ const shares = [
   { name: "b c.json", harness: "pi", mode: "minimal", turns: 1 },
   { name: "bad.json", error: "Unexpected token" },
 ];
-const options = () => ({ variant: null, settings: { current: () => VARIANTS[0]!, onPick: () => {} }, toggleTheme: vi.fn() });
+const settings = { current: () => VARIANTS[0]!, onPick: () => {}, defaults: () => ({ canSave: false, canReset: false }), saveDefault: () => {}, resetDefault: () => {} };
+const options = () => ({ settings, toggleTheme: vi.fn() });
 
 describe("renderPicker", () => {
   it("shows each share as a link with badges for harness, mode, turns and project", () => {
@@ -39,28 +40,9 @@ describe("renderPicker", () => {
     expect(el.querySelector(".credit")?.textContent).toContain("Created with agent-share");
   });
 
-  it("links to each share, carrying the variant and encoding names", () => {
-    const links = (variant: string | null) => Array.from(renderPicker(shares, { ...options(), variant }).querySelectorAll("a[data-share]"), (a) => a.getAttribute("href"));
-    expect(links(null)).toEqual(["#local:a.json", "#local:b%20c.json", "#local:bad.json"]);
-    expect(links("log")[1]).toBe("#local:b%20c.json&variant=log");
-  });
-});
-
-describe("setPickerVariant", () => {
-  it("re-points the links in place, keeping the same elements and keyboard focus", () => {
-    const el = renderPicker(shares, options());
-    document.body.replaceChildren(el);
-    const link = el.querySelector<HTMLAnchorElement>("a[data-share]")!;
-    link.focus();
-    expect(setPickerVariant(document.body, "timeline")).toBe(true);
-    expect(document.activeElement).toBe(link);
-    expect(el.querySelector("a[data-share]")).toBe(link);
-    expect(link.getAttribute("href")).toBe("#local:a.json&variant=timeline");
-  });
-
-  it("says when the picker isn't showing", () => {
-    document.body.replaceChildren(document.createElement("div"));
-    expect(setPickerVariant(document.body, "log")).toBe(false);
+  it("links to each share by name alone, encoded", () => {
+    const links = Array.from(renderPicker(shares, options()).querySelectorAll(".picker-list a"), (a) => a.getAttribute("href"));
+    expect(links).toEqual(["#local:a.json", "#local:b%20c.json", "#local:bad.json"]);
   });
 });
 

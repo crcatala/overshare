@@ -186,8 +186,8 @@ server):
 | `#<source>:<id>` | a source from `viewer.config.json`, e.g. `#r2:<id>` |
 | `#local:<name>` | file served by `agent-share serve` |
 | `#url:<path>` | same-origin path |
-| `…&view=minimal` | step the view down |
-| `…&variant=log` | pick a design variant (`classic`, `cli`, `timeline`, `hybrid`, `log`) |
+| `…&ui=log.brief.dark.L.toc-all` | open with these view settings (see *View settings*) |
+| `…&turn=3` | open at prompt 3 |
 
 Transcripts are untrusted: anyone can make a gist and send a link to your viewer. The
 header says where the share was loaded from (for gists, the owner as GitHub reports it)
@@ -218,18 +218,17 @@ Around the transcript, without pushing it off-center:
   bar per model call on the same session-wide scale (so turns can be compared), tool
   counts and files. Each chart labels the top of its scale.
 - **Header**: title, agent/model/project/date, key stats, where the share was loaded
-  from and that it isn't verified, and the controls (view mode, theme, settings). Once it
+  from and that it isn't verified, and the controls (view mode, theme, settings, share). Once it
   scrolls away a one-line **minibar** takes over with the turn in view, reading progress
   and the controls; it spans the window, with its contents lined up with the rails.
 
-Both rails collapse (`«`/`»`, or `[` and `]`) and stay collapsed per browser. When the
-window is too narrow to fit them beside the column they become overlays opened from the
+Both rails collapse (`«`/`»`, or `[` and `]`). When the window is too narrow to fit them beside the column they become overlays opened from the
 minibar or the corner buttons. Keys: `j`/`k` next/previous prompt, `[`/`]` rails, `/`
 filter the contents, `v`/`V` cycle design variants.
 
 **Design variants.** Five looks share one DOM, for picking a direction. Pick one from the
 settings menu (the sliders icon next to the theme toggle), with `v`/`V`, or with
-`&variant=` in the link; the choice is remembered:
+`&ui=<variant>` in the link:
 
 | variant | look |
 | --- | --- |
@@ -238,6 +237,28 @@ settings menu (the sliders icon next to the theme toggle), with `v`/`V`, or with
 | `timeline` | A vertical line with a node per step; turn numbers and times in a gutter; docs-style rails; the minibar is a floating pill. |
 | `hybrid` | Proportional prose (IBM Plex Sans) for prompts and replies, mono for everything the agent did; tool activity on a quiet hairline; numbered turn rules. |
 | `log` | A TUI log: `time │ role │ text` rows, framed panes with titles set into the border, a statusline and plain ASCII tables (gruvbox). |
+
+**View settings.** How a session is shown — variant, view (full/brief/minimal), theme,
+which rails are open and what the contents rail lists — as opposed to which session.
+Each one comes from the first of these that has it:
+
+1. `&ui=` in the link. It is read when the link opens and then removed, so the address
+   bar always shows the plain share link.
+2. This tab's settings (sessionStorage), so a reload keeps what you were looking at.
+3. Your saved default: **Save as my default** in the settings menu (localStorage).
+   **Reset to built-in default** forgets it.
+4. The viewer's built-in default (`classic`, full, system theme, both rails, prompts).
+
+Changing a control changes only this tab; nothing is remembered for other sessions until
+you save it as your default, and the URL never tracks it. A view the share wasn't
+published with falls back to the most it has.
+
+`&ui=` is dot-separated tokens that each say what they are, in any order: a variant id,
+`full`/`brief`/`minimal`, `system`/`light`/`dark`, the open rails as `LR`/`L`/`R`/`-`, and
+`toc-prompts`/`toc-all`. Unknown tokens are skipped, so an option that is renamed or
+removed later only falls back to the reader's own setting. The **share** menu (next to
+settings) copies a plain link, a link with the current view (every field, with the theme
+as shown), or a link to the prompt in view (`&turn=`).
 
 **Text tables.** Markdown tables become box-drawn grids sized in characters: columns
 keep their longest word where possible, spare width goes to the columns with the most

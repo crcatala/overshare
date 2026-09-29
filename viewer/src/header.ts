@@ -13,6 +13,8 @@ import type { TurnInfo } from "./transcript.ts";
 export const HARNESS_LABEL: Record<string, string> = { "claude-code": "Claude Code", pi: "pi" };
 
 export interface Controls {
+  /** The mode the session was published in; the views available are it and the ones below. */
+  sharedMode: ShareMode;
   view: ShareMode;
   setView: (m: ShareMode) => void;
   toggleTheme: () => void;
@@ -27,8 +29,8 @@ function formatDate(iso?: string): string | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-function modeSwitch(s: NormalizedSession, c: Controls): HTMLElement {
-  const modes = availableModes(s.mode);
+function modeSwitch(c: Controls): HTMLElement {
+  const modes = availableModes(c.sharedMode);
   return h(
     "div",
     { class: "modes", role: "group", "aria-label": "View mode" },
@@ -38,7 +40,7 @@ function modeSwitch(s: NormalizedSession, c: Controls): HTMLElement {
         {
           type: "button",
           disabled: !modes.includes(m),
-          title: modes.includes(m) ? `Show ${m} view` : `Shared as ${s.mode}; ${m} detail was not published`,
+          title: modes.includes(m) ? `Show ${m} view` : `Shared as ${c.sharedMode}; ${m} detail was not published`,
           "aria-pressed": String(m === c.view),
           onclick: () => c.setView(m),
         },
@@ -75,7 +77,7 @@ export function renderHeader(s: NormalizedSession, provenance: Provenance | unde
       "div",
       { class: "hdr-top" },
       h("h1", { class: "hdr-title" }, s.title ?? "Agent session"),
-      h("div", { class: "hdr-actions" }, modeSwitch(s, c), iconButton("Toggle color theme", "", c.toggleTheme, "theme"), settingsButton(c.settings)),
+      h("div", { class: "hdr-actions" }, modeSwitch(c), iconButton("Toggle color theme", "", c.toggleTheme, "theme"), settingsButton(c.settings)),
     ),
     facts("facts-meta", [
       ["agent", harness],
@@ -96,7 +98,7 @@ export function renderHeader(s: NormalizedSession, provenance: Provenance | unde
       "div",
       { class: "hdr-fine" },
       facts("facts-share", [
-        ["shared", `${s.mode}${s.generator ? ` · ${formatDate(s.generator.sharedAt) ?? ""} via ${s.generator.name} ${s.generator.version}` : ""}`],
+        ["shared", `${c.sharedMode}${s.generator ? ` · ${formatDate(s.generator.sharedAt) ?? ""} via ${s.generator.name} ${s.generator.version}` : ""}`],
         ["redacted", redacted],
       ]),
       provenance ? provenanceLine(provenance) : null,
@@ -125,7 +127,7 @@ export function renderMinibar(s: NormalizedSession, turns: TurnInfo[], c: Contro
     ),
       h("span", { class: "mb-turn" }, where, label),
       h("span", { class: "mb-spacer" }),
-      modeSwitch(s, c),
+      modeSwitch(c),
       iconButton("Toggle color theme", "", c.toggleTheme, "theme"),
       settingsButton(c.settings),
       iconButton("Toggle token rail", "∑", () => c.toggleRail("right"), "mb-right"),

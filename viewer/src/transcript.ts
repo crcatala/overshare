@@ -581,7 +581,8 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
     .map((turn) => {
       const n = turn.user ? ++ordinal : 0;
       const id = `turn-${turn.index}`;
-      const subagents = turnSubagents(turn);
+      // Only Claude Code's usage is read from the subagents' own transcripts; pi's chip is best effort and covers some launches only, so it is not summed.
+      const subagents = session.harness.name === "claude-code" ? turnSubagents(turn) : undefined;
       const stepIds = turn.steps.map((_, i) => stepId(turn.index, i));
       const section = h(
         "section",

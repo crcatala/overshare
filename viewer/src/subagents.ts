@@ -2,7 +2,7 @@
  * Subagent usage in the viewer: the session line in the token rail and header, and what a turn's launched subagents
  * add up to. A subagent has its own context window, so none of this feeds the context charts or the cache figures.
  */
-import { formatCost, formatDuration, formatSessionCost, formatTokens, formatUsageTotals, plural } from "../../src/format.ts";
+import { COST_UNDERCOUNT_NOTE, formatCost, formatDuration, formatSessionCost, formatTokens, formatUsageTotals, plural } from "../../src/format.ts";
 import type { SessionStats, SubagentTotals, SubagentUsage, Turn } from "../../src/schema.ts";
 import { h, withTooltip } from "./dom.ts";
 
@@ -84,6 +84,7 @@ export function subagentCostNode(t: SubagentTotals): HTMLElement | undefined {
     "Estimated cost of subagents",
     "Estimated at API list price from each subagent's tokens and model, like the session cost. Not a bill, and not included in it.",
     ...(t.costPartial ? ["Some calls have no cost (a model with no known price), so this is a lower bound."] : []),
+    COST_UNDERCOUNT_NOTE,
     ...modelLines(t),
   ]);
   return el;
@@ -94,7 +95,7 @@ export function unlinkedSubagentsNode(t: SubagentTotals | undefined): HTMLElemen
   if (!t) return undefined;
   const cost = formatSessionCost(t);
   const el = h("span", { class: "has-tip", tabindex: "0" }, `${cost ? `${cost} · ` : ""}${plural(t.agents, "agent")}`);
-  withTooltip(el, () => ["Not in the subagent figures above", `${formatUsageTotals(t)} ${UNLINKED_WHY}.`, ...modelLines(t)]);
+  withTooltip(el, () => ["Not in the subagent figures above", `${formatUsageTotals(t)} ${UNLINKED_WHY}.`, ...(cost ? [COST_UNDERCOUNT_NOTE] : []), ...modelLines(t)]);
   return el;
 }
 
@@ -114,6 +115,7 @@ export function subagentsHeaderNode(st: SessionStats): HTMLElement | string | un
     `${plural(agents, "subagent")} ran in this session. Their usage is read from their transcripts and is not in the tokens or cost of the main conversation.`,
     ...(u.agents ? [`launched here: ${formatUsageTotals(u)}`] : []),
     ...(u.unlinked ? [`not launched on this branch: ${formatUsageTotals(u.unlinked)}`] : []),
+    ...(total !== undefined ? [`The cost is estimated at list price. ${COST_UNDERCOUNT_NOTE}`] : []),
   ]);
   return el;
 }

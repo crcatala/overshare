@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parseClaudeCode } from "../src/adapters/claude-code.ts";
-import { describeCost } from "../src/format.ts";
+import { COST_UNDERCOUNT_NOTE, describeCost } from "../src/format.ts";
 import { projectSession } from "../src/modes.ts";
 import { SCHEMA_VERSION, SHARE_MODES, type NormalizedSession, type ShareMode, type Step, type SubagentStep, type SubagentTotals, type Turn, type Usage } from "../src/schema.ts";
 import { computeStats } from "../src/stats.ts";
@@ -165,6 +165,22 @@ describe("turn attribution", () => {
   });
 });
 
+describe("pi subagents", () => {
+  // pi reports child usage for some launches only, so summing it would undercount the launches.
+  const pi = () => build([[sub("a", { totalTokens: 14_000, cost: 0.02, turns: 3 }), sub("b", undefined), sub("c", undefined)]], {}, "pi");
+
+  it("are not summed per turn: no footer line, no turn-box block, no aggregate", () => {
+    const s = pi();
+    const { el, turns } = renderTranscript(s);
+    expect(el.querySelector(".foot-sub")).toBeNull();
+    expect(turns[0]!.subagents).toBeUndefined();
+    const r = rail(s);
+    r.setActive(0);
+    expect(document.querySelector(".rail-turn .turn-sub")).toBeNull();
+    expect(el.querySelector(".k-sub .tmeta")?.textContent).toBe("14.0k tokens · 3 model calls · $0.020"); // the chip stays
+  });
+});
+
 describe("rail: subagents beside the main totals", () => {
   it("labels the session figures as the main conversation and lists subagents on their own, never mixed in", () => {
     const s = build([[sub("a", SUB_USAGE)]], { subagentUsage: totals({ agents: 2, responses: 7 }) });
@@ -199,6 +215,23 @@ describe("rail: subagents beside the main totals", () => {
     cost.dispatchEvent(new Event("focus"));
     expect(tip.textContent).toContain("Estimated cost of subagents");
     expect(tip.textContent).toContain("claude-haiku-4-5-20251001: 3 calls");
+    expect(tip.textContent).toContain(COST_UNDERCOUNT_NOTE);
+  });
+
+  it("carries the surcharge caveat on the header fact and the unlinked row too", () => {
+    const s = build([[]], { subagents: 0, subagentUsage: totals({ unlinked: totals({ agents: 1 }) }) });
+    const hover = (e: HTMLElement) => {
+      e.dispatchEvent(new Event("mouseover", { bubbles: true }));
+      e.dispatchEvent(new Event("focus"));
+      return document.getElementById("tooltip")!.textContent;
+    };
+    const header = renderHeader(s, undefined, { sharedMode: "full", view: "full", setView: () => {}, toggleTheme: () => {}, toggleRail: () => {}, settings: {} as never, share: {} as never, local: false });
+    mount(header);
+    const fact = Array.from(header.querySelectorAll<HTMLElement>(".facts-stats .has-tip")).find((e) => e.textContent?.startsWith("2 (~"))!;
+    expect(hover(fact)).toContain(COST_UNDERCOUNT_NOTE);
+    const { el } = rail(s);
+    const unlinked = Array.from(sections(el)["Subagents"]!.querySelectorAll<HTMLElement>(".kv .has-tip")).at(-1)!;
+    expect(hover(unlinked)).toContain(COST_UNDERCOUNT_NOTE);
   });
 });
 

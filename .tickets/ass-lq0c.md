@@ -1,6 +1,6 @@
 ---
 id: ass-lq0c
-status: open
+status: in_progress
 deps: [ass-jx4l]
 links: [ass-jx4l, ass-rc52, ass-zr02]
 created: 2026-09-30T02:18:33Z

@@ -6,9 +6,10 @@
  * contents rail shows.
  */
 import { formatCost, formatDuration, formatTokens, plural } from "../../src/format.ts";
-import { contextTokens, type EventStep, type NormalizedSession, type ResponseUsage, type Step, type SubagentStep, type ThinkingStep, type ToolGroupStep, type ToolStep, type Turn } from "../../src/schema.ts";
+import { contextTokens, type EventStep, type NormalizedSession, type ResponseUsage, type Step, type SubagentStep, type ThinkingStep, type ToolGroupStep, type ToolResult, type ToolStep, type Turn } from "../../src/schema.ts";
 import { commandName, groupCalls, groupShell, isExecTool, type CallCount } from "./commands.ts";
 import { h, markdown } from "./dom.ts";
+import { stepTokens, turnSubagents, turnSubagentsLine, type TurnSubagents } from "./subagents.ts";
 import { firstLine, lineDiff, preview, splitLines, trimContext, type DiffLine } from "./text.ts";
 import { cacheEventOf } from "./usageinfo.ts";
 
@@ -51,6 +52,8 @@ export interface TurnInfo {
   /** Every tool call in the turn, in order. */
   calls: ToolCall[];
   responses: ResponseUsage[];
+  /** What the subagents launched in this turn add up to (absent in a prompts view, which keeps no steps). */
+  subagents?: TurnSubagents;
   /** The DOM id of the first step each model call produced, to jump to it (empty where steps are not shown). */
   responseSteps: Map<string, string>;
 }
@@ -189,7 +192,7 @@ function editDiffs(input: Record<string, unknown>): DiffLine[] | undefined {
   return out;
 }
 
-function resultNote(step: ToolStep): string {
+function resultNote(step: { result?: ToolResult }): string {
   const r = step.result;
   if (!r) return "";
   const parts = [r.images ? `${plural(r.images, "image")} omitted` : "", r.truncatedFrom ? `truncated from ${formatTokens(r.truncatedFrom)} chars when shared` : ""].filter(Boolean);
@@ -312,25 +315,38 @@ function renderThinking(t: ThinkingStep, id: string, ctx: Ctx): HTMLElement {
   return el;
 }
 
+/** The subagent's usage by token class, models and nested agents: what the line's total is made of. */
+function subagentUsageDetail(u: NonNullable<SubagentStep["usage"]>): string {
+  const classes = [
+    u.cacheRead !== undefined ? `cache read ${formatTokens(u.cacheRead)}` : "",
+    u.cacheWrite !== undefined ? `cache write ${formatTokens(u.cacheWrite)}` : "",
+    u.input !== undefined ? `uncached input ${formatTokens(u.input)}` : "",
+    u.output !== undefined ? `output ${formatTokens(u.output)}` : "",
+  ].filter(Boolean);
+  return [...classes, u.models?.length ? u.models.join(", ") : "", u.nested ? `incl. ${plural(u.nested, "nested agent")}` : ""].filter(Boolean).join(" · ");
+}
+
 function renderSubagent(s: SubagentStep, id: string): HTMLElement {
   const el = entry("sub", id, "agent", s.timestamp);
   if (s.isError) el.classList.add("is-error");
   const u = s.usage;
+  const tokens = u ? stepTokens(u) : undefined;
   const stats = u
     ? [
-        u.totalTokens ? `${formatTokens(u.totalTokens)} tok` : u.input !== undefined ? `${formatTokens((u.input ?? 0) + (u.cacheRead ?? 0) + (u.output ?? 0))} tok` : "",
-        u.turns ? plural(u.turns, "turn") : "",
-        u.toolUses ? plural(u.toolUses, "tool") : "",
+        tokens ? `${formatTokens(tokens)} tokens` : "",
+        u.turns ? plural(u.turns, "model call") : "",
+        u.toolUses ? plural(u.toolUses, "tool call") : "",
         u.durationMs ? formatDuration(u.durationMs) : "",
         u.cost !== undefined ? formatCost(u.cost) : "",
       ].filter(Boolean)
     : [];
   const who = [s.agents.length ? s.agents.join(", ") : "", s.mode ?? "", s.async ? "async" : ""].filter(Boolean).join(" · ");
   const p = s.result ? preview(s.result.text, 3) : undefined;
+  const detail = u && tokens ? subagentUsageDetail(u) : "";
   expandable(el, toolLine(s.tool, who, stats.join(" · "), s.isError), {
     preview: h("div", {}, s.description ? h("div", { class: "sub-desc" }, s.description) : null, p && s.result?.text.trim() ? linesPre(p.lines) : null),
     more: p?.more ? `… +${plural(p.more, "line")}` : undefined,
-    build: s.result ? () => pre(s.result?.text ?? "") : undefined,
+    build: s.result || detail ? () => h("div", {}, detail ? h("p", { class: "sub-usage" }, detail) : null, s.result ? pre(s.result.text) : null, resultNote(s) ? h("div", { class: "tnote" }, resultNote(s)) : null) : undefined,
   });
   return el;
 }
@@ -398,8 +414,13 @@ function activitySummary(turn: Turn, list: ResponseUsage[] = []): HTMLElement | 
     h("div", { class: "activity-summary", role: "group", "aria-label": "Activity for this turn" }, parts.join(" · "))) : null;
 }
 
-function turnFoot(list: ResponseUsage[] | undefined): HTMLElement | null {
-  if (!list?.length) return null;
+/** The subagents a turn launched, on a line of their own: their usage is not part of the turn's model calls above it. */
+function subagentFoot(sub: TurnSubagents): HTMLElement {
+  return h("div", { class: "foot-sub", title: "Launched in this turn, even if they finished later. Not in the turn's model calls or the session totals." }, turnSubagentsLine(sub));
+}
+
+function turnFoot(list: ResponseUsage[] | undefined, sub?: TurnSubagents): HTMLElement | null {
+  if (!list?.length) return sub ? h("div", { class: "turn-foot", "aria-label": "Subagent usage for this turn" }, subagentFoot(sub)) : null;
   let out = 0;
   let cost: number | undefined;
   let peak = 0;
@@ -434,6 +455,7 @@ function turnFoot(list: ResponseUsage[] | undefined): HTMLElement | null {
     { class: "turn-foot", "aria-label": "Token usage for this turn" },
     h("span", {}, parts.join(" · ")),
     ...kinds.flatMap((k, i) => [" · ", h("span", { class: `foot-cache foot-cache-${events[i]}` }, k)]),
+    sub ? subagentFoot(sub) : null,
   );
 }
 
@@ -559,6 +581,7 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
     .map((turn) => {
       const n = turn.user ? ++ordinal : 0;
       const id = `turn-${turn.index}`;
+      const subagents = turnSubagents(turn);
       const stepIds = turn.steps.map((_, i) => stepId(turn.index, i));
       const section = h(
         "section",
@@ -566,7 +589,7 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
         h("div", { class: "turn-head", "aria-hidden": "true" }, h("span", { class: "turn-n" }, n ? String(n) : "·"), turn.timestamp ? h("time", {}, clock(turn.timestamp)) : null),
         renderPrompt(turn, promptId(turn.index)),
         ...(session.mode === "prompts" ? [activitySummary(turn, ctx.byTurn.get(turn.index))] : turn.steps.map((s, i) => renderStep(s, stepIds[i]!, ctx))),
-        session.mode === "prompts" ? null : turnFoot(ctx.byTurn.get(turn.index)),
+        session.mode === "prompts" ? null : turnFoot(ctx.byTurn.get(turn.index), subagents),
       );
       const o = outline(turn, stepIds);
       const u = turn.user;
@@ -584,6 +607,7 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
         items: o.items,
         calls: toolCalls(turn, stepIds, ctx),
         responses: ctx.byTurn.get(turn.index) ?? [],
+        ...(subagents ? { subagents } : {}),
         responseSteps: session.mode === "prompts" ? new Map() : responseSteps(turn, stepIds),
       });
       return section;

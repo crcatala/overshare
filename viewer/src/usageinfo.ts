@@ -1,11 +1,11 @@
 /** Cost and out-of-scope usage figures with the tooltips that say what they mean; used by the header and the token rail. */
 import { describeCost, formatCacheMisses, formatSessionCost, formatTokens, formatUsageTotals } from "../../src/format.ts";
-import { totalTokens, type CacheEvent, type CacheEventKind, type CacheSummary, type ResponseUsage, type SessionStats, type UsageTotals } from "../../src/schema.ts";
+import { totalTokens, type CacheEvent, type CacheEventKind, type CacheSummary, type ResponseUsage, type SessionStats, type Usage, type UsageTotals } from "../../src/schema.ts";
 import { h, withTooltip } from "./dom.ts";
 import { svg } from "./el.ts";
 
 /** Tokens processed: every call re-reads the context, so hover says what it is made of. */
-export function tokensNode(st: SessionStats): HTMLElement {
+export function tokensNode(st: { tokens: Usage }): HTMLElement {
   const t = st.tokens;
   const el = h("span", { class: "has-tip", tabindex: "0" }, formatTokens(totalTokens(t)));
   withTooltip(el, () => [

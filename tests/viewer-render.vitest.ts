@@ -212,23 +212,23 @@ describe("tool call lists", () => {
   });
 });
 
-describe("subagent usage chip", () => {
+describe("subagent step line", () => {
   const sub = (usage: Extract<Step, { kind: "subagent" }>["usage"]): Step => ({ kind: "subagent", id: "s", tool: "Agent", agents: ["scout"], description: "find it", usage }) as Step;
   const chip = (usage: Extract<Step, { kind: "subagent" }>["usage"]) => {
     const { el } = renderTranscript(session([turn(0, [sub(usage)])]));
     return el.querySelector(".entry.k-sub .tmeta")?.textContent;
   };
 
-  it("shows the subagent's total: tokens, turns, tools, time and cost", () => {
-    expect(chip({ totalTokens: 26_921, turns: 2, toolUses: 1, durationMs: 6_000, cost: 0.0215 })).toBe("26.9k tok · 2 turns · 1 tool · 6s · $0.021");
+  it("shows the subagent's total: tokens, model calls, tool calls, time and cost", () => {
+    expect(chip({ totalTokens: 26_921, turns: 2, toolUses: 1, durationMs: 6_000, cost: 0.0215 })).toBe("26.9k tokens · 2 model calls · 1 tool call · 6s · $0.021");
   });
 
   it("leaves pi's best-effort chip as it was", () => {
-    expect(chip({ totalTokens: 14_419, toolUses: 1 })).toBe("14.4k tok · 1 tool");
+    expect(chip({ totalTokens: 14_419, toolUses: 1 })).toBe("14.4k tokens · 1 tool call");
   });
 
   it("shows only counts when the adapter reported no tokens", () => {
-    expect(chip({ toolUses: 7, durationMs: 9_000 })).toBe("7 tools · 9s");
+    expect(chip({ toolUses: 7, durationMs: 9_000 })).toBe("7 tool calls · 9s");
   });
 });
 

@@ -1953,3 +1953,32 @@ button.share[aria-expanded="true"] {
     display: none !important;
   }
 }
+
+/* ---------- subagent usage ---------- */
+/* Its usage line is long ("26.7k tokens · 2 model calls · 1 tool call · 4s · $0.011"); let it wrap rather than clip on a phone. */
+.k-sub .tmeta {
+  white-space: normal;
+}
+.foot-sub {
+  margin-top: 2px;
+}
+.sub-usage {
+  margin: 0 0 6px;
+  color: var(--dim);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.turn-sub {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.turn-sub h4 {
+  margin: 0 0 2px;
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--ink-2);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}

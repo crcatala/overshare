@@ -45,13 +45,14 @@ const originLabel = (origin: unknown): string => {
 };
 
 /** Background subagent completion: `<task-notification>` with the agent's final answer in `<result>`. */
-function parseTaskNotification(text: string): { toolUseId?: string; result: string } {
+function parseTaskNotification(text: string): { toolUseId?: string; agentId?: string; result: string } {
   const at = text.indexOf("<result>");
   // Read ids only from the header so text inside the answer cannot redirect it to another step.
   const header = at === -1 ? text : text.slice(0, at);
   const toolUseId = /<tool-use-id>\s*([^<\s]+)\s*<\/tool-use-id>/.exec(header)?.[1];
+  const agentId = /<task-id>\s*([^<\s]+)\s*<\/task-id>/.exec(header)?.[1];
   const result = at === -1 ? "" : (/^<result>([\s\S]*)<\/result>/.exec(text.slice(at))?.[1] ?? "");
-  return { toolUseId, result: stripInjectedContext(result) };
+  return { toolUseId, agentId, result: stripInjectedContext(result) };
 }
 
 const CONVERSATION_TYPES = new Set(["user", "assistant", "system"]);
@@ -201,7 +202,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
       if (!isHumanOrigin(e.origin)) {
         const kind = originLabel(e.origin);
         const notification = kind === "task-notification" ? parseTaskNotification(rawText) : undefined;
-        if (notification?.toolUseId && b.completeSubagent(notification.toolUseId, notification.result)) bump(dropped, "task-notification");
+        if (notification && b.completeSubagent(notification, notification.result)) bump(dropped, "task-notification");
         else bump(dropped, notification ? "task-notification:unmatched" : `origin:${kind}`);
         continue;
       }
@@ -257,8 +258,14 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
     const key = e.type === "assistant" && !e.isSidechain ? responseKey(e) : undefined;
     if (key) mainKeys.add(key);
   }
-  const subagentRuns = readSubagentRuns(options.subagentFiles ?? [], mainKeys);
-  const subagentUsage = linkSubagentRuns(b, subagentRuns);
+  // A subagent file spans the whole session, so it can hold work from after the exported point or from a
+  // discarded branch. With an explicit leaf nothing timestamped after the branch end is read; and the file's
+  // last message is offered as a step's summary only for a plain export, never when the branch was cut.
+  const otherBranches = totalsOf(offBranchResponses(entries, ordered));
+  const endMs = endedAt ? Date.parse(endedAt) : Number.NaN;
+  const cut = options.leafId !== undefined || otherBranches !== undefined;
+  const subagentRuns = readSubagentRuns(options.subagentFiles ?? [], mainKeys, options.leafId !== undefined ? (Number.isFinite(endMs) ? endMs : -Infinity) : undefined);
+  const subagentUsage = linkSubagentRuns(b, subagentRuns, { summaryUntil: cut || !Number.isFinite(endMs) ? undefined : endMs });
   // Subagent transcripts are never shared: only their numbers and each agent's last message are read.
   if (subagentRuns.length) bump(dropped, "subagent-transcript", subagentRuns.length);
 
@@ -276,7 +283,6 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   // say so in the header), so unlike pi nothing is ever marked `inherited` here.
   // Claude Code records tokens, not dollars: costs are estimated at list price.
   session.stats.costSource = "estimated";
-  const otherBranches = totalsOf(offBranchResponses(entries, ordered));
   if (otherBranches) session.stats.otherBranches = otherBranches;
   if (subagentUsage) session.stats.subagentUsage = subagentUsage;
   return { session, dropped };

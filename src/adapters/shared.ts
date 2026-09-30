@@ -272,11 +272,14 @@ export class TurnBuilder {
 
   /**
    * A background subagent finished: attach its (bounded) final answer to the step that launched
-   * it, replacing the "launched" acknowledgement. Returns false when no such launch is known.
+   * it, replacing the "launched" acknowledgement. The launch is found by tool call id, else by agent
+   * id; the notification names both, so the agent id is also remembered for linking its transcript
+   * file when the launch's own tool result is not on the branch. Returns false when no launch is known.
    */
-  completeSubagent(callId: string, text: string): boolean {
-    const step = this.subagentSteps.get(callId);
+  completeSubagent(ids: { toolUseId?: string; agentId?: string }, text: string): boolean {
+    const step = this.findSubagent(ids.toolUseId, ids.agentId);
     if (!step) return false;
+    if (ids.agentId && !this.subagentsByAgentId.has(ids.agentId)) this.subagentsByAgentId.set(ids.agentId, step);
     step.async = true;
     const body = text.trim();
     if (body) {

@@ -48,10 +48,12 @@ function accountedTotals(s: NormalizedSession): Record<string, TokenTotals> {
 // ---- inline builders ------------------------------------------------------------------------------------------
 
 let lineSeq = 0;
-const call = (id: string, blocks: Record<string, unknown>[], usage: Record<string, unknown>, model = HAIKU) => {
+/** Inside the session by default (the builder's main transcript runs from 00:00:01); `at` places a call elsewhere. */
+const call = (id: string, blocks: Record<string, unknown>[], usage: Record<string, unknown>, model = HAIKU, at?: string) => {
   lineSeq += 1;
-  return { type: "assistant", isSidechain: true, uuid: `sc-${lineSeq}`, timestamp: new Date(Date.UTC(2026, 0, 1, 0, 1, lineSeq)).toISOString(), message: { id, model, role: "assistant", content: blocks, usage } };
+  return { type: "assistant", isSidechain: true, uuid: `sc-${lineSeq}`, timestamp: at ?? new Date(Date.UTC(2026, 0, 1, 0, 0, 0, lineSeq)).toISOString(), message: { id, model, role: "assistant", content: blocks, usage } };
 };
+const LATER = "2026-01-02T00:00:00.000Z";
 const text = (t: string) => ({ type: "text", text: t });
 const toolUse = (id: string) => ({ type: "tool_use", id, name: "Read", input: {} });
 /** Usage with the cache write split the way subagents report it (5m) or the main session does (1h). */
@@ -405,6 +407,103 @@ describe("linking a subagent to its launch", () => {
     const { session } = parse(t, [oneCallFile("a1", { toolUseId: "toolu_old" })]);
     expect(subagentSteps(session)).toHaveLength(0);
     expect(session.stats.subagentUsage).toMatchObject({ agents: 0, unlinked: { agents: 1 } });
+  });
+});
+
+describe("a cut export does not publish what came after it", () => {
+  const LATE = "LATE-final-answer-written-after-the-exported-point";
+  const ACK = "Async agent launched successfully.";
+
+  /** An async launch, its notification and a later prompt; the agent's file ends with a message written after all of that. */
+  function session() {
+    const t = mainWithLaunch({ kind: "async" });
+    const afterLaunch = t.lastUuid!;
+    notificationLine(t, LAUNCH, "ANSWER-from-notification");
+    const afterNotification = t.lastUuid!;
+    t.user("a later prompt");
+    const file = agentFile(
+      "a1",
+      [call("c_early", [toolUse("t")], usage(5, 5, 0, 0)), call("c_late", [text(LATE)], usage(500, 500, 0, 0), HAIKU, LATER)],
+      { toolUseId: LAUNCH },
+    );
+    return { t, file, afterLaunch, afterNotification };
+  }
+  const exportOf = (mode: ShareMode, o: ReturnType<typeof session>, leafId?: string) =>
+    prepareShare(o.t.toJsonl(), { mode, config: DEFAULT_CONFIG, harness: "claude-code", machine, knownSecrets: [], subagentFiles: [o.file], leafId });
+
+  it("leaves out the agent's later answer and later calls when the export ends at the launch", () => {
+    const o = session();
+    const { session: s } = parse(o.t, [o.file], o.afterLaunch);
+    const [step] = subagentSteps(s);
+    expect(step!.result!.text).toBe(ACK);
+    expect(step!.usage).toMatchObject({ turns: 1, output: 5 });
+    expect(s.stats.subagentUsage).toMatchObject({ responses: 1, tokens: { output: 5 } });
+    for (const mode of SHARE_MODES) expect(exportOf(mode, o, o.afterLaunch).json, mode).not.toContain(LATE);
+  });
+
+  it("keeps the notification's answer when the export ends after it, and still ignores the file's later message", () => {
+    const o = session();
+    const [step] = subagentSteps(parse(o.t, [o.file], o.afterNotification).session);
+    expect(step!.result!.text).toBe("ANSWER-from-notification");
+    expect(step!.usage).toMatchObject({ turns: 1 });
+  });
+
+  it("does not summarise from a message written after the session's end, even on a plain export", () => {
+    const o = session();
+    const { session: s } = parse(o.t, [o.file]);
+    expect(subagentSteps(s)[0]!.result!.text).toBe("ANSWER-from-notification");
+    const noNotice = mainWithLaunch({ kind: "async" });
+    const [step] = subagentSteps(parse(noNotice, [agentFile("a1", [call("c", [text(LATE)], usage(1, 1, 0, 0), HAIKU, LATER)], { toolUseId: LAUNCH })]).session);
+    expect(step!.result!.text).toBe(ACK);
+    expect(step!.usage).toMatchObject({ turns: 1 }); // the numbers are still counted: the agent really ran
+  });
+
+  it("offers no file summary when the branch was cut by a rewind, so a resume on the discarded branch stays private", () => {
+    const t = mainWithLaunch({ kind: "async" });
+    const afterLaunch = t.lastUuid!;
+    t.user("resume the agent").assistant("m_resume", [{ type: "tool_use", id: "S", name: "SendMessage", input: { to: "a1", message: "go on" } }], usage(3, 3, 0, 0), SONNET);
+    t.rewindTo(afterLaunch).assistant("m_kept", [text("took another way")], usage(2, 2, 0, 0), SONNET);
+    const file = agentFile("a1", [call("c1", [toolUse("t")], usage(5, 5, 0, 0)), call("c2", [text("RESUMED-answer-from-the-discarded-branch")], usage(6, 6, 0, 0))], { toolUseId: LAUNCH });
+    const { session: s } = parse(t, [file]);
+    expect(s.stats.otherBranches).toBeDefined();
+    expect(subagentSteps(s)[0]!.result!.text).toBe(ACK);
+    for (const mode of SHARE_MODES) {
+      const { json } = prepareShare(t.toJsonl(), { mode, config: DEFAULT_CONFIG, harness: "claude-code", machine, knownSecrets: [], subagentFiles: [file] });
+      expect(json, mode).not.toContain("RESUMED-answer");
+    }
+  });
+});
+
+describe("linking through the task notification", () => {
+  const launchOnly = () =>
+    new ClaudeTranscript().user("go").assistant("m1", [{ type: "tool_use", id: LAUNCH, name: "Agent", input: launchInput }], usage(10, 5, 0, 100, "1h"), SONNET);
+  const noMeta = () => agentFile("a1", [call("c1", [text("file answer")], usage(5, 7, 100, 50))]);
+
+  it("links a file with no tool id in its meta through the notification, when the launch's tool result is not on the branch", () => {
+    const t = launchOnly();
+    notificationLine(t, LAUNCH, "ANSWER-from-notification");
+    const { session: s } = parse(t, [noMeta()]);
+    const [step] = subagentSteps(s);
+    expect(step!.result!.text).toBe("ANSWER-from-notification");
+    expect(step!.usage).toMatchObject({ turns: 1, output: 7 });
+    expect(s.stats.subagentUsage).toMatchObject({ agents: 1 });
+    expect(s.stats.subagentUsage!.unlinked).toBeUndefined();
+  });
+
+  it("matches a notification that names only the agent, when the launch's tool result gave that agent id", () => {
+    const t = mainWithLaunch({ kind: "async" }, { agentId: "a1" });
+    t.user("<task-notification>\n<task-id>a1</task-id>\n<result>ANSWER-by-agent-id</result>\n</task-notification>", { origin: { kind: "task-notification" } });
+    const { session: s, dropped } = parse(t, undefined);
+    expect(subagentSteps(s)[0]!.result!.text).toBe("ANSWER-by-agent-id");
+    expect(dropped["task-notification"]).toBe(1);
+  });
+
+  it("still drops a notification that names no known launch", () => {
+    const t = launchOnly();
+    t.user("<task-notification>\n<task-id>stranger</task-id>\n<tool-use-id>toolu_nowhere</tool-use-id>\n<result>UNMATCHED-answer</result>\n</task-notification>", { origin: { kind: "task-notification" } });
+    const { session: s, dropped } = parse(t, undefined);
+    expect(JSON.stringify(s)).not.toContain("UNMATCHED-answer");
+    expect(dropped["task-notification:unmatched"]).toBe(1);
   });
 });
 

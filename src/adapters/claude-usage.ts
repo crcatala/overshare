@@ -44,6 +44,8 @@ export interface SubagentRun {
   durationMs?: number;
   /** The last message, when it is text (an agent cut off mid-tool has no final answer). */
   finalText?: string;
+  /** When that message was written (ms); absent when the file has no timestamps. */
+  finalAt?: number;
 }
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v ? v : undefined);
@@ -67,8 +69,11 @@ function parseLines(raw: string): Entry[] {
  * (`mainKeys`, as in ccusage), then the earlier file; within a file the repeat with the most tokens
  * wins. That also covers a resumed subagent, which appends to its own file. Files with no usable
  * lines still count as an agent, with no calls.
+ *
+ * `until` (ms) keeps the export in scope: lines after it, or without a timestamp, are ignored, so work a
+ * subagent did after the exported point is neither counted nor summarised.
  */
-export function readSubagentRuns(files: readonly SubagentFileInput[], mainKeys: ReadonlySet<string>): SubagentRun[] {
+export function readSubagentRuns(files: readonly SubagentFileInput[], mainKeys: ReadonlySet<string>, until?: number): SubagentRun[] {
   const claimed = new Set(mainKeys);
   const runs: SubagentRun[] = [];
   for (const file of [...files].sort((a, b) => (a.fileName < b.fileName ? -1 : a.fileName > b.fileName ? 1 : 0))) {
@@ -78,11 +83,12 @@ export function readSubagentRuns(files: readonly SubagentFileInput[], mainKeys: 
 
     const calls = new Map<string, ResponseUsage>();
     const tools = new Set<string>();
-    const texts = new Map<string, { text: string[]; tool: boolean }>();
+    const texts = new Map<string, { text: string[]; tool: boolean; at?: number }>();
     let first: number | undefined;
     let last: number | undefined;
     for (const e of entries) {
       const at = typeof e.timestamp === "string" ? Date.parse(e.timestamp) : NaN;
+      if (until !== undefined && !(at <= until)) continue;
       if (Number.isFinite(at)) {
         first = first === undefined ? at : Math.min(first, at);
         last = last === undefined ? at : Math.max(last, at);
@@ -93,6 +99,7 @@ export function readSubagentRuns(files: readonly SubagentFileInput[], mainKeys: 
       const blocks: Entry[] = Array.isArray(msg.content) ? msg.content : [];
       const mine = texts.get(key) ?? { text: [], tool: false };
       texts.set(key, mine);
+      if (Number.isFinite(at)) mine.at = Math.max(mine.at ?? at, at);
       for (const b of blocks) {
         if (b?.type === "tool_use") {
           mine.tool = true;
@@ -121,6 +128,7 @@ export function readSubagentRuns(files: readonly SubagentFileInput[], mainKeys: 
       toolUses: tools.size,
       ...(first !== undefined && last !== undefined ? { durationMs: last - first } : {}),
       ...(finalText ? { finalText } : {}),
+      ...(finalText && lastMessage?.at !== undefined ? { finalAt: lastMessage.at } : {}),
     });
   }
   return runs;
@@ -165,8 +173,11 @@ function stepUsage(runs: readonly SubagentRun[], toolResult: SubagentUsage | und
  * agent id; a nested agent follows `parentAgentId` up to a launched one) and put file-derived totals and
  * the final message on that step. Returns the session-level numbers, with runs that no step on the
  * exported branch launched kept apart in `unlinked`.
+ *
+ * A final message becomes a step's summary only when it is known to precede `summaryUntil` (ms); leave that
+ * unset to offer no file-derived summaries, which is what an export of a cut branch does.
  */
-export function linkSubagentRuns(b: TurnBuilder, runs: readonly SubagentRun[]): SubagentUsageStats | undefined {
+export function linkSubagentRuns(b: TurnBuilder, runs: readonly SubagentRun[], opts: { summaryUntil?: number } = {}): SubagentUsageStats | undefined {
   if (runs.length === 0) return undefined;
   const byAgent = new Map(runs.map((r) => [r.agentId, r]));
   const launched = (run: SubagentRun): SubagentStep | undefined => b.findSubagent(run.toolUseId, run.agentId);
@@ -190,7 +201,7 @@ export function linkSubagentRuns(b: TurnBuilder, runs: readonly SubagentRun[]): 
   for (const [step, group] of linked) {
     step.usage = stepUsage(group, step.usage);
     const root = group.find((r) => launched(r) === step);
-    if (root?.finalText) b.setSubagentSummary(step, root.finalText);
+    if (root?.finalText && opts.summaryUntil !== undefined && root.finalAt !== undefined && root.finalAt <= opts.summaryUntil) b.setSubagentSummary(step, root.finalText);
   }
   return { ...subagentTotals([...linked.values()].flat()), ...(unlinked.length ? { unlinked: subagentTotals(unlinked) } : {}) };
 }

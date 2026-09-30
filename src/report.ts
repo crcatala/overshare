@@ -1,4 +1,4 @@
-import { formatBytes, formatCost, formatTokens, plural } from "./format.js";
+import { formatBytes, formatSessionCost, formatTokens, formatUsageTotals, plural } from "./format.js";
 import type { ShareReport } from "./pipeline.js";
 import { SECRET_CATEGORIES, type RedactionCategory } from "./redact/index.js";
 import { totalTokens } from "./schema.js";
@@ -15,10 +15,14 @@ export function formatReport(r: ShareReport, opts: { maxFindings?: number; color
   const s = r.stats;
   lines.push(bold(`agent-share report · ${r.harness} · ${r.sessionId.slice(0, 8)} · mode=${r.mode}`));
   if (r.title) lines.push(`  "${r.title}"`);
-  const tokenLine = `${formatTokens(totalTokens(s.tokens))} tokens${s.cost !== undefined ? ` · ${formatCost(s.cost)}` : ""}`;
+  const cost = formatSessionCost(s);
+  const tokenLine = `${formatTokens(totalTokens(s.tokens))} tokens${cost ? ` · est. cost ${cost}` : ""}`;
   lines.push(
     dim(`  ${plural(s.turns, "turn")} · ${plural(s.toolCalls, "tool call")} · ${plural(s.subagents, "subagent")} · ${tokenLine} · ${formatBytes(r.bytes)} payload`),
   );
+
+  if (s.otherBranches) lines.push(dim(`  not counted: ${formatUsageTotals(s.otherBranches)} on other branches`));
+  if (s.inherited) lines.push(dim(`  not counted: ${formatUsageTotals(s.inherited)} inherited from the parent session`));
 
   const dropped = Object.entries(r.dropped).sort((a, b) => b[1] - a[1]);
   if (dropped.length) {

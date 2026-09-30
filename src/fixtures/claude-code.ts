@@ -7,7 +7,9 @@ type Json = Record<string, unknown>;
 /** A 1×1 PNG, small enough to embed. */
 export const TINY_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
-const MODEL = "claude-opus-5-5";
+/** Priced in src/pricing-data.ts, so fixture sessions show an estimated cost. */
+export const CLAUDE_FIXTURE_MODEL = "claude-opus-5-5";
+const MODEL = CLAUDE_FIXTURE_MODEL;
 
 /** Emit a Claude Code transcript (`~/.claude/projects/<slug>/<id>.jsonl`) for a script. */
 export function emitClaudeCode(script: SessionScript, rng: Rng, opts: { sessionId: string; start: number; home: string; username: string }): string {
@@ -172,6 +174,8 @@ function assistantMessage(content: unknown[], usage: ReturnType<TokenModel["resp
     usage: {
       input_tokens: usage.input,
       cache_creation_input_tokens: usage.cacheWrite,
+      // Subscription Claude Code writes 1-hour cache entries.
+      cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: usage.cacheWrite },
       cache_read_input_tokens: usage.cacheRead,
       output_tokens: usage.output,
       ...(usage.reasoning ? { output_tokens_details: { thinking_tokens: usage.reasoning } } : {}),

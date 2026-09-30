@@ -432,3 +432,87 @@ describe("outline labels", () => {
     expect(turns[0]!.label.startsWith("/implement spec spec")).toBe(true);
   });
 });
+
+describe("cost and usage scope", () => {
+  const priced = (cost: number, extra: Partial<Usage> = {}): Usage => ({ ...usage(1_000, 50), cost, ...extra });
+  const withStats = (s: NormalizedSession, stats: Partial<NormalizedSession["stats"]>): NormalizedSession => ({ ...s, stats: { ...s.stats, ...stats } });
+  const railRows = (s: NormalizedSession) => {
+    const { turns } = renderTranscript(s);
+    const rail = renderTokenRail(s, turns, () => {});
+    return { rail, rows: Object.fromEntries(Array.from(rail.el.querySelectorAll(".rail-sec:first-child .kv dt"), (dt) => [dt.textContent, dt.nextElementSibling?.textContent])) };
+  };
+  const base = () => session([turn(0, [{ kind: "text", id: "a", text: "hi" }])], [{ id: "r0", turn: 0, usage: priced(0.5) }]);
+
+  it("labels the cost an estimate and marks a lower bound", () => {
+    const s = withStats(base(), { cost: 12.4, costSource: "estimated", responses: 1 });
+    expect(railRows(s).rows["est. cost"]).toBe("$12.40");
+    expect(railRows(withStats(s, { costPartial: true })).rows["est. cost"]).toBe("$12.40+");
+    expect("cost" in railRows(base()).rows).toBe(false);
+  });
+
+  it("shows spend on other branches and inherited history only when there is some", () => {
+    const totals = { responses: 3, tokens: { input: 10, output: 20, cacheRead: 1_000, cacheWrite: 0, reasoning: 0 }, cost: 0.25 };
+    expect(railRows(base()).rows["other branches"]).toBeUndefined();
+    expect(railRows(base()).rows.inherited).toBeUndefined();
+    const s = withStats(base(), { otherBranches: totals, inherited: { ...totals, cost: 1.5 } });
+    expect(railRows(s).rows["other branches"]).toBe("$0.250 · 3 calls");
+    expect(railRows(s).rows.inherited).toBe("$1.50 · 3 calls");
+  });
+
+  it("draws inherited turns muted and leaves them out of the running totals", () => {
+    const s = session(
+      [turn(0, [{ kind: "text", id: "a", text: "parent" }]), turn(1, [{ kind: "text", id: "b", text: "child" }])],
+      [
+        { id: "r0", turn: 0, usage: priced(1), inherited: true },
+        { id: "r1", turn: 1, usage: priced(0.5) },
+      ],
+    );
+    const { turns } = renderTranscript(s);
+    const rail = renderTokenRail(s, turns, () => {});
+    const muted = () => Array.from(rail.el.querySelectorAll(".rail-sec .cols:not(.cols-out) .col"), (c) => c.classList.contains("inh"));
+    expect(muted()).toEqual([true, false]);
+    rail.setActive(0);
+    expect(rail.el.querySelector(".rail-turn")!.textContent).toContain("parent session (not counted)");
+    expect(rail.el.querySelector(".rail-turn")!.textContent).not.toContain("so far");
+    rail.setActive(1);
+    // Only the child's own call counts: 1.0k context + 50 output, $0.500.
+    expect(rail.el.querySelector(".rail-turn")!.textContent).toContain("1.1k · $0.500");
+    const foot = renderTranscript(s).el.querySelectorAll(".turn-foot");
+    expect(foot[0]!.textContent).toContain("inherited from parent session");
+    expect(foot[1]!.textContent).toContain("$0.500");
+  });
+
+  it("counts only a mixed turn's own calls (a fork continued mid-turn)", () => {
+    const s = session([turn(0, [{ kind: "text", id: "a", text: "parent then child" }])], [
+      { id: "r0", turn: 0, usage: priced(1), inherited: true },
+      { id: "r1", turn: 0, usage: priced(0.5) },
+    ]);
+    const { turns, el } = renderTranscript(s);
+    const rail = renderTokenRail(s, turns, () => {});
+    rail.setActive(0);
+    const box = rail.el.querySelector(".rail-turn")!.textContent!;
+    expect(box).toContain("$0.500");
+    expect(box).not.toContain("$1.50");
+    expect(box).toContain("1 call from parent (not counted)");
+    expect(el.querySelector(".turn-foot")!.textContent).toContain("2 responses");
+    expect(el.querySelector(".turn-foot")!.textContent).toContain("$0.500");
+    expect(el.querySelector(".turn-foot")!.textContent).toContain("1 inherited");
+  });
+
+  it("names the purpose of calls the harness made itself", () => {
+    const s = session([turn(0, [{ kind: "text", id: "a", text: "hi" }])], [{ id: "c", turn: 0, usage: priced(0.01), purpose: "compaction" }]);
+    const { turns } = renderTranscript(s);
+    const rail = renderTokenRail(s, turns, () => {});
+    rail.setActive(0);
+    document.body.innerHTML = '<div id="tooltip" class="tooltip" hidden></div>';
+    const col = rail.el.querySelector<HTMLElement>(".rail-turn .cols:not(.cols-out) .col")!;
+    col.dispatchEvent(new PointerEvent("pointerenter", { clientX: 5, clientY: 5 }));
+    expect(document.querySelector(".tooltip")?.textContent).toContain("compaction");
+    document.body.replaceChildren();
+  });
+
+  it("renders shares made before costs were estimated", () => {
+    const old = withStats(base(), { cost: 16.96, costSource: "session-total" });
+    expect(railRows(old).rows["est. cost"]).toBe("$16.96");
+  });
+});

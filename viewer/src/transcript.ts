@@ -402,14 +402,25 @@ function turnFoot(list: ResponseUsage[] | undefined): HTMLElement | null {
   let peak = 0;
   let cached = 0;
   let ctxSum = 0;
-  for (const r of list) {
+  // A turn a fork continued holds inherited and own calls; only the own ones are this session's spend.
+  const own = list.filter((r) => !r.inherited);
+  const inheritedCalls = list.length - own.length;
+  const inherited = own.length === 0;
+  for (const r of inherited ? list : own) {
     out += r.usage.output;
     peak = Math.max(peak, contextTokens(r.usage));
     cached += r.usage.cacheRead;
     ctxSum += contextTokens(r.usage);
     if (r.usage.cost !== undefined) cost = (cost ?? 0) + r.usage.cost;
   }
-  const parts = [plural(list.length, "response"), `ctx ${formatTokens(peak)}`, `out ${formatTokens(out)}`, ctxSum ? `${Math.round((cached / ctxSum) * 100)}% cached` : "", cost !== undefined ? formatCost(cost) : ""].filter(Boolean);
+  const parts = [
+    plural(list.length, "response"),
+    `ctx ${formatTokens(peak)}`,
+    `out ${formatTokens(out)}`,
+    ctxSum ? `${Math.round((cached / ctxSum) * 100)}% cached` : "",
+    cost !== undefined && !inherited ? formatCost(cost) : "",
+    inherited ? "inherited from parent session" : inheritedCalls ? `${inheritedCalls} inherited` : "",
+  ].filter(Boolean);
   return h("div", { class: "turn-foot", "aria-label": "Token usage for this turn" }, h("span", {}, parts.join(" · ")));
 }
 

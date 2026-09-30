@@ -8,12 +8,13 @@
  * compaction show). Output has its own row and scale: it is orders of magnitude smaller.
  */
 import { formatCost, formatTokens, plural } from "../../src/format.ts";
-import { contextTokens, totalTokens, type NormalizedSession, type ResponseUsage, type Usage } from "../../src/schema.ts";
+import { contextTokens, totalTokens, type NormalizedSession, type ResponsePurpose, type ResponseUsage, type Usage } from "../../src/schema.ts";
 import { groupShell, isExecTool, tallyCommands } from "./commands.ts";
 import { h, hideTooltip, withTooltip } from "./dom.ts";
 import { svg } from "./el.ts";
 import { closeHoverCard, hoverCard } from "./popover.ts";
 import type { ToolCall, TurnInfo } from "./transcript.ts";
+import { INHERITED_WHY, OTHER_BRANCHES_WHY, costNode, excludedNode } from "./usageinfo.ts";
 
 const SEGMENTS: [keyof Usage, string, string][] = [
   ["cacheRead", "seg-cache-read", "cache read"],
@@ -27,6 +28,8 @@ interface Column {
   context: Usage;
   output: number;
   tip: () => string[];
+  /** Every call in it was inherited from a parent session (drawn muted). */
+  inherited?: boolean;
 }
 
 function sumUsage(list: ResponseUsage[]): Usage {
@@ -54,7 +57,7 @@ function bucket(cols: Column[], max: number): Column[] {
     const peak = group.reduce((a, b) => (contextTokens(b.context) > contextTokens(a.context) ? b : a));
     const output = group.reduce((n, c) => n + c.output, 0);
     const turns = group.flatMap((c) => c.turns);
-    out.push({ turns, context: peak.context, output, tip: () => [`${plural(turns.length, "turn")} (${group[0]!.tip()[0]} – ${group[group.length - 1]!.tip()[0]})`, `peak context ${formatTokens(contextTokens(peak.context))} · output ${formatTokens(output)}`] });
+    out.push({ turns, context: peak.context, output, ...(group.every((c) => c.inherited) ? { inherited: true } : {}), tip: () => [`${plural(turns.length, "turn")} (${group[0]!.tip()[0]} – ${group[group.length - 1]!.tip()[0]})`, `peak context ${formatTokens(contextTokens(peak.context))} · output ${formatTokens(output)}`] });
   }
   return out;
 }
@@ -74,7 +77,7 @@ function chart(cols: Column[], scale: Scale, opts: { onPick?: (c: Column) => voi
   outRow.style.height = `${outH}px`;
   for (const c of cols) {
     const ctx = contextTokens(c.context);
-    const col = h(opts.onPick ? "button" : "div", { class: "col", type: opts.onPick ? "button" : undefined, onclick: opts.onPick ? () => opts.onPick!(c) : undefined, "aria-label": c.tip()[0] });
+    const col = h(opts.onPick ? "button" : "div", { class: `col${c.inherited ? " inh" : ""}`, type: opts.onPick ? "button" : undefined, onclick: opts.onPick ? () => opts.onPick!(c) : undefined, "aria-label": c.tip()[0] });
     const total = Math.max(ctx ? 2 : 0, Math.round((Math.min(ctx, scale.context) / scale.context) * ctxH));
     for (const [key, cls] of SEGMENTS) {
       const v = c.context[key] ?? 0;
@@ -85,7 +88,7 @@ function chart(cols: Column[], scale: Scale, opts: { onPick?: (c: Column) => voi
     }
     withTooltip(col, c.tip);
     ctxRow.append(col);
-    const out = h("div", { class: "col" });
+    const out = h("div", { class: `col${c.inherited ? " inh" : ""}` });
     const bar = h("div", { class: "seg seg-output" });
     bar.style.height = `${Math.max(c.output ? 2 : 0, Math.round((Math.min(c.output, scale.output) / scale.output) * outH))}px`;
     out.append(bar);
@@ -137,7 +140,7 @@ function helpHeading(label: string, help: string[], ...extra: (Node | null)[]): 
   return h("h3", {}, target, h("span", { class: "sr-only", id }, help.join(" ")), ...extra);
 }
 
-function dl(rows: [string, string | undefined][]): HTMLElement {
+function dl(rows: [string, string | Node | undefined][]): HTMLElement {
   return h("dl", { class: "kv" }, ...rows.filter(([, v]) => v !== undefined && v !== "").flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v!)]));
 }
 
@@ -150,10 +153,18 @@ function legend(): HTMLElement {
   );
 }
 
+const PURPOSE_LABEL: Record<ResponsePurpose, string> = {
+  compaction: "compaction",
+  summary: "branch summary",
+  tool: "made by a tool",
+  "cache-warm": "cache keep-alive",
+  background: "background call",
+};
+
 function responseTip(r: ResponseUsage, i: number, n: number): string[] {
   const u = r.usage;
   return [
-    `Model call ${i + 1} of ${n}${r.model ? ` · ${r.model}` : ""}`,
+    `Model call ${i + 1} of ${n}${r.model ? ` · ${r.model}` : ""}${r.purpose ? ` · ${PURPOSE_LABEL[r.purpose]}` : ""}${r.inherited ? " · inherited" : ""}`,
     `context ${formatTokens(contextTokens(u))}: cache read ${formatTokens(u.cacheRead)} · write ${formatTokens(u.cacheWrite)} · new ${formatTokens(u.input)}`,
     `output ${formatTokens(u.output)}${u.reasoning ? ` (thinking ${formatTokens(u.reasoning)})` : ""}${u.cost !== undefined ? ` · ${formatCost(u.cost)}` : ""}`,
   ];
@@ -225,6 +236,7 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
   let accCost: number | undefined;
   for (const t of turns) {
     for (const r of t.responses) {
+      if (r.inherited) continue;
       acc += totalTokens(r.usage);
       if (r.usage.cost !== undefined) accCost = (accCost ?? 0) + r.usage.cost;
     }
@@ -236,11 +248,13 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     const peak = peakOf(t.responses)!;
     const out = t.responses.reduce((n, r) => n + r.usage.output, 0);
     const name = t.ordinal ? `Turn ${t.ordinal}` : "Start";
+    const inherited = t.responses.every((r) => r.inherited);
     return {
       turns: [t.index],
       context: peak.usage,
       output: out,
-      tip: () => [name, `context up to ${formatTokens(contextTokens(peak.usage))} · output ${formatTokens(out)}`, `${plural(t.responses.length, "response")}${t.label ? ` · ${t.label.slice(0, 60)}` : ""}`],
+      ...(inherited ? { inherited: true } : {}),
+      tip: () => [name, ...(inherited ? ["inherited from the parent session"] : []), `context up to ${formatTokens(contextTokens(peak.usage))} · output ${formatTokens(out)}`, `${plural(t.responses.length, "response")}${t.label ? ` · ${t.label.slice(0, 60)}` : ""}`],
     };
   });
   const turnScale: Scale = { context: Math.max(1, ...turnCols.map((c) => contextTokens(c.context))), output: Math.max(1, ...turnCols.map((c) => c.output)) };
@@ -330,8 +344,10 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
         ["output", `${formatTokens(st.tokens.output)}${st.tokens.reasoning ? ` (${formatTokens(st.tokens.reasoning)} think)` : ""}`],
         ["peak ctx", formatTokens(st.peakContext)],
         ["cached", `${cachedPct}%`],
-        ["cost", st.cost !== undefined ? formatCost(st.cost) : undefined],
-        ["responses", String(session.responses.length)],
+        ["est. cost", costNode(st)],
+        ["responses", String(st.responses)],
+        ["other branches", excludedNode(st.otherBranches, OTHER_BRANCHES_WHY)],
+        ["inherited", excludedNode(st.inherited, INHERITED_WHY)],
       ]),
     ),
     withResponses.length
@@ -361,11 +377,15 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
       return;
     }
     const n = t.responses.length;
-    const u = sumUsage(t.responses);
+    // A turn a fork continued holds both inherited and own calls; only the own ones are this session's spend.
+    const own = t.responses.filter((r) => !r.inherited);
+    const inheritedCalls = n - own.length;
+    const u = sumUsage(own.length ? own : t.responses);
     const peak = Math.max(...t.responses.map((r) => contextTokens(r.usage)));
     const ctxSum = contextTokens(u);
     const run = running.get(t.index);
-    const respCols: Column[] = t.responses.map((r, i) => ({ turns: [t.index], context: r.usage, output: r.usage.output, tip: () => responseTip(r, i, n) }));
+    const respCols: Column[] = t.responses.map((r, i) => ({ turns: [t.index], context: r.usage, output: r.usage.output, ...(r.inherited ? { inherited: true } : {}), tip: () => responseTip(r, i, n) }));
+    const inherited = own.length === 0;
     const respChart = chart(bucket(respCols, 60), callScale, { label: `Context per model call for ${plural(n, "call")}`, ctxH: 36, outH: 12 });
     turnBox.replaceChildren(
       helpHeading(t.ordinal ? `Turn ${t.ordinal}` : "Start", TURN_HELP, h("span", { class: "h3-meta" }, plural(n, "model call"))),
@@ -374,8 +394,9 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
         ["context", `up to ${formatTokens(peak)}`],
         ["cached", ctxSum ? `${Math.round((u.cacheRead / ctxSum) * 100)}%` : undefined],
         ["output", `${formatTokens(u.output)}${u.reasoning ? ` (${formatTokens(u.reasoning)} think)` : ""}`],
-        ["cost", u.cost !== undefined ? formatCost(u.cost) : undefined],
-        ["so far", run ? `${formatTokens(run.tokens)}${run.cost !== undefined ? ` · ${formatCost(run.cost)}` : ""}` : undefined],
+        ["est. cost", inherited ? undefined : u.cost !== undefined ? formatCost(u.cost) : undefined],
+        ["so far", inherited ? undefined : run ? `${formatTokens(run.tokens)}${run.cost !== undefined ? ` · ${formatCost(run.cost)}` : ""}` : undefined],
+        ["from", inherited ? "parent session (not counted)" : inheritedCalls ? `${plural(inheritedCalls, "call")} from parent (not counted)` : undefined],
       ]),
     );
   };

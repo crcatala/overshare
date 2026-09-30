@@ -119,17 +119,13 @@ describe("claude-code adapter", () => {
     expect(computeStats(session).subagents).toBe(1);
   });
 
-  it("reads metadata: title, version, branch, cwd, session cost", () => {
-    const t = new ClaudeTranscript()
-      .user("hi")
-      .meta("ai-title", { aiTitle: "A title" })
-      .meta("cost-state", { totalCostUSD: 1.25 });
+  it("reads metadata: title, version, branch, cwd", () => {
+    const t = new ClaudeTranscript().user("hi").meta("ai-title", { aiTitle: "A title" });
     const { session } = parseClaudeCode(t.toJsonl());
     expect(session).toMatchObject({
       title: "A title",
       harness: { name: "claude-code", version: "2.1.0" },
       project: { cwd: "/home/tester/work/demo", name: "demo", branch: "main" },
-      stats: { cost: 1.25, costSource: "session-total" },
     });
     expect(detectHarness(t.toJsonl())).toBe("claude-code");
   });

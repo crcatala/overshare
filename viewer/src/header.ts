@@ -2,7 +2,7 @@
  * The session header, and the minibar that replaces it once it scrolls away: title,
  * the turn in view, reading progress and the controls, in one short line.
  */
-import { formatCost, formatDuration, formatTokens } from "../../src/format.ts";
+import { formatDuration, formatTokens } from "../../src/format.ts";
 import { availableModes } from "../../src/modes.ts";
 import { SHARE_MODES, totalTokens, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
 import { h, provenanceLine, withTooltip } from "./dom.ts";
@@ -11,6 +11,7 @@ import { settingsButton, type SettingsOptions } from "./settings.ts";
 import { shareButton, type ShareOptions } from "./share.ts";
 import type { Provenance } from "./source.ts";
 import type { TurnInfo } from "./transcript.ts";
+import { INHERITED_WHY, OTHER_BRANCHES_WHY, costNode, excludedNode } from "./usageinfo.ts";
 
 export const HARNESS_LABEL: Record<string, string> = { "claude-code": "Claude Code", pi: "pi" };
 
@@ -101,8 +102,10 @@ export function renderHeader(s: NormalizedSession, provenance: Provenance | unde
       ["tools", `${st.toolCalls}${st.toolErrors ? ` (${st.toolErrors} err)` : ""}`],
       ["tokens", formatTokens(totalTokens(st.tokens))],
       ["peak ctx", formatTokens(st.peakContext)],
-      ["cost", st.cost !== undefined ? formatCost(st.cost) : undefined],
+      ["est. cost", costNode(st)],
       ["subagents", st.subagents ? String(st.subagents) : undefined],
+      ["other branches", excludedNode(st.otherBranches, OTHER_BRANCHES_WHY)],
+      ["inherited", excludedNode(st.inherited, INHERITED_WHY)],
     ]),
     h(
       "div",

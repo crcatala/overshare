@@ -1,9 +1,11 @@
+import { estimateCost } from "../pricing.js";
 import {
   SCHEMA_VERSION,
   emptyUsage,
   type EventKind,
   type HarnessName,
   type NormalizedSession,
+  type ResponsePurpose,
   type ResponseUsage,
   type Step,
   type SubagentStep,
@@ -226,14 +228,26 @@ export class TurnBuilder {
     }
   }
 
-  /** Record (or update) usage for a response; later calls for the same id replace earlier ones. */
-  setResponseUsage(id: string, usage: Usage, meta: { model?: string; timestamp?: string }): void {
+  /**
+   * Record (or update) usage for a response. A message streamed across several lines repeats
+   * its usage, and older Claude Code versions wrote growing snapshots (`output_tokens: 1`
+   * first), so the repeat with the most tokens wins.
+   */
+  setResponseUsage(id: string, usage: Usage, meta: { model?: string; timestamp?: string; purpose?: ResponsePurpose; inherited?: boolean }): void {
     const existing = this.responseIndex.get(id);
     if (existing) {
-      existing.usage = usage;
+      if (usageTokens(usage) >= usageTokens(existing.usage)) existing.usage = usage;
       return;
     }
-    const entry: ResponseUsage = { id, turn: this.current.index, model: meta.model, timestamp: meta.timestamp, usage };
+    const entry: ResponseUsage = {
+      id,
+      turn: this.current.index,
+      model: meta.model,
+      timestamp: meta.timestamp,
+      usage,
+      ...(meta.purpose ? { purpose: meta.purpose } : {}),
+      ...(meta.inherited ? { inherited: true as const } : {}),
+    };
     this.responseIndex.set(id, entry);
     this.responses.push(entry);
   }
@@ -251,6 +265,19 @@ export class TurnBuilder {
         }
       }
     }
+  }
+}
+
+export const usageTokens = (u: Usage): number => u.input + u.output + u.cacheRead + u.cacheWrite;
+
+/**
+ * Fill in a list-price cost for each call from its tokens and model. Calls whose model has
+ * no price are left without a cost (never 0), which `computeStats` reports as partial.
+ */
+export function estimateCosts(list: ResponseUsage[]): void {
+  for (const r of list) {
+    const cost = estimateCost(r.model, r.usage);
+    if (cost !== undefined) r.usage.cost = cost;
   }
 }
 

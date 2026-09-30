@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { PI_INPUT_PROVENANCE_TYPE, type Usage } from "../schema.js";
+import { PI_INPUT_PROVENANCE_TYPE, totalsOf, type ResponsePurpose, type ResponseUsage, type Usage } from "../schema.js";
 import {
   TurnBuilder,
   baseSession,
   bump,
   projectNameFromCwd,
+  usageTokens,
   type AdapterOptions,
   type AdapterResult,
   type DropCounts,
@@ -39,8 +40,10 @@ export function parsePi(raw: string, options: AdapterOptions = {}): AdapterResul
   let startedAt: string | undefined = header.timestamp;
   let endedAt: string | undefined;
   let previous: Entry | undefined;
+  const inherited = inheritedTest(header);
+  const branch = branchEntries(entries, options.leafId);
 
-  for (const e of branchEntries(entries, options.leafId)) {
+  for (const e of branch) {
     const timestamp: string | undefined = typeof e.timestamp === "string" ? e.timestamp : undefined;
     if (timestamp) {
       startedAt ??= timestamp;
@@ -48,7 +51,7 @@ export function parsePi(raw: string, options: AdapterOptions = {}): AdapterResul
     }
     switch (e.type) {
       case "message":
-        handleMessage(e, b, models, dropped, timestamp, authoredInput(e, previous));
+        handleMessage(e, b, models, dropped, timestamp, authoredInput(e, previous), inherited(e));
         break;
       case "model_change":
         if (b.hasPrompt) b.addEvent("model_change", `Model → ${[e.provider, e.modelId].filter(Boolean).join("/")}`, timestamp);
@@ -65,9 +68,15 @@ export function parsePi(raw: string, options: AdapterOptions = {}): AdapterResul
             .filter(Boolean)
             .join("\n\n") || undefined,
         );
+        recordUsage(b, e, inherited(e));
         break;
       case "branch_summary":
         b.addEvent("compaction", "Branch summary", timestamp, typeof e.summary === "string" ? e.summary : undefined);
+        recordUsage(b, e, inherited(e));
+        break;
+      case "usage":
+        // Model calls that are not part of the conversation (e.g. cache keep-alives).
+        recordUsage(b, e, inherited(e));
         break;
       case "custom_message":
         if (typeof e.customType === "string" && e.customType.startsWith("subagent")) {
@@ -103,7 +112,22 @@ export function parsePi(raw: string, options: AdapterOptions = {}): AdapterResul
   session.models = models;
   session.turns = b.turns;
   session.responses = b.responses;
+  // pi records the cost of every call itself (per-response), so nothing is estimated.
+  session.stats.costSource = "per-response";
+  const otherBranches = totalsOf(offBranchResponses(entries, branch, inherited));
+  if (otherBranches) session.stats.otherBranches = otherBranches;
   return { session, dropped };
+}
+
+/**
+ * A fork (`parentSession` in the header) starts from a copy of the parent's history, entries
+ * keeping their original timestamps. Anything stamped before the fork itself was inherited:
+ * its spend belongs to the parent session, not this one.
+ */
+function inheritedTest(header: Entry): (e: Entry) => boolean {
+  const forkedAt = typeof header.parentSession === "string" ? Date.parse(header.timestamp) : Number.NaN;
+  if (!Number.isFinite(forkedAt)) return () => false;
+  return (e) => Date.parse(e.timestamp) < forkedAt;
 }
 
 /** Verify binding on the selected branch, never by text similarity or file order alone. */
@@ -117,7 +141,7 @@ function authoredInput(e: Entry, previous: Entry | undefined): string | undefine
   return d.text;
 }
 
-function handleMessage(e: Entry, b: TurnBuilder, models: string[], dropped: DropCounts, timestamp?: string, original?: string): void {
+function handleMessage(e: Entry, b: TurnBuilder, models: string[], dropped: DropCounts, timestamp: string | undefined, original: string | undefined, inherited: boolean): void {
   const msg = e.message ?? {};
   if (msg.role === "user") {
     const stored = contentText(msg.content).trim();
@@ -140,6 +164,8 @@ function handleMessage(e: Entry, b: TurnBuilder, models: string[], dropped: Drop
       { text: contentText(msg.content), ...(images ? { images } : {}), ...(msg.isError ? { isError: true } : {}) },
       msg.details,
     );
+    // Tools that call a model themselves report that usage on their result.
+    recordUsage(b, e, inherited);
     return;
   }
   if (msg.role !== "assistant") return void bump(dropped, `message:${msg.role ?? "?"}`);
@@ -160,17 +186,65 @@ function handleMessage(e: Entry, b: TurnBuilder, models: string[], dropped: Drop
   }
   if (msg.stopReason === "error") b.addEvent("error", String(msg.errorMessage ?? "Model error").split("\n")[0] ?? "Model error", timestamp);
   if (msg.stopReason === "aborted") b.addEvent("interrupted", "Interrupted by user", timestamp);
-  if (msg.usage) b.setResponseUsage(responseId, mapUsage(msg.usage), { model, timestamp });
+  const usage = callUsage(msg);
+  if (usage) b.setResponseUsage(responseId, usage, { model, timestamp, inherited });
+}
+
+/** Usage of an assistant message. Aborted/errored calls that report nothing are not model calls worth counting. */
+function callUsage(msg: Entry): Usage | undefined {
+  if (!msg.usage) return undefined;
+  const usage = mapUsage(msg.usage);
+  const empty = usageTokens(usage) === 0;
+  return empty && (msg.stopReason === "aborted" || msg.stopReason === "error") ? undefined : usage;
+}
+
+/** Usage a non-assistant entry reports for a model call it made itself. */
+function sideUsage(e: Entry): { usage: Usage; model?: string; purpose: ResponsePurpose } | undefined {
+  const raw = e.type === "message" ? (e.message?.role === "toolResult" ? e.message.usage : undefined) : e.usage;
+  if (!raw || typeof raw !== "object") return undefined;
+  const usage = mapUsage(raw);
+  if (usageTokens(usage) === 0) return undefined;
+  const purpose: ResponsePurpose =
+    e.type === "compaction" ? "compaction" : e.type === "branch_summary" ? "summary" : e.type === "message" ? "tool" : e.kind === "cache_warm" ? "cache-warm" : "background";
+  return { usage, ...(typeof e.model === "string" ? { model: e.model } : {}), purpose };
+}
+
+function recordUsage(b: TurnBuilder, e: Entry, inherited: boolean): void {
+  const side = sideUsage(e);
+  if (side) b.setResponseUsage(e.id, side.usage, { model: side.model, timestamp: e.timestamp, purpose: side.purpose, inherited });
+}
+
+/** Model calls in the file that are not on the exported branch: spend the branch view leaves out. */
+function offBranchResponses(entries: Entry[], onBranch: Entry[], inherited: (e: Entry) => boolean): ResponseUsage[] {
+  const branch = new Set(onBranch);
+  const out: ResponseUsage[] = [];
+  for (const e of entries) {
+    if (typeof e.id !== "string" || e.type === "session" || branch.has(e) || inherited(e)) continue;
+    const call = e.type === "message" && e.message?.role === "assistant" ? callUsage(e.message) : undefined;
+    if (call) {
+      out.push({ id: e.id, turn: 0, model: e.message.model, timestamp: e.timestamp, usage: call });
+      continue;
+    }
+    const side = sideUsage(e);
+    if (side) out.push({ id: e.id, turn: 0, model: side.model, timestamp: e.timestamp, usage: side.usage, purpose: side.purpose });
+  }
+  return out;
 }
 
 function mapUsage(u: Entry): Usage {
+  const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
   const usage: Usage = {
-    input: u.input ?? 0,
-    output: u.output ?? 0,
-    cacheRead: u.cacheRead ?? 0,
-    cacheWrite: u.cacheWrite ?? 0,
-    reasoning: u.reasoning ?? 0,
+    input: num(u.input),
+    output: num(u.output),
+    cacheRead: num(u.cacheRead),
+    cacheWrite: num(u.cacheWrite),
+    reasoning: num(u.reasoning),
   };
+  // When only the provider's total is reported, it is the best available figure for the output.
+  const missing = num(u.totalTokens) - usageTokens(usage);
+  if (usage.output === 0 && missing > 0) usage.output = missing;
+  const write1h = num(u.cacheWrite1h);
+  if (write1h > 0) usage.cacheWrite1h = Math.min(write1h, usage.cacheWrite);
   if (typeof u.cost?.total === "number") usage.cost = u.cost.total;
   return usage;
 }

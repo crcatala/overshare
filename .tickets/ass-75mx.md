@@ -37,3 +37,9 @@ Implements the recommended design from the ass-rc52 investigation. Read the ass-
 ## Out of scope
 Viewer changes (separate ticket), subagent transcripts, pi subagent support, predicting or advising on subagent spend.
 
+
+## Notes
+
+**2026-09-30T18:09:40Z**
+
+From the ass-zc54 review: in the fixtures the only unreconciled session (9150e1c1, cost-state exceeds the files by +1648 in / +890 out / +71616 cacheRead / +372 cacheWrite) is also the only interactive one (entrypoint: cli; the other six are sdk-cli, i.e. -p). n=1, so treat as a lead, not a rule: the cross-check may need equality for -p sessions and <= for interactive ones. The cause of the residual is not established (the size of the cache-read part does not look like a title-generation call). tests/subagent-fixtures.ts uniqueUsage prefers the earlier file across files (pass main first) and the largest copy within a file, matching the main-copy-wins rule.

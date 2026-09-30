@@ -1,4 +1,6 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { copyFileSync, mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseClaudeCode } from "../src/adapters/claude-code.js";
@@ -139,6 +141,19 @@ describe("cost-state cross-check", () => {
     // Order does not matter.
     expect(uniqueUsage([[...lines].reverse()]).get(partial[0]!.message.id)!.usage.output_tokens).toBe(135);
   });
+
+  it("prefers the copy in the earlier file (main) when an id appears in two files, even if the later one is larger", () => {
+    const line = (output: number, file: string): Line => ({
+      type: "assistant",
+      message: { id: "msg_dup", model: "m", usage: { input_tokens: 1, output_tokens: output, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }, file },
+    });
+    const main = [line(10, "main")];
+    const sidechain = [line(500, "sidechain")];
+    expect(uniqueUsage([main, sidechain]).get("msg_dup")!.usage.output_tokens).toBe(10);
+    expect(uniqueUsage([sidechain, main]).get("msg_dup")!.usage.output_tokens).toBe(500);
+    // Within one file the largest still wins.
+    expect(uniqueUsage([[line(10, "a"), line(40, "a"), line(20, "a")]]).get("msg_dup")!.usage.output_tokens).toBe(40);
+  });
 });
 
 describe("usage details the adapter ticket relies on", () => {
@@ -209,7 +224,8 @@ describe("fixture hygiene", () => {
   const all = files(SUBAGENT_FIXTURES_ROOT).filter((f) => /\.(jsonl|json)$/.test(f));
 
   it("has no personal paths, emails, account ids or temp directories", () => {
-    expect(all.length).toBe(27);
+    // 7 main files, plus a transcript and a meta file per subagent.
+    expect(all.length).toBe(ids.length + 2 * [...fixtures.values()].reduce((n, f) => n + f.subagents.length, 0));
     for (const path of all) {
       const text = readFileSync(path, "utf8");
       expect(privacyProblems(text, "/home/nobody", "nobody"), path).toEqual([]);
@@ -226,6 +242,8 @@ describe("fixture hygiene", () => {
         expect(l.length, path).toBeLessThan(9000);
       }
     }
+    // queued_command (a prompt typed while the agent was busy) is the one other type the sanitizer keeps.
+    kept.delete("queued_command");
     expect([...kept].sort()).toEqual(["budget_usd", "date", "model", "total_tokens_reminder"]);
   });
 
@@ -240,6 +258,24 @@ describe("fixture hygiene", () => {
 });
 
 describe("sanitizer", () => {
+  it("runs from a path that needs URL encoding", () => {
+    const dir = mkdtempSync(join(tmpdir(), "as san "));
+    const copy = join(dir, "sanitize #1.mjs");
+    copyFileSync(join(import.meta.dirname, "..", "scripts", "sanitize-claude-fixtures.mjs"), copy);
+    // No arguments: it must print its usage and exit 2, not silently do nothing.
+    const run = spawnSync(process.execPath, [copy], { encoding: "utf8" });
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain("usage:");
+  });
+
+  it("keeps queued prompts, which the adapter turns into turns", () => {
+    const entries = [
+      { type: "user", uuid: "a", parentUuid: null },
+      { type: "attachment", uuid: "b", parentUuid: "a", attachment: { type: "queued_command", commandMode: "prompt", prompt: "next" } },
+    ];
+    expect(trimEntries(entries).map((e) => e.uuid)).toEqual(["a", "b"]);
+  });
+
   const home = "/home/alice";
   const scrub = makeScrub(home, "alice");
 

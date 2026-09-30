@@ -80,19 +80,21 @@ const tokenTotal = (u: Line): number =>
   (u.input_tokens ?? 0) + (u.output_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
 
 /**
- * One usage object per `message.id`: a response is split over several lines that repeat (and while
- * streaming, grow) its usage, so the largest wins. Files are merged in the order given; an id that
- * appears in two files keeps its first file's copy unless the later one is larger.
+ * One usage object per `message.id`. A response is split over several lines that repeat (and while
+ * streaming, grow) its usage, so within a file the largest wins. Across files the earlier one wins
+ * whatever its size, so pass the main file first: the non-sidechain copy is preferred, as in ccusage.
  */
 export function uniqueUsage(files: Line[][]): Map<string, { model: string; usage: Line }> {
   const byId = new Map<string, { model: string; usage: Line }>();
   for (const lines of files) {
+    const inFile = new Map<string, { model: string; usage: Line }>();
     for (const l of lines) {
       const msg = l.message;
       if (l.type !== "assistant" || !msg?.usage || !msg.id || msg.model === "<synthetic>") continue;
-      const prev = byId.get(msg.id);
-      if (!prev || tokenTotal(msg.usage) > tokenTotal(prev.usage)) byId.set(msg.id, { model: msg.model, usage: msg.usage });
+      const prev = inFile.get(msg.id);
+      if (!prev || tokenTotal(msg.usage) > tokenTotal(prev.usage)) inFile.set(msg.id, { model: msg.model, usage: msg.usage });
     }
+    for (const [id, u] of inFile) if (!byId.has(id)) byId.set(id, u);
   }
   return byId;
 }

@@ -19,6 +19,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const KEEP_ATTACHMENTS = new Set(["date", "model", "total_tokens_reminder", "budget_usd", "queued_command"]);
 const DROP_TYPES = new Set(["file-history-snapshot"]);
@@ -146,4 +147,4 @@ function main() {
   console.log(`${ids.length} sessions, ${files} files, ${bytes} bytes → ${target}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

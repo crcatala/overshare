@@ -146,7 +146,7 @@ describe("what a subagent file adds to its launching step", () => {
     );
     const { session } = parse(mainWithLaunch({ kind: "async" }), [file]);
     const [step] = subagentSteps(session);
-    expect(step!.usage).toMatchObject({ input: 22, output: 185, cacheRead: 1000, cacheWrite: 1200, turns: 2, toolUses: 1, totalTokens: 22 + 185 + 1000 + 1200, models: [HAIKU], source: "transcript" });
+    expect(step!.usage).toMatchObject({ input: 22, output: 185, cacheRead: 1000, cacheWrite: 1200, turns: 2, toolUses: 1, totalTokens: 22 + 185 + 1000 + 1200, models: [HAIKU] });
     expect(session.stats.subagentUsage).toMatchObject({ agents: 1, responses: 2, tokens: { input: 22, output: 185, cacheRead: 1000, cacheWrite: 1200 } });
     expect(session.stats.subagentUsage!.unlinked).toBeUndefined();
   });
@@ -247,7 +247,7 @@ describe("launch shapes, on the fixtures", () => {
       .map((l) => /<result>([\s\S]*?)<\/result>/.exec(JSON.parse(l).message.content)![1]!.trim());
     for (const step of steps) {
       expect(step.async).toBe(true);
-      expect(step.usage).toMatchObject({ source: "transcript", turns: 2 });
+      expect(step.usage).toMatchObject({ turns: 2 });
       expect(notifications).toContain(step.result!.text);
     }
     expect(session.stats.subagentUsage).toMatchObject({ agents: 2, responses: 4 });
@@ -304,7 +304,7 @@ describe("launch shapes, on the fixtures", () => {
     const { session } = parseFixture("113ee2dc");
     const [step] = subagentSteps(session);
     expect(f.subagents).toHaveLength(1);
-    expect(step!.usage).toMatchObject({ turns: 4, source: "transcript" });
+    expect(step!.usage).toMatchObject({ turns: 4 });
     expect(step!.usage!.totalTokens).toBeGreaterThan(launchResult.totalTokens);
     expect(accountedTotals(session)).toEqual(costStateTotals(f));
   });
@@ -377,9 +377,9 @@ describe("linking a subagent to its launch", () => {
 
   it("links by the agent id in the tool result when the meta file is missing or has no tool id", () => {
     const noMeta = parse(mainWithLaunch({ kind: "async" }, { agentId: "a1" }), [oneCallFile("a1", undefined)]).session;
-    expect(subagentSteps(noMeta)[0]!.usage).toMatchObject({ source: "transcript" });
+    expect(subagentSteps(noMeta)[0]!.usage).toMatchObject({ turns: 1 });
     const wrongType = parse(mainWithLaunch({ kind: "async" }, { agentId: "a1" }), [oneCallFile("a1", { toolUseId: 42, unknownField: { a: 1 } })]).session;
-    expect(subagentSteps(wrongType)[0]!.usage).toMatchObject({ source: "transcript" });
+    expect(subagentSteps(wrongType)[0]!.usage).toMatchObject({ turns: 1 });
     expect(noMeta.stats.subagentUsage!.unlinked).toBeUndefined();
   });
 
@@ -431,7 +431,7 @@ describe("files that are missing or damaged", () => {
   it("takes the agent id from the file name, or from the lines when the name has none", () => {
     const named: SubagentFileInput = { fileName: "weird-name.jsonl", raw: `${JSON.stringify({ ...call("msg_1", [text("x")], usage(1, 1, 1, 1)), agentId: "from-line" })}\n` };
     const { session } = parse(mainWithLaunch({ kind: "async" }, { agentId: "from-line" }), [named]);
-    expect(subagentSteps(session)[0]!.usage).toMatchObject({ source: "transcript" });
+    expect(subagentSteps(session)[0]!.usage).toMatchObject({ turns: 1 });
   });
 });
 
@@ -483,7 +483,7 @@ describe("share modes", () => {
     const { session, json, report } = share("full");
     const step = subagentSteps(session)[0]!;
     expect(step.result!.text).toContain(MARKER);
-    expect(step.usage).toMatchObject({ source: "transcript", turns: 1 });
+    expect(step.usage).toMatchObject({ turns: 1 });
     expect(json).not.toContain(token);
     expect(step.result!.text).not.toContain(token);
     expect(report.counts.github_token ?? Object.values(report.counts).reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
@@ -495,7 +495,7 @@ describe("share modes", () => {
       const { session, json } = share(mode);
       const step = subagentSteps(session)[0]!;
       expect(step.result, mode).toBeUndefined();
-      expect(step).toMatchObject({ description: DESC, agents: ["general-purpose"], usage: { source: "transcript", turns: 1 } });
+      expect(step).toMatchObject({ description: DESC, agents: ["general-purpose"], usage: { turns: 1 } });
       expect(json, mode).not.toContain(MARKER);
     }
   });
@@ -553,14 +553,5 @@ describe("share modes", () => {
     expect(text).toMatch(/subagent-transcript ×1/);
     const forked = prepareShare(readFileSync(fixturePath(idOf("1ccce9c5")), "utf8"), { mode: "full", config: DEFAULT_CONFIG, harness: "claude-code", machine, knownSecrets: [], subagentFiles: loadSubagentFiles(fixturePath(idOf("1ccce9c5"))) });
     expect(formatReport(forked.report)).toMatch(/by 1 subagent that no step on this branch launched/);
-  });
-
-  it("old shares without the new fields are still valid sessions", () => {
-    const { session } = share("full", { t: mainWithLaunch({ kind: "completed", text: "ok" }), file: oneCallFile("a1", { toolUseId: LAUNCH }) });
-    const old = JSON.parse(JSON.stringify(session)) as NormalizedSession;
-    delete old.stats.subagentUsage;
-    for (const s of subagentSteps(old)) delete s.usage;
-    expect(() => formatReport({ ...share("full").report, stats: old.stats })).not.toThrow();
-    expect(subagentSteps(old)[0]!.result!.text).toBe("ok");
   });
 });

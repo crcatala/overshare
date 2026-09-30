@@ -214,27 +214,21 @@ describe("tool call lists", () => {
 
 describe("subagent usage chip", () => {
   const sub = (usage: Extract<Step, { kind: "subagent" }>["usage"]): Step => ({ kind: "subagent", id: "s", tool: "Agent", agents: ["scout"], description: "find it", usage }) as Step;
-  const chip = (harness: "claude-code" | "pi", usage: Extract<Step, { kind: "subagent" }>["usage"]) => {
-    const { el } = renderTranscript({ ...session([turn(0, [sub(usage)])]), harness: { name: harness } });
+  const chip = (usage: Extract<Step, { kind: "subagent" }>["usage"]) => {
+    const { el } = renderTranscript(session([turn(0, [sub(usage)])]));
     return el.querySelector(".entry.k-sub .tmeta")?.textContent;
   };
 
-  // Claude Code's tool result reports the last model call only, and shares made before the adapter read the
-  // subagent files still carry it as `totalTokens`.
-  it("does not show a Claude tool result's last-call tokens as the subagent's total", () => {
-    expect(chip("claude-code", { totalTokens: 14_419, toolUses: 1, durationMs: 6_000 })).toBe("14.4k tok (last call) · 1 tool · 6s");
-  });
-
-  it("shows the total read from the subagent's transcript as a total", () => {
-    expect(chip("claude-code", { totalTokens: 26_921, turns: 2, toolUses: 1, durationMs: 6_000, cost: 0.0215, source: "transcript" })).toBe("26.9k tok · 2 turns · 1 tool · 6s · $0.021");
+  it("shows the subagent's total: tokens, turns, tools, time and cost", () => {
+    expect(chip({ totalTokens: 26_921, turns: 2, toolUses: 1, durationMs: 6_000, cost: 0.0215 })).toBe("26.9k tok · 2 turns · 1 tool · 6s · $0.021");
   });
 
   it("leaves pi's best-effort chip as it was", () => {
-    expect(chip("pi", { totalTokens: 14_419, toolUses: 1 })).toBe("14.4k tok · 1 tool");
+    expect(chip({ totalTokens: 14_419, toolUses: 1 })).toBe("14.4k tok · 1 tool");
   });
 
   it("shows only counts when the adapter reported no tokens", () => {
-    expect(chip("claude-code", { toolUses: 7, durationMs: 9_000 })).toBe("7 tools · 9s");
+    expect(chip({ toolUses: 7, durationMs: 9_000 })).toBe("7 tools · 9s");
   });
 });
 

@@ -26,3 +26,9 @@ Viewer side of the subagent usage work. Depends on the adapter ticket for the da
 - Viewer unit tests for the new pieces; browser QA (agent-browser, own named session, tmux server, fixture sessions only): light and dark at 1440px and 390px, Claude fixture with async + foreground + parallel subagents, pi fixture unchanged. Screenshots attached to the PR via the github-pr-screenshots skill; open each before uploading.
 - `npm test`, `npm run typecheck`, `npm run build` pass.
 
+
+## Notes
+
+**2026-09-30T20:06:59Z**
+
+Heads-up from ass-75mx/ass-cjrn (2026-09-30): no old-share compatibility code. Do not add fallbacks for shares without SessionStats.subagentUsage or SubagentStep.usage beyond the fields being optional; bump SCHEMA_VERSION if a change needs it. SubagentStep.usage has no 'source' field any more (removed); a transcript-derived usage is recognisable by models/turns.

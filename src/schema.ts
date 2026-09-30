@@ -284,11 +284,6 @@ export interface SubagentUsage {
   models?: string[];
   /** Agents folded into these figures beyond the launched one (nested subagents). */
   nested?: number;
-  /**
-   * `transcript`: summed over every model call in the subagent's own transcript, so a total.
-   * Absent: whatever the harness's tool result reported (pi's `totalChildUsage`), best effort and unverified.
-   */
-  source?: "transcript";
 }
 
 export interface SubagentStep extends StepBase {

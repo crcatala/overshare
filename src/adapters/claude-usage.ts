@@ -156,7 +156,6 @@ function stepUsage(runs: readonly SubagentRun[], toolResult: SubagentUsage | und
     totalTokens: totalTokens(tokens),
     ...(models.length ? { models } : {}),
     ...(runs.length > 1 ? { nested: runs.length - 1 } : {}),
-    source: "transcript",
   };
   return usage;
 }

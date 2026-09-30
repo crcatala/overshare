@@ -1,4 +1,8 @@
 import type { AgentShareConfig, ShareTarget } from "../config.js";
+import { formatTokens } from "../format.js";
+import type { PreparedShare } from "../pipeline.js";
+import { totalTokens } from "../schema.js";
+import { recordShare } from "../sessions/shares.js";
 import { GistPublisher } from "./gist.js";
 import { R2Publisher, checkPublicAccess, r2CredentialsFromEnv, r2PublicUrl } from "./r2.js";
 import type { PublishResult, Publisher } from "./types.js";
@@ -33,6 +37,29 @@ export async function accessWarnings(config: AgentShareConfig, target: ShareTarg
     return [`could not verify the public URL: ${(err as Error).message}`];
   }
   return [];
+}
+
+/**
+ * Upload a prepared (redacted, re-scanned) share and remember it in `shares.json`.
+ * Shared by `agent-share publish` and the `browse` TUI, so both publish exactly the same way.
+ * Refusing blocked or unconfirmed shares is the caller's job; this only uploads.
+ */
+export async function publishPrepared(
+  publisher: Publisher,
+  config: AgentShareConfig,
+  target: ShareTarget,
+  prepared: PreparedShare,
+): Promise<{ result: PublishResult; warnings: string[] }> {
+  const s = prepared.session;
+  const result = await publisher.publish({
+    filename: "session.json",
+    content: prepared.json,
+    description: `agent-share: ${s.title ?? s.source.sessionId} (${s.harness.name}, ${s.mode}, ${formatTokens(totalTokens(s.stats.tokens))} tokens)`,
+  });
+  const warnings = await accessWarnings(config, target, result);
+  const recorded = recordShare(s.harness.name, s.source.sessionId, { url: result.viewerUrl, mode: s.mode, target, sharedAt: new Date().toISOString() });
+  if (!recorded) warnings.push("could not record this share in shares.json, so the browser will not mark it as shared");
+  return { result, warnings };
 }
 
 export type ShareRef = { target: ShareTarget; id: string };

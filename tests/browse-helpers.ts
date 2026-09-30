@@ -1,0 +1,175 @@
+/** Fakes and drivers for the browse TUI tests: a programmable Source, a fixed clock, raw key bytes. */
+process.env.TZ = "UTC"; // day buckets ("Today", "Yesterday") depend on the local calendar
+
+import { vi } from "vitest";
+import { BrowserApp, type BrowserOptions } from "../src/browse/app.js";
+import { plainText } from "../src/browse/kit.js";
+import type { Preflight, SessionView, ShareSummary, Source, ViewItem } from "../src/browse/source.js";
+import type { ShareMode } from "../src/schema.js";
+import type { SharesFile } from "../src/sessions/shares.js";
+import { shareKey } from "../src/sessions/shares.js";
+import type { SessionSummary } from "../src/sessions/summary.js";
+
+export const KEY = {
+  enter: "\r",
+  esc: "\x1b",
+  down: "\x1b[B",
+  up: "\x1b[A",
+  space: " ",
+  backspace: "\x7f",
+  pageDown: "\x1b[6~",
+} as const;
+
+/** Wednesday 2026-09-30 12:00 UTC. */
+export const NOW = Date.UTC(2026, 8, 30, 12);
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+
+export function summary(over: Partial<SessionSummary> & { id: string }): SessionSummary {
+  const mtimeMs = over.mtimeMs ?? NOW - HOUR;
+  return {
+    harness: "claude-code",
+    path: `/sessions/${over.id}.jsonl`,
+    mtimeMs,
+    size: 100_000,
+    cwd: "/home/me/work/app",
+    project: "app",
+    models: ["claude-opus-5-5"],
+    prompts: 3,
+    calls: 10,
+    tools: { Bash: 4 },
+    subagents: 0,
+    worker: false,
+    promptHead: ["first prompt"],
+    promptTail: [],
+    firstPrompt: "first prompt",
+    lastPrompt: "last prompt",
+    startedAt: new Date(mtimeMs - 30 * 60_000).toISOString(),
+    endedAt: new Date(mtimeMs).toISOString(),
+    searchText: `${over.title ?? ""}\n${over.project ?? "app"}\n${over.firstPrompt ?? "first prompt"}`.toLowerCase(),
+    ...over,
+  };
+}
+
+/** Eight sessions over four repos, two harnesses and three days, with distinct sizes and titles. */
+export function sampleSessions(): SessionSummary[] {
+  return [
+    summary({ id: "s1", title: "Fix invoice currency bug", project: "billing", mtimeMs: NOW - HOUR, size: 900_000, prompts: 9, firstPrompt: "POST /v1/invoices returns 500" }),
+    summary({ id: "s2", harness: "pi", title: "Refactor money helpers", project: "billing", mtimeMs: NOW - 3 * HOUR, size: 300_000, prompts: 4, models: ["gpt-6.1-sol"], tools: { bash: 9, read: 3 } }),
+    summary({ id: "s3", title: "Onboarding empty state", project: "web", mtimeMs: NOW - DAY - 30 * 60_000, size: 50_000, prompts: 2 }),
+    summary({ id: "s4", harness: "pi", title: "Auth token refresh race", project: "auth", mtimeMs: NOW - DAY - HOUR, size: 700_000, prompts: 12, tools: { bash: 30 } }),
+    summary({ id: "s5", title: "Bucket policy for R2", project: "infra", mtimeMs: NOW - 3 * DAY, size: 120_000, prompts: 5 }),
+    summary({ id: "s6", harness: "pi", title: "Compare terminal multiplexers", project: "web", mtimeMs: NOW - 10 * DAY, size: 20_000, prompts: 3 }),
+    summary({ id: "s7", title: "Write the worktree playbook", project: "infra", mtimeMs: NOW - 40 * DAY, size: 10_000, prompts: 6 }),
+    summary({ id: "w1", harness: "pi", title: "subagent-worker-1", project: "billing", worker: true, mtimeMs: NOW - 2 * HOUR }),
+  ];
+}
+
+export function sampleView(): SessionView {
+  const items: ViewItem[] = [
+    { kind: "user", turn: 1, label: "fix the bug", body: "fix the bug in the invoice handler" },
+    { kind: "thinking", turn: 1, label: "thinking (800 chars)", body: "let me look" },
+    { kind: "tool", turn: 1, label: "Bash  npm test", meta: "Bash", body: "npm test\n\n── result ──\n12 passed" },
+    { kind: "tool", turn: 1, label: "Edit  src/invoice.ts", meta: "Edit", body: "src/invoice.ts", error: true },
+    { kind: "assistant", turn: 1, label: "Fixed: the default currency was missing.", body: "Fixed: the default currency was missing.\n\nDetails follow." },
+    { kind: "user", turn: 2, label: "now add a test", body: "now add a test for the USD fallback" },
+    { kind: "tool", turn: 2, label: "Write  tests/invoice.test.ts", meta: "Write", body: "tests/invoice.test.ts" },
+    { kind: "assistant", turn: 2, label: "Added the regression test.", body: "Added the regression test." },
+  ];
+  return { items, turns: 2, tools: { Bash: 12, Edit: 3, Read: 7 }, stats: { cost: "$1.20", tokens: "2.1M", duration: "32m 0s", toolCalls: 22, subagents: 0, files: { read: 7, edited: 3, written: 1 } } };
+}
+
+const clean = (mode: ShareMode): ShareSummary => ({ mode, clean: true, blocked: false, findings: [], redactions: 0, bytes: 12_345 });
+
+export interface FakeSourceOptions {
+  sessions?: SessionSummary[];
+  shares?: SharesFile;
+  view?: (s: SessionSummary) => SessionView;
+  review?: (s: SessionSummary, mode: ShareMode) => ShareSummary;
+  preflight?: () => Preflight;
+  publish?: (s: SessionSummary, mode: ShareMode) => Promise<{ url: string; warnings: string[] }>;
+}
+
+export interface FakeSource extends Source {
+  published: Array<{ id: string; mode: ShareMode }>;
+  reviewed: Array<{ id: string; mode: ShareMode }>;
+}
+
+export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
+  const shares: SharesFile = opts.shares ?? {};
+  const published: FakeSource["published"] = [];
+  const reviewed: FakeSource["reviewed"] = [];
+  return {
+    sessions: opts.sessions ?? sampleSessions(),
+    shares,
+    destination: "a secret (unlisted) gist",
+    published,
+    reviewed,
+    view: opts.view ?? (() => sampleView()),
+    review(s, mode) {
+      reviewed.push({ id: s.id, mode });
+      return (opts.review ?? ((_, m) => clean(m)))(s, mode);
+    },
+    preflight: opts.preflight ?? (() => ({ warnings: [] })),
+    async publish(s, mode) {
+      published.push({ id: s.id, mode });
+      const out = await (opts.publish ?? (async () => ({ url: `https://viewer.example/#${s.id}`, warnings: [] })))(s, mode);
+      (shares[shareKey(s.harness, s.id)] ??= []).push({ url: out.url, mode, target: "gist", sharedAt: new Date(NOW).toISOString() });
+      return out;
+    },
+  };
+}
+
+export interface Driver {
+  app: BrowserApp;
+  source: FakeSource;
+  /** Send raw key bytes, one per argument, then let timers/promises settle. */
+  press(...keys: string[]): Promise<void>;
+  /** Type text as individual keys. */
+  type(text: string): Promise<void>;
+  /** The screen as plain text lines at the given size. */
+  lines(width?: number, height?: number): string[];
+  text(width?: number, height?: number): string;
+}
+
+/** A browser over a fake source with a frozen clock (call `vi.useFakeTimers()` in the test file). */
+export function drive(opts: FakeSourceOptions & BrowserOptions = {}): Driver {
+  const source = fakeSource(opts);
+  const app = new BrowserApp(source, { now: () => NOW, query: opts.query, harness: opts.harness });
+  app.attach(() => 34, () => {});
+  const lines = (width = 130, height = 34) => {
+    app.attach(() => height, () => {});
+    return app.render(width).map(plainText);
+  };
+  return {
+    app,
+    source,
+    async press(...keys) {
+      for (const k of keys) {
+        app.handleInput(k);
+        await vi.advanceTimersByTimeAsync(300);
+      }
+    },
+    async type(text) {
+      for (const ch of text) {
+        app.handleInput(ch);
+      }
+      await vi.advanceTimersByTimeAsync(0);
+    },
+    lines,
+    text: (width, height) => lines(width, height).join("\n"),
+  };
+}
+
+/** The list column only (left of the preview separator), one string per line. */
+export function listColumn(lines: string[]): string[] {
+  return lines.map((l) => l.split(" │ ")[0]!);
+}
+
+/** Session titles in the order the list shows them. */
+export function order(lines: string[], titles: string[]): string[] {
+  const col = listColumn(lines);
+  return titles.map((t) => ({ t, at: col.findIndex((l) => l.includes(t)) })).filter((x) => x.at >= 0).sort((a, b) => a.at - b.at).map((x) => x.t);
+}
+
+export const TITLES = sampleSessions().map((s) => s.title!);

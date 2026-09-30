@@ -103,3 +103,12 @@ describe("cli", { timeout: 30_000 }, () => {
     expect(r.stderr).toContain("--yes only applies to clean reports");
   });
 });
+
+describe("cli browse", { timeout: 30_000 }, () => {
+  it("refuses to run without an interactive terminal and points to `list`", () => {
+    const r = cli(["browse"]);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("interactive terminal");
+    expect(r.stderr).toContain("agent-share list");
+  });
+});

@@ -17,9 +17,19 @@ import {
   type UserPrompt,
 } from "../schema.js";
 
+/** One subagent transcript that sits next to a session file (Claude Code: `<session>/subagents/agent-*.jsonl`). */
+export interface SubagentFileInput {
+  fileName: string;
+  raw: string;
+  /** The parsed `agent-*.meta.json` beside it, when there was one. */
+  meta?: Record<string, unknown>;
+}
+
 export interface AdapterOptions {
   /** Export the branch ending at this entry id instead of the last entry (tree-shaped sessions). */
   leafId?: string;
+  /** Subagent transcripts of the session (Claude Code only); the adapter stays pure, the caller reads them from disk. */
+  subagentFiles?: SubagentFileInput[];
 }
 
 /** Counts of native entries dropped on purpose (never shared). */
@@ -134,12 +144,17 @@ export function describeSubagent(name: string, input: unknown): Omit<SubagentSte
   };
 }
 
-/** Pull numeric usage stats out of a subagent tool result's structured details, if present. */
-export function subagentUsageFrom(details: unknown): SubagentStep["usage"] | undefined {
+/**
+ * Pull numeric usage stats out of a subagent tool result's structured details, if present.
+ * `tokens: false` ignores the token figures and keeps the tool and duration counts: Claude Code's
+ * tool result reports the subagent's last model call there, not a total (see `src/adapters/claude-subagents.ts`).
+ */
+export function subagentUsageFrom(details: unknown, opts: { tokens?: boolean } = {}): SubagentStep["usage"] | undefined {
   if (!details || typeof details !== "object") return undefined;
   const d = details as Record<string, unknown>;
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
-  const child = (d.totalChildUsage ?? d.usage) as Record<string, unknown> | undefined;
+  const withTokens = opts.tokens !== false;
+  const child = (withTokens ? (d.totalChildUsage ?? d.usage) : undefined) as Record<string, unknown> | undefined;
   const usage: NonNullable<SubagentStep["usage"]> = {};
   if (child && typeof child === "object") {
     usage.input = num(child.input) ?? num(child.input_tokens);
@@ -149,7 +164,7 @@ export function subagentUsageFrom(details: unknown): SubagentStep["usage"] | und
     usage.cost = num(child.cost);
     usage.turns = num(child.turns);
   }
-  usage.totalTokens = num(d.totalTokens);
+  if (withTokens) usage.totalTokens = num(d.totalTokens);
   usage.toolUses = num(d.totalToolUseCount);
   usage.durationMs = num(d.totalDurationMs);
   const cleaned = Object.fromEntries(Object.entries(usage).filter(([, v]) => v !== undefined));
@@ -166,7 +181,12 @@ export class TurnBuilder {
   private readonly responseIndex = new Map<string, ResponseUsage>();
   private readonly pendingTools = new Map<string, ToolStep | SubagentStep>();
   private readonly subagentSteps = new Map<string, SubagentStep>();
+  private readonly subagentsByAgentId = new Map<string, SubagentStep>();
+  /** Steps whose answer came from a task-notification, which is the subagent's real final message. */
+  private readonly answered = new Set<SubagentStep>();
   private stepSeq = 0;
+
+  constructor(private readonly opts: { subagentUsage?: (details: unknown) => SubagentStep["usage"] | undefined } = {}) {}
 
   startTurn(user: UserPrompt, timestamp?: string): Turn {
     const turn: Turn = { index: this.turns.length, timestamp, user, steps: [] };
@@ -222,12 +242,32 @@ export class TurnBuilder {
     step.result = result;
     if (result.isError) step.isError = true;
     if (step.kind === "subagent") {
-      const usage = subagentUsageFrom(details);
+      const usage = (this.opts.subagentUsage ?? subagentUsageFrom)(details);
       if (usage) step.usage = usage;
-      if (details && typeof details === "object" && typeof (details as Record<string, unknown>).mode === "string") {
-        step.mode = (details as Record<string, unknown>).mode as string;
+      if (details && typeof details === "object") {
+        const d = details as Record<string, unknown>;
+        if (typeof d.mode === "string") step.mode = d.mode;
+        // Claude Code's background launch: the result is only an acknowledgement, the answer comes later.
+        if (d.status === "async_launched") step.async = true;
+        if (typeof d.agentId === "string" && d.agentId) this.subagentsByAgentId.set(d.agentId, step);
       }
     }
+  }
+
+  /** The subagent step a transcript file belongs to: by the launching tool call's id, else by the agent's id. */
+  findSubagent(toolUseId: string | undefined, agentId: string | undefined): SubagentStep | undefined {
+    return (toolUseId ? this.subagentSteps.get(toolUseId) : undefined) ?? (agentId ? this.subagentsByAgentId.get(agentId) : undefined);
+  }
+
+  /**
+   * Give a subagent's step the final message from its own transcript when nothing better is known:
+   * a background launch whose notification never came (the result is only "launched"), or a step whose
+   * result is missing. Never replaces a real answer (a foreground result, a task-notification).
+   */
+  setSubagentSummary(step: SubagentStep, text: string): void {
+    if (this.answered.has(step) || (step.result && !step.async)) return;
+    const body = text.trim();
+    if (body) step.result = boundedResult(body, SUBAGENT_RESULT_CHARS);
   }
 
   /**
@@ -239,7 +279,10 @@ export class TurnBuilder {
     if (!step) return false;
     step.async = true;
     const body = text.trim();
-    if (body) step.result = boundedResult(body, SUBAGENT_RESULT_CHARS);
+    if (body) {
+      step.result = boundedResult(body, SUBAGENT_RESULT_CHARS);
+      this.answered.add(step);
+    }
     return true;
   }
 

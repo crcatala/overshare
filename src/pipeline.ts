@@ -1,6 +1,6 @@
 import { hostname as osHostname, homedir, userInfo } from "node:os";
 import { parseSession } from "./adapters/index.js";
-import type { DropCounts } from "./adapters/shared.js";
+import type { DropCounts, SubagentFileInput } from "./adapters/shared.js";
 import type { AgentShareConfig } from "./config.js";
 import { projectSession } from "./modes.js";
 import { collectKnownSecrets, type KnownSecret } from "./redact/known-values.js";
@@ -15,6 +15,8 @@ export interface PrepareOptions {
   config: AgentShareConfig;
   harness?: HarnessName;
   leafId?: string;
+  /** Subagent transcripts of the session (Claude Code); see `loadSubagentFiles`. */
+  subagentFiles?: SubagentFileInput[];
   /** Override machine context (tests). */
   machine?: { homeDir?: string; username?: string; hostname?: string };
   /** Pre-collected known secrets; collected from this machine when omitted. */
@@ -49,7 +51,7 @@ export interface PreparedShare {
 }
 
 export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
-  const { session: full, dropped } = parseSession(raw, opts.harness, { leafId: opts.leafId });
+  const { session: full, dropped } = parseSession(raw, opts.harness, { leafId: opts.leafId, subagentFiles: opts.subagentFiles });
   full.stats = computeStats(full);
   if (!full.title) {
     const first = full.turns.find((t) => t.user?.text)?.user?.text.split("\n", 1)[0]?.trim();

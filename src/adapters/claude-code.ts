@@ -1,10 +1,12 @@
-import { totalsOf, type ResponseUsage, type Usage } from "../schema.js";
+import { totalsOf, type ResponseUsage } from "../schema.js";
+import { linkSubagentRuns, mapClaudeUsage, readSubagentRuns, responseKey } from "./claude-usage.js";
 import {
   TurnBuilder,
   baseSession,
   bump,
   estimateCosts,
   projectNameFromCwd,
+  subagentUsageFrom,
   usageTokens,
   stripInjectedContext,
   type AdapterOptions,
@@ -84,7 +86,9 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   }
 
   const ordered = branchEntries(entries, options.leafId);
-  const b = new TurnBuilder();
+  // The tool result of an Agent call reports the subagent's last model call, not a total, so its token
+  // figures are not shown as one; the totals come from the subagent transcripts (see claude-usage.ts).
+  const b = new TurnBuilder({ subagentUsage: (details) => subagentUsageFrom(details, { tokens: false }) });
   const models: string[] = [];
   let pendingCommand: { name: string; args?: string; timestamp?: string } | undefined;
   let startedAt: string | undefined;
@@ -242,11 +246,21 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
         b.addToolCall(block.id, block.name, block.input, { timestamp, responseId });
       }
     }
-    if (msg.usage) b.setResponseUsage(responseId, mapUsage(msg.usage), { model, timestamp });
+    if (msg.usage) b.setResponseUsage(responseId, mapClaudeUsage(msg.usage), { model, timestamp });
   }
   if (pendingCommand) b.addEvent("command", pendingCommand.name, pendingCommand.timestamp);
   b.finalizeThinking();
   estimateCosts(b.responses);
+  // A call the main transcript also holds is counted there, not again from a subagent file.
+  const mainKeys = new Set<string>();
+  for (const e of entries) {
+    const key = e.type === "assistant" && !e.isSidechain ? responseKey(e) : undefined;
+    if (key) mainKeys.add(key);
+  }
+  const subagentRuns = readSubagentRuns(options.subagentFiles ?? [], mainKeys);
+  const subagentUsage = linkSubagentRuns(b, subagentRuns);
+  // Subagent transcripts are never shared: only their numbers and each agent's last message are read.
+  if (subagentRuns.length) bump(dropped, "subagent-transcript", subagentRuns.length);
 
   const session = baseSession("claude-code", sessionId);
   session.title = title ?? summaryTitle;
@@ -264,21 +278,8 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   session.stats.costSource = "estimated";
   const otherBranches = totalsOf(offBranchResponses(entries, ordered));
   if (otherBranches) session.stats.otherBranches = otherBranches;
+  if (subagentUsage) session.stats.subagentUsage = subagentUsage;
   return { session, dropped };
-}
-
-function mapUsage(u: Entry): Usage {
-  const cacheWrite: number = u.cache_creation_input_tokens ?? 0;
-  const write1h: unknown = u.cache_creation?.ephemeral_1h_input_tokens;
-  return {
-    input: u.input_tokens ?? 0,
-    output: u.output_tokens ?? 0,
-    cacheRead: u.cache_read_input_tokens ?? 0,
-    cacheWrite,
-    reasoning: u.output_tokens_details?.thinking_tokens ?? 0,
-    // The 1h rate is 2x the 5m rate, so keep the split when the API reports it.
-    ...(typeof write1h === "number" && write1h > 0 ? { cacheWrite1h: Math.min(write1h, cacheWrite) } : {}),
-  };
 }
 
 /**
@@ -296,7 +297,7 @@ function offBranchResponses(entries: Entry[], onBranch: Entry[]): ResponseUsage[
     if (!msg.usage || msg.model === "<synthetic>") continue;
     const id: string = msg.id ?? e.uuid;
     if (onBranchIds.has(id)) continue;
-    const usage = mapUsage(msg.usage);
+    const usage = mapClaudeUsage(msg.usage);
     const existing = found.get(id);
     if (existing) {
       if (usageTokens(usage) >= usageTokens(existing.usage)) existing.usage = usage;

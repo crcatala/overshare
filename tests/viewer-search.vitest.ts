@@ -60,8 +60,8 @@ const steps: Step[] = [
   { kind: "subagent", id: "a", tool: "Task", agents: ["reviewer"], description: "Review the rounding fix", result: { text: "Looks good, no regressions" } },
 ];
 const s = session([
-  { index: 0, user: { text: "Fix invoice rounding before the release" }, steps },
-  { index: 1, user: { text: "Ship it" }, steps: [{ kind: "text", id: "z", text: "Shipped to staging" }] },
+  { index: 0, user: { text: "Fix invoice rounding before the release", authored: true }, steps },
+  { index: 1, user: { text: "Ship it", authored: true }, steps: [{ kind: "text", id: "z", text: "Shipped to staging" }] },
 ]);
 
 const find = (query: string, output = false, from = s) => search(buildIndex(from), queryTokens(query), output).map((h) => `${h.doc.id} ${h.field.source}`);

@@ -7,6 +7,7 @@ import { SHARE_TARGETS, loadConfig, type ShareTarget } from "./config.js";
 import { exportFixtureShares, generateFixtures } from "./fixtures/index.js";
 import { formatBytes, formatTokens } from "./format.js";
 import { prepareShare, type PreparedShare } from "./pipeline.js";
+import { PromptsUnavailableError } from "./modes.js";
 import { accessWarnings, createPublisher, parseShareRef, preflightWarnings } from "./publish/index.js";
 import { readSecretsFile } from "./redact/known-values.js";
 import { formatReport } from "./report.js";
@@ -253,5 +254,5 @@ program
 
 program.parseAsync().catch((err: unknown) => {
   console.error(`agent-share: ${err instanceof Error ? err.message : String(err)}`);
-  process.exitCode = EXIT.error;
+  process.exitCode = err instanceof PromptsUnavailableError ? EXIT.blocked : EXIT.error;
 });

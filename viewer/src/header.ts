@@ -17,6 +17,8 @@ export const HARNESS_LABEL: Record<string, string> = { "claude-code": "Claude Co
 export interface Controls {
   /** The mode the session was published in; the views available are it and the ones below. */
   sharedMode: ShareMode;
+  /** Why a pi share cannot safely distinguish authored input from template expansions. */
+  promptsUnavailable?: string;
   view: ShareMode;
   setView: (m: ShareMode) => void;
   toggleTheme: () => void;
@@ -40,13 +42,14 @@ const MODE_BLURB: Record<ShareMode, string> = {
 };
 
 function modeSwitch(c: Controls): HTMLElement {
-  const modes = availableModes(c.sharedMode);
+  const modes = availableModes(c.sharedMode, !c.promptsUnavailable);
   const button = h("button", { type: "button", class: "mode-select", "aria-label": `View mode: ${c.view}`, title: "Change view mode" },
     h("span", {}, c.view), h("span", { class: "mode-caret", "aria-hidden": "true" }, "▾"));
   return menuButton(button, "View mode", (close) => {
     const items = SHARE_MODES.map((m) => {
       const allowed = modes.includes(m);
-      return menuItem(m, allowed ? MODE_BLURB[m] : `Shared as ${c.sharedMode}; ${m} detail was not published`, () => {
+      const blurb = allowed ? MODE_BLURB[m] : m === "prompts" && c.promptsUnavailable ? c.promptsUnavailable : `Shared as ${c.sharedMode}; ${m} detail was not published`;
+      return menuItem(m, blurb, () => {
         const inMinibar = Boolean(button.closest(".minibar"));
         close();
         c.setView(m);

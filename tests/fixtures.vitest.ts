@@ -78,6 +78,13 @@ describe("fixture generator", () => {
         expect(prompts.responses).toEqual(full.responses);
         expect(prompts.turns.every((t) => t.steps.length === 0 && !t.user?.expanded)).toBe(true);
         expect(prompts.turns.reduce((sum, t) => sum + t.activity!.toolCalls, 0)).toBe(full.stats.toolCalls);
+        expect(prompts.turns[3]!.user?.text).toBe("/review src/invoices");
+        const expansion = "Delegate a deep read of related modules to a subagent, then summarise findings as a table.";
+        expect(raw).toContain(expansion); // The fixture actually contains the expansion.
+        expect(JSON.stringify(prompts.turns.map((t) => t.user))).not.toContain(expansion);
+        for (const mode of ["brief", "minimal", "prompts"] as const) {
+          expect(prepareShare(raw, { ...opts, mode }).json).not.toContain(expansion);
+        }
         const json = JSON.stringify(prompts.turns.map((t) => t.activity));
         expect(json).not.toMatch(/"(?:text|commands|agents|description|input|result|detail|expanded)"/);
       });
@@ -105,6 +112,17 @@ describe("fixture generator", () => {
       });
     });
   }
+
+  it("refuses historical pi fixture prompts exports instead of leaking the expanded review template", () => {
+    const legacy = generateFixtures({ outDir: mkdtempSync(join(tmpdir(), "as-legacy-pi-")), seed: 3, home, username: "fixture-user", piInputProvenance: false });
+    const raw = readFileSync(legacy.piFile, "utf8");
+    expect(raw).toContain("Delegate a deep read of related modules to a subagent");
+    const opts = { config: DEFAULT_CONFIG, harness: "pi" as const, machine, knownSecrets: [] };
+    expect(() => prepareShare(raw, { ...opts, mode: "prompts" })).toThrow(/no verified pre-expansion input/);
+    // Other modes retain historical stored text: no invented slash-command reconstruction.
+    const brief = prepareShare(raw, { ...opts, mode: "brief" }).session;
+    expect(brief.turns[3]!.user).toMatchObject({ text: expect.stringContaining("Delegate a deep read"), authored: false });
+  });
 
   it("scales with extra turns", () => {
     const big = generateFixtures({ outDir: mkdtempSync(join(tmpdir(), "as-fx-")), seed: 5, extraTurns: 20, home, username: "fixture-user" });

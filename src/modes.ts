@@ -23,14 +23,32 @@ export interface ProjectOptions {
 
 const RANK: Record<ShareMode, number> = { full: 3, brief: 2, minimal: 1, prompts: 0 };
 
+export class PromptsUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PromptsUnavailableError";
+  }
+}
+
+/** Legacy pi user messages may be template expansions with no recoverable authored input. */
+export function promptsUnavailableReason(session: NormalizedSession): string | undefined {
+  if (session.harness.name !== "pi") return;
+  const unknown = session.turns.filter((t) => t.user && t.user.authored !== true).length;
+  if (!unknown) return;
+  return `Cannot use prompts mode: ${unknown} pi user prompt(s) have no verified pre-expansion input. ` +
+    "Private template/skill instructions may be stored as user text. Install or reload the updated pi share extension before submitting new idle prompts; existing inputs or queued expansions cannot be recovered reliably. Other modes require reviewing the stored prompt text.";
+}
+
 /** Modes that can be derived from a session shared in `mode`. */
-export function availableModes(mode: ShareMode): ShareMode[] {
-  return SHARE_MODES.filter((m) => RANK[m] <= RANK[mode]);
+export function availableModes(mode: ShareMode, promptsAllowed = true): ShareMode[] {
+  return SHARE_MODES.filter((m) => RANK[m] <= RANK[mode] && (m !== "prompts" || promptsAllowed));
 }
 
 /** The result's `mode` is `mode`, not the mode `session` was published in; keep that if you need it. */
 export function projectSession(session: NormalizedSession, mode: ShareMode, opts: ProjectOptions = {}): NormalizedSession {
   if (RANK[mode] > RANK[session.mode]) throw new Error(`Cannot project a ${session.mode} session up to ${mode}`);
+  const reason = mode === "prompts" ? promptsUnavailableReason(session) : undefined;
+  if (reason) throw new PromptsUnavailableError(reason);
   const project = mode === "full" ? (t: Turn) => fullTurn(t, opts.maxToolChars ?? 20_000) : mode === "brief" ? briefTurn : mode === "minimal" ? minimalTurn : promptsTurn;
   return { ...session, mode, turns: session.turns.map((turn) => project({ ...turn, activity: turn.activity ?? turnActivity(turn) })) };
 }
@@ -64,7 +82,7 @@ function promptsTurn(turn: Turn): Turn {
   return {
     index: turn.index,
     timestamp: turn.timestamp,
-    user: u ? { text: u.text, command: u.command, images: u.images } : undefined,
+    user: u ? { text: u.text, authored: u.authored, command: u.command, images: u.images } : undefined,
     activity: turn.activity,
     steps: [],
   };

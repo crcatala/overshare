@@ -53,7 +53,7 @@ not merely hidden by the viewer.
 | `full` | Everything after redaction. Tool inputs/results are truncated per string (`maxToolChars`, default 20k). |
 | `brief` (default for `publish`) | Prompts and assistant replies. Consecutive tool calls collapse into groups such as `Bash ×5 · Edit ×3`, with file lists and one-line commands; thinking becomes a count/token chip. No tool output. |
 | `minimal` | Prompts, the final reply per turn, and per-turn tool counts. |
-| `prompts` | Only user prompts, followed by a compact, non-expandable activity line: tool calls/errors, unique files read/edited/written, thinking tokens and output tokens. No replies, thinking text, filenames, commands, tool inputs/results, subagent descriptions/results or event details. |
+| `prompts` | Only authored user prompts, followed by a compact, non-expandable activity line: tool calls/errors, unique files read/edited/written, thinking tokens and output tokens. No replies, thinking text, filenames, commands, tool inputs/results, subagent descriptions/results, event details, or expanded template/skill instructions. |
 
 All modes keep metadata (harness, models, repo/branch, duration, tool counts, tokens,
 cost) and per-response token usage. The viewer's **view mode dropdown** can step *down*
@@ -64,8 +64,15 @@ Activity counts are per turn; repeated reads/edits of the same file count once p
 while every tool invocation (including subagent calls) counts. Zero or unavailable token
 metrics are omitted. “Output tokens” means reported model-response output, including
 thinking and tool-call generation—not a measurement of final-reply prose alone. Prompts
-shares retain only numeric turn activity and token usage alongside prompts and session
-metadata; the omitted content is stripped **before redaction and upload**.
+shares retain only numeric turn activity and token usage alongside authored prompts and
+session metadata; the omitted content is stripped **before redaction and upload**.
+
+Pi normally persists expanded prompt-template and skill text as an ordinary user message.
+The updated pi share extension records the pre-expansion input as branch-local provenance
+and binds it to the exact message by parent, timestamp, and content hash. Historical pi
+sessions, queued expansions, and extension-injected messages cannot be verified reliably;
+`prompts` export, publish, report, and viewer projection **fail closed** for those prompts
+instead of guessing. Other modes still show the stored text and must be reviewed.
 
 ## Redaction
 
@@ -345,7 +352,8 @@ you deployed (`https://…/session/`).
 
 - **Claude Code** — `integrations/claude-code/share-session/SKILL.md`. Install:
   `ln -s "$PWD/integrations/claude-code/share-session" ~/.claude/skills/share-session`,
-  then `/share-session [full|brief|minimal|prompts]`.
+  then `/share-session [full|brief|minimal|prompts]`. Reload the extension before a
+`prompts` share: it must record the typed input before pi expands templates or skills.
 - **pi** — `integrations/pi/agent-share.ts` registers `/share-session` (pi's own `/share`
   is untouched). It passes the exact session file and live branch leaf. Install:
   `ln -s "$PWD/integrations/pi/agent-share.ts" ~/.pi/agent/extensions/agent-share.ts`.

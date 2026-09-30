@@ -66,6 +66,8 @@ describe("viewFor", () => {
     expect(viewFor("minimal", "brief")).toBe("minimal");
     expect(viewFor("prompts", "full")).toBe("prompts");
     expect(viewFor("full", "prompts")).toBe("prompts");
+    expect(viewFor("prompts", "full", false)).toBe("full");
+    expect(viewFor("prompts", "brief", false)).toBe("brief");
   });
 });
 

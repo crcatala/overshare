@@ -13,6 +13,9 @@ export const SHARE_MODES: readonly ShareMode[] = ["full", "brief", "minimal", "p
 
 export type HarnessName = "claude-code" | "pi";
 
+/** Local-only pi extension entry; its payload is never copied into a share. */
+export const PI_INPUT_PROVENANCE_TYPE = "agent-share:authored-input";
+
 export interface Usage {
   /** Uncached prompt tokens. */
   input: number;
@@ -80,6 +83,8 @@ export interface NormalizedSession {
 
 export interface UserPrompt {
   text: string;
+  /** For pi, true only when pre-expansion input was bound to this native message. Missing means unverified. */
+  authored?: boolean;
   /** Present when the prompt was a slash command / skill invocation. */
   command?: { name: string; args?: string };
   /** Prompt text a command expanded into (full mode only). */

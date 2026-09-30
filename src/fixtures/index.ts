@@ -22,6 +22,8 @@ export interface FixtureOptions {
   /** Home directory / username used inside transcripts (defaults: this machine's, so redaction applies). */
   home?: string;
   username?: string;
+  /** False emits historical pi sessions without authored-input capture. */
+  piInputProvenance?: boolean;
 }
 
 export interface GeneratedFixtures {
@@ -64,7 +66,7 @@ export function generateFixtures(opts: FixtureOptions): GeneratedFixtures {
   const piDir = join(roots.pi, projectDirName("pi", script.cwd));
   const piFile = join(piDir, `${new Date(start).toISOString().replace(/[:.]/g, "-")}_${piId}.jsonl`);
   mkdirSync(piDir, { recursive: true });
-  writeFileSync(piFile, emitPi(script, new Rng(seed * 31 + 2), { sessionId: piId, start, home }));
+  writeFileSync(piFile, emitPi(script, new Rng(seed * 31 + 2), { sessionId: piId, start, home, inputProvenance: opts.piInputProvenance }));
 
   const secretsFile = join(opts.outDir, "secrets.env");
   writeFileSync(secretsFile, secretsEnvFile(secrets), { mode: 0o600 });

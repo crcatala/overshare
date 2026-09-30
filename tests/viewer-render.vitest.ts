@@ -41,7 +41,7 @@ function session(turns: Turn[], responses: NormalizedSession["responses"] = []):
   };
 }
 
-const turn = (index: number, steps: Step[], text = `prompt ${index}`): Turn => ({ index, user: { text }, steps });
+const turn = (index: number, steps: Step[], text = `prompt ${index}`): Turn => ({ index, user: { text, authored: true }, steps });
 
 describe("token rail", () => {
   // Regression: the per-turn chart used to scale each turn to its own tallest call, so
@@ -353,6 +353,15 @@ describe("header mode switch", () => {
     const el = renderHeader(projectSession(session([turn(0, [])]), "prompts"), undefined, controls("prompts", "prompts"));
     expect(buttons(el)).toEqual({ full: true, brief: true, minimal: true, prompts: false });
     expect(document.activeElement).toBe(rows()[3]);
+  });
+
+  it("disables prompts when the stored pi user text has no verified authored input", () => {
+    const c = { ...controls("full"), promptsUnavailable: "No verified pre-expansion input; private template instructions may be stored as user text." };
+    const el = renderHeader(session([turn(0, [])]), undefined, c);
+    expect(buttons(el)).toEqual({ full: false, brief: false, minimal: false, prompts: true });
+    expect(rows()[3]!.querySelector(".menu-blurb")!.textContent).toBe(c.promptsUnavailable);
+    rows()[3]!.click();
+    expect(c.setView).not.toHaveBeenCalled();
   });
 
   it("selects a mode, closes the menu and restores trigger focus", () => {

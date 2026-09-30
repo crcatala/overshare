@@ -6,7 +6,7 @@ import "./styles/timeline.css";
 import "./styles/hybrid.css";
 import "./styles/log.css";
 import { plural } from "../../src/format.ts";
-import { projectSession } from "../../src/modes.ts";
+import { projectSession, promptsUnavailableReason } from "../../src/modes.ts";
 import { SCHEMA_VERSION, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
 import { beacon } from "./beacon.ts";
 import { clearHits, pulseHits, refreshHits, showHits } from "./findhits.ts";
@@ -206,7 +206,7 @@ function showError(message: string): void {
 }
 
 function currentView(): ShareMode {
-  return shared ? viewFor(settings.view, shared.mode) : "full";
+  return shared ? viewFor(settings.view, shared.mode, !promptsUnavailableReason(shared)) : "full";
 }
 
 let activeTurn: TurnInfo | undefined;
@@ -275,7 +275,7 @@ function render(opts: { keepPlace?: boolean; turn?: number } = {}): void {
     },
     turn: () => (activeTurn?.ordinal ? { ordinal: activeTurn.ordinal, label: activeTurn.label } : undefined),
   };
-  const controls: Controls = { sharedMode, view, setView, toggleTheme, toggleRail, settings: settingsMenu, share, local: state.source?.kind === "local" };
+  const controls: Controls = { sharedMode, promptsUnavailable: promptsUnavailableReason(shared), view, setView, toggleTheme, toggleRail, settings: settingsMenu, share, local: state.source?.kind === "local" };
   const { el: transcript, turns } = renderTranscript(session, { inlineThinking: variant.inlineThinking });
 
   const jump = (id: string, smooth = true) => {
@@ -493,6 +493,8 @@ async function main(): Promise<void> {
     const loaded = await loadSource(state.source);
     const data = loaded.data as NormalizedSession;
     if (!data || data.schema !== SCHEMA_VERSION) throw new Error(`Unsupported share format (${(data as { schema?: string })?.schema ?? "unknown"}).`);
+    const reason = data.mode === "prompts" ? promptsUnavailableReason(data) : undefined;
+    if (reason) throw new Error(reason);
     shared = data;
     provenance = loaded.provenance;
     render({ turn });

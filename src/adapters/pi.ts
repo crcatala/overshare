@@ -1,4 +1,5 @@
-import type { Usage } from "../schema.js";
+import { createHash } from "node:crypto";
+import { PI_INPUT_PROVENANCE_TYPE, type Usage } from "../schema.js";
 import {
   TurnBuilder,
   baseSession,
@@ -37,6 +38,7 @@ export function parsePi(raw: string, options: AdapterOptions = {}): AdapterResul
   let title: string | undefined;
   let startedAt: string | undefined = header.timestamp;
   let endedAt: string | undefined;
+  let previous: Entry | undefined;
 
   for (const e of branchEntries(entries, options.leafId)) {
     const timestamp: string | undefined = typeof e.timestamp === "string" ? e.timestamp : undefined;
@@ -46,7 +48,7 @@ export function parsePi(raw: string, options: AdapterOptions = {}): AdapterResul
     }
     switch (e.type) {
       case "message":
-        handleMessage(e, b, models, dropped, timestamp);
+        handleMessage(e, b, models, dropped, timestamp, authoredInput(e, previous));
         break;
       case "model_change":
         if (b.hasPrompt) b.addEvent("model_change", `Model → ${[e.provider, e.modelId].filter(Boolean).join("/")}`, timestamp);
@@ -80,9 +82,13 @@ export function parsePi(raw: string, options: AdapterOptions = {}): AdapterResul
         break;
       case "session":
         break;
+      case "custom":
+        if (e.customType !== PI_INPUT_PROVENANCE_TYPE) bump(dropped, `custom:${e.customType ?? "?"}`);
+        break;
       default:
         bump(dropped, e.customType ? `${e.type}:${e.customType}` : e.type ?? "unknown");
     }
+    previous = e;
   }
   b.finalizeThinking();
 
@@ -100,13 +106,31 @@ export function parsePi(raw: string, options: AdapterOptions = {}): AdapterResul
   return { session, dropped };
 }
 
-function handleMessage(e: Entry, b: TurnBuilder, models: string[], dropped: DropCounts, timestamp?: string): void {
+/** Verify binding on the selected branch, never by text similarity or file order alone. */
+function authoredInput(e: Entry, previous: Entry | undefined): string | undefined {
+  if (e.message?.role !== "user" || previous?.type !== "custom" || previous.customType !== PI_INPUT_PROVENANCE_TYPE ||
+      typeof previous.id !== "string" || e.parentId !== previous.id) return;
+  const d = previous.data;
+  if (!d || d.version !== 1 || typeof d.text !== "string" || (d.source !== "interactive" && d.source !== "rpc") ||
+      typeof d.messageTimestamp !== "number" || !Number.isFinite(d.messageTimestamp) || e.message.timestamp !== d.messageTimestamp ||
+      typeof d.messageHash !== "string" || d.messageHash !== createHash("sha256").update(contentText(e.message.content)).digest("hex")) return;
+  return d.text;
+}
+
+function handleMessage(e: Entry, b: TurnBuilder, models: string[], dropped: DropCounts, timestamp?: string, original?: string): void {
   const msg = e.message ?? {};
   if (msg.role === "user") {
-    const text = contentText(msg.content).trim();
+    const stored = contentText(msg.content).trim();
+    const text = (original ?? stored).trim();
     const images = countImages(msg.content);
     if (!text && !images) return void bump(dropped, "empty-user");
-    b.startTurn({ text, ...(images ? { images } : {}) }, timestamp);
+    const command = original === undefined ? undefined : /^(\/\S+)(?:\s+([\s\S]*))?$/.exec(text);
+    b.startTurn({
+      text, authored: original !== undefined,
+      ...(command ? { command: { name: command[1]!, ...(command[2] ? { args: command[2] } : {}) } } : {}),
+      ...(original !== undefined && stored !== text ? { expanded: stored } : {}),
+      ...(images ? { images } : {}),
+    }, timestamp);
     return;
   }
   if (msg.role === "toolResult") {

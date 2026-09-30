@@ -76,8 +76,8 @@ export function resolve(link: Partial<ViewSettings>, tab: Partial<ViewSettings>,
 }
 
 /** The view to show: the one wanted if the share has it, else the most detail it was published with. */
-export function viewFor(wanted: ShareMode, sharedMode: ShareMode): ShareMode {
-  return availableModes(sharedMode).includes(wanted) ? wanted : sharedMode;
+export function viewFor(wanted: ShareMode, sharedMode: ShareMode, promptsAllowed = true): ShareMode {
+  return availableModes(sharedMode, promptsAllowed).includes(wanted) ? wanted : sharedMode;
 }
 
 /**

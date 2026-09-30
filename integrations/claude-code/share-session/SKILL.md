@@ -1,6 +1,7 @@
 ---
 name: share-session
-description: Share the current Claude Code session as a redacted, unlisted link (secret GitHub gist + agent-share viewer). Use when the user asks to share, publish, or post this session/transcript, optionally with a mode (full, brief, minimal, prompts).
+description: Share the current Claude Code session as a redacted, unlisted link (secret GitHub gist + agent-share viewer). Use when the user asks to share, publish, or post this session/transcript, optionally with a mode (full, brief, minimal, prompts). `prompts` refuses unverified pi
+sessions rather than publishing expanded template instructions as user text.
 ---
 
 # Share this session

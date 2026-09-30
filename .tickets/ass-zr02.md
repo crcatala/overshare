@@ -2,7 +2,7 @@
 id: ass-zr02
 status: open
 deps: []
-links: [ass-lq0c, ass-jx4l]
+links: [ass-lq0c, ass-jx4l, ass-75mx, ass-cjrn]
 created: 2026-09-30T02:57:41Z
 type: task
 priority: 3
@@ -40,3 +40,18 @@ Acceptance: a written finding per component (signal available? affects which ses
 ## Related
 - ass-jx4l (the PR these came from), ass-lq0c (terminology; the "responses" label now also counts compaction/keep-alive calls).
 
+
+## Notes
+
+**2026-09-30T14:38:38Z**
+
+Part 3 findings (2026-09-30), measured on Claude Code 2.1.285 with two Opus 5.5 sessions in a sandbox repo (same prompt: main + 1 foreground subagent; transcripts in ~/.claude/projects/-home-mog-workspace-usage-sandbox/ sessions 2a10ef7b = fast, edf2048e = standard). Fast mode cost real usage credits (~$0.61 + $0.23), so this was deliberately small.
+
+FAST MODE: a signal exists. Every call in a fast session has usage.speed == "fast" (standard otherwise), in main AND subagent files (subagents inherit fast). cost-state has no speed field, but its totalCostUSD includes the premium: with our estimateCost, the standard session matches cost-state exactly (ratio 1.000) and the fast session is exactly 2.000x (all four token classes, including cache read/write). Matches the docs' $8/$40 vs $4/$20 for Opus 5.5. Recommendation: model it as a per-call multiplier keyed on (usage.speed == 'fast', model) with the multiplier derived from a small table (Opus 5.5: 2.0; Opus 5 / 4.8 docs say $10/$50, i.e. 2.0x vs $5/$25 standard, but only Opus 5.5 verified locally). Add the test using these two sessions as fixtures, and narrow the cost tooltip to drop the fast-mode caveat. The adapter must carry usage.speed into Usage (currently dropped). Expect fast sessions to be rare (needs Opus + usage credits), so low urgency but the fix is small and verified.
+Caveat: the docs say the first enable mid-conversation is billed at full uncached input for the whole context; not tested (would need a mid-session toggle) - likely shows as one large cache write/input call and should already be priced right at 2x.
+
+REGIONAL 1.1x: no signal. inference_geo is 'not_available' in all 11.8k local usage records plus all new sandbox runs. Cannot model; leave the tooltip caveat and revisit if a transcript ever shows a geo value.
+
+LONG-CONTEXT >200k: no evidence locally beyond the earlier note (Opus 5.5 with [1m] fit a single rate). No cheap way to generate a >200k session on demand; leave as-is, keep the caveat.
+
+Also relevant to price checks: opus-5-5 entry ($4/$20, cacheRead 0.2, write 5) reproduced cost-state exactly on standard speed with 1h and 5m writes, so it is confirmed for both write TTLs.

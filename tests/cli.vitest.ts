@@ -54,6 +54,23 @@ describe("cli", { timeout: 30_000 }, () => {
     expect(json).not.toContain(secret);
   });
 
+  it("exports prompts-only content and accepts prompts in CLI help/report", () => {
+    const out = join(mkdtempSync(join(tmpdir(), "as-prompts-")), "share.json");
+    const file = sessionFile(fake.github());
+    const r = cli(["export", file, "--mode", "prompts", "-o", out, "-q"]);
+    expect(r.status).toBe(0);
+    const json = readFileSync(out, "utf8");
+    const shared = JSON.parse(json);
+    expect(shared.mode).toBe("prompts");
+    expect(shared.turns[0]).toMatchObject({ user: { text: "run it" }, steps: [], activity: { toolCalls: 1 } });
+    expect(json).not.toContain("cat config");
+    expect(json).not.toContain('"text":"done"');
+    const report = cli(["report", file, "--mode", "prompts", "--json"]);
+    expect(report.status).toBe(0);
+    expect(JSON.parse(report.stdout)).toMatchObject({ mode: "prompts", clean: true });
+    expect(cli(["publish", "--help"]).stdout).toContain("prompts");
+  });
+
   it("--secrets-file values are redacted as known secrets", () => {
     const custom = `acmeint.${"k3v9".repeat(4)}`;
     const dir = mkdtempSync(join(tmpdir(), "as-sf-cli-"));

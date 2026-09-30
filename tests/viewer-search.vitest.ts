@@ -86,6 +86,10 @@ describe("buildIndex", () => {
     expect(find("invoices create", true, brief)).toEqual(["s-0-0 files"]);
     const minimal = projectSession(s, "minimal");
     expect(find("migrate", true, minimal)).toEqual([]);
+    const prompts = projectSession(s, "prompts");
+    expect(buildIndex(prompts).map((d) => d.id)).toEqual(["turn-0-prompt", "turn-1-prompt"]);
+    expect(find("invoice rounding", true, prompts)).toEqual(["turn-0-prompt prompt"]);
+    for (const query of ["migrate", "parseInvoice", "reviewer", "ECONNREFUSED", "Shipped"]) expect(find(query, true, prompts)).toEqual([]);
   });
 });
 

@@ -37,7 +37,7 @@ function withSessionOptions(cmd: Command, defaultMode: ShareMode): Command {
     .option("-c, --current", "use the current session (Claude Code: $CLAUDE_CODE_SESSION_ID; else newest for this directory)")
     .addOption(new Option("--harness <name>", "restrict to one harness").choices(["claude-code", "pi"]))
     .option("--leaf <entryId>", "export the branch ending at this entry (tree-shaped sessions)")
-    .option("-m, --mode <mode>", "share mode: full | brief | minimal", parseMode, defaultMode)
+    .option("-m, --mode <mode>", `share mode: ${SHARE_MODES.join(" | ")}`, parseMode, defaultMode)
     .option("--secrets-file <file...>", "extra values to redact: KEY=VALUE lines or one value per line");
 }
 

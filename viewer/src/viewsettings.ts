@@ -11,7 +11,7 @@
  * Changing a setting updates only this tab's copy; the URL never tracks it.
  */
 import { availableModes } from "../../src/modes.ts";
-import type { ShareMode } from "../../src/schema.ts";
+import { SHARE_MODES, type ShareMode } from "../../src/schema.ts";
 import { DEFAULT_VARIANT, findVariant, type VariantId } from "./variants.ts";
 
 export type Theme = "system" | "light" | "dark";
@@ -31,7 +31,7 @@ export interface ViewSettings {
 
 export const BUILT_IN: ViewSettings = { variant: DEFAULT_VARIANT, view: "full", theme: "system", left: true, right: true, toc: "prompts" };
 
-const VIEWS: readonly string[] = ["full", "brief", "minimal"] satisfies ShareMode[];
+const VIEWS: readonly string[] = SHARE_MODES;
 const THEMES: readonly string[] = ["system", "light", "dark"] satisfies Theme[];
 const RAILS: Record<string, [left: boolean, right: boolean]> = { LR: [true, true], L: [true, false], R: [false, true], "-": [false, false] };
 

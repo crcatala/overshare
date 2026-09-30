@@ -340,10 +340,7 @@
 [data-variant="timeline"] .mb-progress {
   bottom: 0;
 }
-[data-variant="timeline"] .modes {
-  border-radius: 999px;
-}
-[data-variant="timeline"] .modes button {
+[data-variant="timeline"] .mode-select {
   border-radius: 999px;
 }
 [data-variant="timeline"] .mb-where {

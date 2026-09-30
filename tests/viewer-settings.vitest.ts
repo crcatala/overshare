@@ -30,6 +30,8 @@ describe("&ui= tokens", () => {
   it("reads tokens in any order and only the fields given", () => {
     expect(parseUi("dark.timeline")).toEqual({ theme: "dark", variant: "timeline" });
     expect(parseUi("minimal")).toEqual({ view: "minimal" });
+    expect(parseUi("prompts.toc-all")).toEqual({ view: "prompts", toc: "all" });
+    expect(parseUi("toc-prompts")).toEqual({ toc: "prompts" });
   });
 
   // A renamed or removed option (or a typo) drops only that field back to the reader's own setting.
@@ -62,6 +64,8 @@ describe("viewFor", () => {
     expect(viewFor("full", "brief")).toBe("brief");
     expect(viewFor("brief", "minimal")).toBe("minimal");
     expect(viewFor("minimal", "brief")).toBe("minimal");
+    expect(viewFor("prompts", "full")).toBe("prompts");
+    expect(viewFor("full", "prompts")).toBe("prompts");
   });
 });
 
@@ -74,6 +78,8 @@ describe("wantedView", () => {
     expect(wantedView("full", "full")).toBe("full");
     expect(wantedView("minimal", "brief")).toBe("minimal");
     expect(wantedView("brief", "full")).toBe("brief");
+    expect(wantedView("prompts", "full")).toBe("prompts");
+    expect(wantedView("prompts", "prompts")).toBe("full");
   });
 });
 

@@ -378,6 +378,23 @@ function renderPrompt(turn: Turn, id: string): HTMLElement | null {
   return el;
 }
 
+function activitySummary(turn: Turn, list: ResponseUsage[] = []): HTMLElement | null {
+  const a = turn.activity;
+  const thinking = list.reduce((sum, r) => sum + r.usage.reasoning, 0);
+  const output = list.reduce((sum, r) => sum + r.usage.output, 0);
+  const parts = [
+    a?.toolCalls ? plural(a.toolCalls, "tool call") : "",
+    a?.toolErrors ? plural(a.toolErrors, "tool error") : "",
+    a?.files.read ? `${plural(a.files.read, "file")} read` : "",
+    a?.files.edited ? `${plural(a.files.edited, "file")} edited` : "",
+    a?.files.written ? `${plural(a.files.written, "file")} written` : "",
+    thinking ? `thinking ${formatTokens(thinking)} tokens` : "",
+    output ? `output ${formatTokens(output)} tokens` : "",
+  ].filter(Boolean);
+  return parts.length ? entry("activity", `turn-${turn.index}-activity`, "work", undefined,
+    h("div", { class: "activity-summary", role: "group", "aria-label": "Activity for this turn" }, parts.join(" · "))) : null;
+}
+
 function turnFoot(list: ResponseUsage[] | undefined): HTMLElement | null {
   if (!list?.length) return null;
   let out = 0;
@@ -505,7 +522,7 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
   const turns: TurnInfo[] = [];
   let ordinal = 0;
   const sections = session.turns
-    .filter((t) => t.user || t.steps.length)
+    .filter((t) => t.user || t.steps.length || (session.mode === "prompts" && (t.activity?.toolCalls || ctx.byTurn.has(t.index))))
     .map((turn) => {
       const n = turn.user ? ++ordinal : 0;
       const id = `turn-${turn.index}`;
@@ -515,8 +532,8 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
         { class: `turn${turn.user ? "" : " turn-start"}`, id, "data-turn": String(turn.index), "data-n": String(n) },
         h("div", { class: "turn-head", "aria-hidden": "true" }, h("span", { class: "turn-n" }, n ? String(n) : "·"), turn.timestamp ? h("time", {}, clock(turn.timestamp)) : null),
         renderPrompt(turn, promptId(turn.index)),
-        ...turn.steps.map((s, i) => renderStep(s, stepIds[i]!, ctx)),
-        turnFoot(ctx.byTurn.get(turn.index)),
+        ...(session.mode === "prompts" ? [activitySummary(turn, ctx.byTurn.get(turn.index))] : turn.steps.map((s, i) => renderStep(s, stepIds[i]!, ctx))),
+        session.mode === "prompts" ? null : turnFoot(ctx.byTurn.get(turn.index)),
       );
       const o = outline(turn, stepIds);
       const u = turn.user;
@@ -529,8 +546,8 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
         label: u ? (u.command ? firstLine(`${u.command.name}${u.command.args ? ` ${u.command.args}` : ""}`.replace(/\s+/g, " "), 140) : plainLine(u.text.replace(/\s+/g, " "), 140)) : "Session start",
         time: clock(turn.timestamp),
         command: Boolean(u?.command),
-        tools: o.tools,
-        errors: o.errors,
+        tools: session.mode === "prompts" ? turn.activity?.toolCalls ?? 0 : o.tools,
+        errors: session.mode === "prompts" ? turn.activity?.toolErrors ?? 0 : o.errors,
         items: o.items,
         calls: toolCalls(turn, stepIds, ctx),
         responses: ctx.byTurn.get(turn.index) ?? [],

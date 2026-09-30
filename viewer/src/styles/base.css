@@ -261,33 +261,30 @@ button.theme::before {
   text-underline-offset: 3px;
   cursor: help;
 }
-.modes {
-  display: inline-flex;
-  border-radius: 6px;
-  background: var(--bg-2);
-  padding: 2px;
-}
-.modes button {
+.mode-select {
   appearance: none;
-  border: 0;
-  background: none;
-  color: var(--dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: var(--menu-radius, 6px);
+  background: var(--bg-2);
+  color: var(--ink-2);
   cursor: pointer;
-  font-size: var(--fs-sm);
-  padding: 2px 8px;
-  border-radius: 4px;
+  font: var(--fs-sm) / 1.4 var(--font-ui);
+  padding: 4px 10px;
 }
-.modes button:hover:not(:disabled) {
+.mode-select:hover,
+.mode-select[aria-expanded="true"] {
+  background: var(--bg-3);
   color: var(--ink);
+  border-color: var(--accent);
 }
-.modes button[aria-pressed="true"] {
-  background: var(--bg);
-  color: var(--ink);
-  box-shadow: 0 1px 2px light-dark(rgb(0 0 0 / 0.08), rgb(0 0 0 / 0.4));
-}
-.modes button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.mode-caret {
+  color: var(--ink-2);
+  font-size: 10px;
 }
 
 /* ---------- minibar ---------- */
@@ -403,6 +400,12 @@ button.theme::before {
 }
 .body {
   min-width: 0;
+}
+.activity-summary {
+  color: color-mix(in srgb, var(--ink-2) 75%, var(--dim));
+  font: var(--fs-sm) / 1.6 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 /* Jump beacon (beacon.ts): an outline that ripples a few times, then fades. */
 .beacon {
@@ -1549,13 +1552,13 @@ button.share[aria-expanded="true"] {
   background: var(--bg);
   color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--menu-radius, 8px);
   box-shadow: var(--shadow);
-  font: var(--fs-sm) / 1.4 var(--font-mono);
+  font: var(--fs-sm) / 1.4 var(--font-ui);
 }
 .menu-head {
   padding: 6px 8px 4px;
-  color: var(--faint);
+  color: var(--ink-2);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1602,10 +1605,10 @@ button.share[aria-expanded="true"] {
   font-weight: 600;
 }
 .menu-item[aria-checked="true"] .menu-label {
-  color: var(--accent);
+  color: color-mix(in srgb, var(--accent) 55%, var(--ink));
 }
 .menu-blurb {
-  color: var(--dim);
+  color: var(--ink-2);
   font-size: 11px;
   /* A prompt's first line can be long. */
   display: -webkit-box;
@@ -1713,6 +1716,10 @@ button.share[aria-expanded="true"] {
   color: var(--warn);
   background: color-mix(in srgb, var(--warn) 14%, transparent);
 }
+.badge[data-mode="prompts"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+}
 .badge[data-mode="minimal"] {
   color: var(--dim);
 }
@@ -1795,7 +1802,6 @@ button.share[aria-expanded="true"] {
     flex-direction: column;
     gap: 8px;
   }
-  .minibar .modes,
   .mb-label {
     display: none;
   }

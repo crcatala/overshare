@@ -53,10 +53,19 @@ not merely hidden by the viewer.
 | `full` | Everything after redaction. Tool inputs/results are truncated per string (`maxToolChars`, default 20k). |
 | `brief` (default for `publish`) | Prompts and assistant replies. Consecutive tool calls collapse into groups such as `Bash ×5 · Edit ×3`, with file lists and one-line commands; thinking becomes a count/token chip. No tool output. |
 | `minimal` | Prompts, the final reply per turn, and per-turn tool counts. |
+| `prompts` | Only user prompts, followed by a compact, non-expandable activity line: tool calls/errors, unique files read/edited/written, thinking tokens and output tokens. No replies, thinking text, filenames, commands, tool inputs/results, subagent descriptions/results or event details. |
 
 All modes keep metadata (harness, models, repo/branch, duration, tool counts, tokens,
-cost) and per-response token usage. The viewer can step *down* (full → brief → minimal)
-but never up.
+cost) and per-response token usage. The viewer's **view mode dropdown** can step *down*
+(full → brief → minimal → prompts) but never up; unavailable modes explain which detail
+was not published. The dropdown is also available in the sticky header, including on mobile.
+
+Activity counts are per turn; repeated reads/edits of the same file count once per action,
+while every tool invocation (including subagent calls) counts. Zero or unavailable token
+metrics are omitted. “Output tokens” means reported model-response output, including
+thinking and tool-call generation—not a measurement of final-reply prose alone. Prompts
+shares retain only numeric turn activity and token usage alongside prompts and session
+metadata; the omitted content is stripped **before redaction and upload**.
 
 ## Redaction
 
@@ -239,7 +248,7 @@ settings menu (the sliders icon next to the theme toggle), with `v`/`V`, or with
 | `hybrid` | Proportional prose (IBM Plex Sans) for prompts and replies, mono for everything the agent did; tool activity on a quiet hairline; numbered turn rules. |
 | `log` | A TUI log: `time │ role │ text` rows, framed panes with titles set into the border, a statusline and plain ASCII tables (gruvbox). |
 
-**View settings.** How a session is shown — variant, view (full/brief/minimal), theme,
+**View settings.** How a session is shown — variant, view (full/brief/minimal/prompts), theme,
 which rails are open and what the contents rail lists — as opposed to which session.
 Where they come from, first match wins:
 
@@ -336,7 +345,7 @@ you deployed (`https://…/session/`).
 
 - **Claude Code** — `integrations/claude-code/share-session/SKILL.md`. Install:
   `ln -s "$PWD/integrations/claude-code/share-session" ~/.claude/skills/share-session`,
-  then `/share-session [full|brief|minimal]`.
+  then `/share-session [full|brief|minimal|prompts]`.
 - **pi** — `integrations/pi/agent-share.ts` registers `/share-session` (pi's own `/share`
   is untouched). It passes the exact session file and live branch leaf. Install:
   `ln -s "$PWD/integrations/pi/agent-share.ts" ~/.pi/agent/extensions/agent-share.ts`.

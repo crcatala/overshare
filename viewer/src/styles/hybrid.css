@@ -26,6 +26,8 @@
   --fs-sm: 12px;
 }
 
+[data-variant="hybrid"] .mode-select,
+[data-variant="hybrid"] .menu,
 [data-variant="hybrid"] .md,
 [data-variant="hybrid"] .hdr-title,
 [data-variant="hybrid"] .toc-label,

@@ -1,5 +1,5 @@
 /**
- * pi extension: `/share-session [full|brief|minimal]`
+ * pi extension: `/share-session [full|brief|minimal|prompts]`
  *
  * Shares the live session through the `agent-share` CLI. Unlike a prompt template,
  * the extension knows the exact session file and the current branch leaf, so the
@@ -10,7 +10,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-const MODES = ["full", "brief", "minimal"] as const;
+const MODES = ["full", "brief", "minimal", "prompts"] as const;
 
 interface Report {
   clean: boolean;
@@ -23,12 +23,12 @@ interface Report {
 
 export default function agentShare(pi: ExtensionAPI) {
   pi.registerCommand("share-session", {
-    description: "Share this session (redacted) as an unlisted link: /share-session [full|brief|minimal]",
+    description: "Share this session (redacted) as an unlisted link: /share-session [full|brief|minimal|prompts]",
     getArgumentCompletions: (prefix: string) =>
       MODES.filter((m) => m.startsWith(prefix)).map((m) => ({ value: m, label: m })),
     handler: async (args, ctx) => {
       const mode = (args?.trim() || "brief") as (typeof MODES)[number];
-      if (!MODES.includes(mode)) return ctx.ui.notify(`Unknown mode "${mode}" (use full, brief or minimal)`, "error");
+      if (!MODES.includes(mode)) return ctx.ui.notify(`Unknown mode "${mode}" (use full, brief, minimal or prompts)`, "error");
       const file = ctx.sessionManager.getSessionFile();
       if (!file) return ctx.ui.notify("This session is not saved to a file, so it cannot be shared.", "error");
       const leaf = ctx.sessionManager.getLeafId();

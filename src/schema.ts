@@ -8,8 +8,8 @@
 
 export const SCHEMA_VERSION = "agentshare/1" as const;
 
-export type ShareMode = "full" | "brief" | "minimal";
-export const SHARE_MODES: readonly ShareMode[] = ["full", "brief", "minimal"];
+export type ShareMode = "full" | "brief" | "minimal" | "prompts";
+export const SHARE_MODES: readonly ShareMode[] = ["full", "brief", "minimal", "prompts"];
 
 export type HarnessName = "claude-code" | "pi";
 
@@ -87,10 +87,19 @@ export interface UserPrompt {
   images?: number;
 }
 
+/** Numeric-only activity retained when the turn's work is omitted. File counts are unique per action. */
+export interface TurnActivity {
+  toolCalls: number;
+  toolErrors: number;
+  files: { read: number; edited: number; written: number };
+}
+
 export interface Turn {
   index: number;
   timestamp?: string;
   user?: UserPrompt;
+  /** Captured before projection, so stepping down does not lose counts. */
+  activity?: TurnActivity;
   steps: Step[];
 }
 

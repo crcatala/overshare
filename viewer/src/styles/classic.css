@@ -34,6 +34,7 @@
   --fs: 13px;
   --lh: 1.55;
   --pad: 16px;
+  --menu-radius: 4px;
 }
 
 /* header: one tinted block, "key: value" rows */
@@ -82,7 +83,7 @@
 [data-variant="classic"] .hdr-fine .facts dd {
   color: var(--dim);
 }
-[data-variant="classic"] .modes {
+[data-variant="classic"] .mode-select {
   background: var(--bg);
 }
 

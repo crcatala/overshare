@@ -69,6 +69,19 @@ describe("fixture generator", () => {
         expect(json).not.toContain("SLACK_BOT_TOKEN");
       });
 
+      it("prompts exports retain counts/usage but no work or expanded prompts", () => {
+        const opts = { config: DEFAULT_CONFIG, harness, machine, knownSecrets: [], extraKnownSecrets: extra };
+        const full = prepareShare(raw, { ...opts, mode: "full" }).session;
+        const prompts = prepareShare(raw, { ...opts, mode: "prompts" }).session;
+        expect(prompts.turns).toHaveLength(full.turns.length);
+        expect(prompts.stats).toEqual(full.stats);
+        expect(prompts.responses).toEqual(full.responses);
+        expect(prompts.turns.every((t) => t.steps.length === 0 && !t.user?.expanded)).toBe(true);
+        expect(prompts.turns.reduce((sum, t) => sum + t.activity!.toolCalls, 0)).toBe(full.stats.toolCalls);
+        const json = JSON.stringify(prompts.turns.map((t) => t.activity));
+        expect(json).not.toMatch(/"(?:text|commands|agents|description|input|result|detail|expanded)"/);
+      });
+
       it("exercises the features the viewer renders", () => {
         const { session } = prepareShare(raw, { mode: "full", config: DEFAULT_CONFIG, harness, machine, knownSecrets: [], extraKnownSecrets: extra });
         const steps = session.turns.flatMap((t) => t.steps);

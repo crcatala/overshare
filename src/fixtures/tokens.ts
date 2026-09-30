@@ -18,6 +18,8 @@ const tokensFor = (chars: number) => Math.ceil(chars / 3.8);
 export class TokenModel {
   private context = 0;
   private pending: number;
+  /** The prompt cache is empty (idle for longer than it lives, or a new model): the next call re-processes everything. */
+  private cold = false;
 
   constructor(
     private readonly rng: Rng,
@@ -33,19 +35,27 @@ export class TokenModel {
   }
 
   respond(outputChars: number, reasoning: number): RawUsage {
-    const fresh = this.pending;
+    // A cold cache reads nothing and re-processes the whole prompt.
+    const fresh = this.pending + (this.cold ? this.context : 0);
+    const cached = this.cold ? 0 : this.context;
+    this.cold = false;
     const output = tokensFor(outputChars) + reasoning + this.rng.int(4, 30);
     const usage: RawUsage =
       this.style === "anthropic"
-        ? { input: Math.min(fresh, this.rng.int(1, 12)), cacheWrite: Math.max(0, fresh - 12), cacheRead: this.context, output, reasoning }
-        : { input: fresh, cacheWrite: 0, cacheRead: this.context, output, reasoning };
-    this.context += fresh + output;
+        ? { input: Math.min(fresh, this.rng.int(1, 12)), cacheWrite: Math.max(0, fresh - 12), cacheRead: cached, output, reasoning }
+        : { input: fresh, cacheWrite: 0, cacheRead: cached, output, reasoning };
+    this.context = cached + fresh + output;
     this.pending = 0;
     return usage;
   }
 
   get contextTokens(): number {
     return this.context + this.pending;
+  }
+
+  /** The provider's cache no longer holds this prompt. */
+  expireCache(): void {
+    this.cold = true;
   }
 
   compact(): void {

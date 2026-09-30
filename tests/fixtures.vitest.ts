@@ -102,6 +102,12 @@ describe("fixture generator", () => {
         expect(steps.some((s) => s.kind === "tool" && s.result?.images)).toBe(true);
         expect(session.turns.some((t) => t.user?.images)).toBe(true);
         for (const e of ["interrupted", "error", "compaction"] as const) expect(events.has(e), e).toBe(true);
+        // The demo shows each kind of cache event: an idle-gap miss, the rebuild after the compaction and (pi) a model switch.
+        const cache = session.responses.flatMap((r) => (r.cacheEvent ? [r.cacheEvent] : []));
+        expect(cache.find((e) => e.kind === "miss")).toMatchObject({ idle: true, gapMs: expect.any(Number) });
+        expect(cache.find((e) => e.kind === "rebuild")).toBeDefined();
+        expect(cache.some((e) => e.kind === "model-switch")).toBe(harness === "pi");
+        expect(session.stats.cache).toMatchObject({ misses: 1, rebuilds: 1, modelSwitches: harness === "pi" ? 1 : 0 });
         if (harness === "claude-code") {
           for (const e of ["command", "skill"] as const) expect(events.has(e), e).toBe(true);
           expect(session.turns.some((t) => t.user?.command?.name === "/review")).toBe(true);

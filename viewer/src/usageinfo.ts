@@ -1,6 +1,6 @@
 /** Cost and out-of-scope usage figures with the tooltips that say what they mean; used by the header and the token rail. */
 import { describeCost, formatCacheMisses, formatSessionCost, formatTokens, formatUsageTotals } from "../../src/format.ts";
-import { totalTokens, type CacheEventKind, type CacheSummary, type SessionStats, type UsageTotals } from "../../src/schema.ts";
+import { totalTokens, type CacheEvent, type CacheEventKind, type CacheSummary, type ResponseUsage, type SessionStats, type UsageTotals } from "../../src/schema.ts";
 import { h, withTooltip } from "./dom.ts";
 import { svg } from "./el.ts";
 
@@ -14,6 +14,24 @@ export function tokensNode(st: SessionStats): HTMLElement {
     `cache read ${formatTokens(t.cacheRead)} · cache write ${formatTokens(t.cacheWrite)} · uncached input ${formatTokens(t.input)} · output ${formatTokens(t.output)}`,
   ]);
   return el;
+}
+
+const CACHE_KINDS: ReadonlySet<string> = new Set<CacheEventKind>(["miss", "rebuild", "model-switch"]);
+
+/**
+ * A call's cache event as the viewer may trust it. A share is untrusted input and `kind` becomes a CSS class, so an
+ * event with an unknown kind or a non-numeric size is ignored, and non-numeric gaps and costs are dropped, rather
+ * than drawing odd classes or "NaN".
+ */
+export function cacheEventOf(r: ResponseUsage): CacheEvent | undefined {
+  const e = r.cacheEvent as Partial<Record<keyof CacheEvent, unknown>> | undefined;
+  if (!e || typeof e.kind !== "string" || !CACHE_KINDS.has(e.kind)) return undefined;
+  const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined);
+  const recached = num(e.recached);
+  if (recached === undefined) return undefined;
+  const gapMs = num(e.gapMs);
+  const cost = num(e.cost);
+  return { kind: e.kind as CacheEventKind, recached, ...(gapMs !== undefined ? { gapMs } : {}), ...(e.idle === true ? { idle: true as const } : {}), ...(cost !== undefined ? { cost } : {}) };
 }
 
 /** What a cache miss is; shared by the rail heading and the header figure. */

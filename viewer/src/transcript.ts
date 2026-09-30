@@ -10,6 +10,7 @@ import { contextTokens, type EventStep, type NormalizedSession, type ResponseUsa
 import { commandName, groupCalls, groupShell, isExecTool, type CallCount } from "./commands.ts";
 import { h, markdown } from "./dom.ts";
 import { firstLine, lineDiff, preview, splitLines, trimContext, type DiffLine } from "./text.ts";
+import { cacheEventOf } from "./usageinfo.ts";
 
 export type OutlineKind = "reply" | "tools" | "subagent" | "event" | "error";
 
@@ -426,7 +427,7 @@ function turnFoot(list: ResponseUsage[] | undefined): HTMLElement | null {
     inherited ? "inherited from parent session" : inheritedCalls ? `${inheritedCalls} inherited` : "",
   ].filter(Boolean);
   // Text as well as colour: a turn with a miss says so.
-  const events = [...new Set(list.flatMap((r) => (r.cacheEvent ? [r.cacheEvent.kind] : [])))];
+  const events = [...new Set(list.flatMap((r) => cacheEventOf(r)?.kind ?? []))];
   const kinds = events.map((k) => (k === "miss" ? "cache miss" : k === "rebuild" ? "cache rebuild" : "model switch"));
   return h(
     "div",

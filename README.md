@@ -271,9 +271,13 @@ expected and counted apart: a *rebuild* (the first call after a compaction) and 
 switch* (caches are per model). Calls the agent made itself (compaction, keep-alives,
 tool-made calls) are skipped, and so are providers that report no cache tokens. Idle
 time is only the explanation, never the trigger: a miss is labelled "after 4h 31m idle"
-when the gap outlasts the cache (1 hour when the writes are billed at the 1-hour rate,
-otherwise 5 minutes; at most an hour for caches that report no writes). Providers that
-never report cache writes (OpenAI-style, xAI, GLM, DeepSeek) cache best-effort in coarse
+when the gap outlasts the cache, and only as far as the data says how long it lives: 1 hour
+when the writes are billed at the 1-hour rate, 5 minutes for Claude Code writes with no
+1-hour breakdown (Anthropic's default), and for any other agent or provider, where no
+transcript records the lifetime, only a gap over an hour. A shorter gap is still shown, just
+not called idle. Providers that
+never report cache writes (OpenAI-style, xAI, GLM, DeepSeek; Anthropic models always count as
+explicit, any other model needs writes on a quarter of at least 4 calls) cache best-effort in coarse
 blocks, so an ordinary call lags the previous prompt by a block or two; for an
 unexplained miss on those, more than half the prefix and at least 10,000 tokens must have
 been re-processed. The extra cost is the re-processed tokens at what the call paid (5-minute

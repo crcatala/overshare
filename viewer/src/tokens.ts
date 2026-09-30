@@ -8,13 +8,13 @@
  * compaction show). Output has its own row and scale: it is orders of magnitude smaller.
  */
 import { cacheEventDetail, cacheEventLabel, formatCacheSummary, formatCost, formatDuration, formatTokens, plural } from "../../src/format.ts";
-import { contextTokens, totalTokens, type CacheEventKind, type NormalizedSession, type ResponsePurpose, type ResponseUsage, type Usage } from "../../src/schema.ts";
+import { contextTokens, totalTokens, type CacheEvent, type CacheEventKind, type NormalizedSession, type ResponsePurpose, type ResponseUsage, type Usage } from "../../src/schema.ts";
 import { groupShell, isExecTool, tallyCommands } from "./commands.ts";
 import { h, hideTooltip, withTooltip } from "./dom.ts";
 import { svg } from "./el.ts";
 import { closeHoverCard, hoverCard } from "./popover.ts";
 import type { ToolCall, TurnInfo } from "./transcript.ts";
-import { CACHE_HELP, INHERITED_WHY, OTHER_BRANCHES_WHY, cacheMark, costNode, excludedNode, tokensNode } from "./usageinfo.ts";
+import { CACHE_HELP, INHERITED_WHY, OTHER_BRANCHES_WHY, cacheEventOf, cacheMark, costNode, excludedNode, tokensNode } from "./usageinfo.ts";
 
 const SEGMENTS: [keyof Usage, string, string][] = [
   ["cacheRead", "seg-cache-read", "cache read"],
@@ -39,7 +39,7 @@ function mergeMarks(marks: (CacheMark | undefined)[]): CacheMark | undefined {
   return out;
 }
 
-const markOf = (list: ResponseUsage[]): CacheMark | undefined => mergeMarks(list.map((r) => (r.cacheEvent ? { kind: r.cacheEvent.kind, count: 1 } : undefined)));
+const markOf = (list: ResponseUsage[]): CacheMark | undefined => mergeMarks(list.map((r) => { const e = cacheEventOf(r); return e ? { kind: e.kind, count: 1 } : undefined; }));
 
 interface Column {
   /** Turn indexes this column covers (several when bucketed). */
@@ -220,7 +220,7 @@ function responseTip(r: ResponseUsage, i: number, n: number): string[] {
     `Model call ${i + 1} of ${n}${r.model ? ` · ${r.model}` : ""}${r.purpose ? ` · ${PURPOSE_LABEL[r.purpose]}` : ""}${r.inherited ? " · inherited" : ""}`,
     `context ${formatTokens(contextTokens(u))}: cache read ${formatTokens(u.cacheRead)} · write ${formatTokens(u.cacheWrite)} · uncached input ${formatTokens(u.input)}`,
     `output ${formatTokens(u.output)}${u.reasoning ? ` (thinking ${formatTokens(u.reasoning)})` : ""}${u.cost !== undefined ? ` · ${formatCost(u.cost)}` : ""}`,
-    ...(r.cacheEvent ? [`${cacheEventLabel(r.cacheEvent)}: ${cacheEventDetail(r.cacheEvent)}`] : []),
+    ...[cacheEventOf(r)].flatMap((e) => (e ? [`${cacheEventLabel(e)}: ${cacheEventDetail(e)}`] : [])),
   ];
 }
 
@@ -285,7 +285,7 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
   // A provider that reports no cache tokens at all has no cache figures to show (rather than "0%").
   const cacheReported = Boolean(st.cache) || st.tokens.cacheRead + st.tokens.cacheWrite > 0;
   const cacheEvents = turns
-    .flatMap((t) => t.responses.filter((r) => r.cacheEvent && !r.inherited).map((r) => ({ e: r.cacheEvent!, t, target: t.responseSteps.get(r.id) ?? t.id })))
+    .flatMap((t) => t.responses.filter((r) => !r.inherited).flatMap((r) => { const e = cacheEventOf(r); return e ? [{ e, t, target: t.responseSteps.get(r.id) ?? t.id }] : []; }))
     // Largest first: the few that cost something lead, and a long list can be capped.
     .sort((a, b) => (b.e.cost ?? -1) - (a.e.cost ?? -1) || b.e.recached - a.e.recached);
 
@@ -316,13 +316,13 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
       ...(inherited ? { inherited: true } : {}),
       ...(cache ? { cache } : {}),
       tip: () => {
-        const found = t.responses.filter((r) => r.cacheEvent);
+        const found = t.responses.flatMap((r) => cacheEventOf(r) ?? []);
         return [
           name,
           ...(inherited ? ["inherited from the parent session"] : []),
           `context up to ${formatTokens(contextTokens(peak.usage))} · output ${formatTokens(out)}`,
           `${plural(t.responses.length, "model call")}${t.label ? ` · ${t.label.slice(0, 60)}` : ""}`,
-          ...found.slice(0, 3).map((r) => `${cacheEventLabel(r.cacheEvent!)}: ${cacheEventDetail(r.cacheEvent!)}`),
+          ...found.slice(0, 3).map((e) => `${cacheEventLabel(e)}: ${cacheEventDetail(e)}`),
           ...(found.length > 3 ? [`+${found.length - 3} more cache events`] : []),
         ];
       },
@@ -482,9 +482,9 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
 
   /** The turn's cache events, one line each ("cache miss after 4h 31m idle: 385k re-cached, ~$3.01"). */
   const cacheLines = (list: ResponseUsage[]): HTMLElement | null => {
-    const found = list.filter((r) => r.cacheEvent);
+    const found = list.flatMap((r) => cacheEventOf(r) ?? []);
     if (!found.length) return null;
-    const line = (r: ResponseUsage) => h("p", { class: `turn-cache turn-cache-${r.cacheEvent!.kind}` }, cacheMark(r.cacheEvent!.kind), h("span", {}, `${cacheEventLabel(r.cacheEvent!)}: ${cacheEventDetail(r.cacheEvent!)}`));
+    const line = (e: CacheEvent) => h("p", { class: `turn-cache turn-cache-${e.kind}` }, cacheMark(e.kind), h("span", {}, `${cacheEventLabel(e)}: ${cacheEventDetail(e)}`));
     return h("div", { class: "turn-caches" }, ...found.slice(0, 3).map(line), ...(found.length > 3 ? [h("p", { class: "turn-cache-more" }, `+${found.length - 3} more cache events`)] : []));
   };
 
@@ -508,7 +508,7 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     const peak = Math.max(...t.responses.map((r) => contextTokens(r.usage)));
     const ctxSum = contextTokens(u);
     const run = running.get(t.index);
-    const respCols: Column[] = t.responses.map((r, i) => ({ turns: [t.index], context: r.usage, output: r.usage.output, ...(r.inherited ? { inherited: true } : {}), ...(r.cacheEvent ? { cache: { kind: r.cacheEvent.kind, count: 1 } } : {}), tip: () => responseTip(r, i, n) }));
+    const respCols: Column[] = t.responses.map((r, i) => ({ turns: [t.index], context: r.usage, output: r.usage.output, ...(r.inherited ? { inherited: true } : {}), ...(markOf([r]) ? { cache: markOf([r])! } : {}), tip: () => responseTip(r, i, n) }));
     const inherited = own.length === 0;
     const respChart = chart(bucket(respCols, 60), callScale, { label: `Context per model call for ${plural(n, "call")}`, ctxH: 36, outH: 12 });
     turnBox.replaceChildren(

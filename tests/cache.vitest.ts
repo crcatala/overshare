@@ -26,22 +26,26 @@ interface Call {
   inherited?: true;
   /** Steps that come before this call's own step in the transcript (a compaction event, say). */
   before?: Step[];
+  /** The call has no step in the transcript (a call the transcript never shows). */
+  noStep?: boolean;
+  /** The cost the harness recorded for the call. */
+  cost?: number;
 }
 
 const compaction: Step = { kind: "event", id: "c", event: "compaction", text: "Context compacted" };
 
 /** A session of consecutive calls, one per turn step, with the transcript events between them. */
-function session(calls: Call[], stats: Partial<NormalizedSession["stats"]> = {}): Pick<NormalizedSession, "responses" | "turns"> & { stats: NormalizedSession["stats"] } {
+function session(calls: Call[], stats: Partial<NormalizedSession["stats"]> = {}, harness?: "claude-code" | "pi"): Pick<NormalizedSession, "responses" | "turns"> & { stats: NormalizedSession["stats"]; harness?: { name: "claude-code" | "pi" } } {
   const responses: ResponseUsage[] = [];
   const turn: Turn = { index: 0, steps: [] };
   calls.forEach((c, i) => {
     const id = `r${i}`;
-    const usage: Usage = { input: c.input ?? 10, output: c.output ?? 50, cacheRead: c.read ?? 0, cacheWrite: c.write ?? 0, reasoning: 0, ...(c.write1h ? { cacheWrite1h: c.write1h } : {}) };
+    const usage: Usage = { input: c.input ?? 10, output: c.output ?? 50, cacheRead: c.read ?? 0, cacheWrite: c.write ?? 0, reasoning: 0, ...(c.write1h ? { cacheWrite1h: c.write1h } : {}), ...(c.cost !== undefined ? { cost: c.cost } : {}) };
     responses.push({ id, turn: 0, model: c.model ?? OPUS, ...(c.min !== undefined ? { timestamp: at(c.min) } : {}), usage, ...(c.purpose ? { purpose: c.purpose } : {}), ...(c.inherited ? { inherited: c.inherited } : {}) });
     turn.steps.push(...(c.before ?? []));
-    if (!c.purpose) turn.steps.push({ kind: "text", id: `t${i}`, responseId: id, text: "x" });
+    if (!c.purpose && !c.noStep) turn.steps.push({ kind: "text", id: `t${i}`, responseId: id, text: "x" });
   });
-  return { responses, turns: [turn], stats: { rates: undefined, ...stats } as NormalizedSession["stats"] };
+  return { responses, turns: [turn], stats: { rates: undefined, ...stats } as NormalizedSession["stats"], ...(harness ? { harness: { name: harness } } : {}) };
 }
 
 const events = (s: ReturnType<typeof session>) => s.responses.map((r) => r.cacheEvent);
@@ -109,13 +113,44 @@ describe("cache miss detection", () => {
 
     it("uses a stricter rule for providers that never report cache writes (block-granular, best-effort caching)", () => {
       // OpenAI-style: a lag of one 2,304-token block is ordinary, a lost prefix is not.
-      const lag = session([{ input: 30_000 }, { input: 5_000, read: 27_648 }, { input: 4_000, read: 27_648 }, { input: 9_000, read: 30_000 }]);
+      const m = "gpt-5.6-luna";
+      const lag = session([{ input: 30_000, model: m }, { input: 5_000, read: 27_648, model: m }, { input: 4_000, read: 27_648, model: m }, { input: 9_000, read: 30_000, model: m }]);
       markCacheEvents(lag);
       expect(events(lag)).toEqual([undefined, undefined, undefined, undefined]);
-      const lost = session([{ input: 30_000, read: 0 }, { input: 500, read: 29_500 }, { input: 32_000, read: 0 }]);
+      const lost = session([{ input: 30_000, read: 0, model: m }, { input: 500, read: 29_500, model: m }, { input: 32_000, read: 0, model: m }]);
       markCacheEvents(lost);
       expect(lost.responses[2]!.cacheEvent).toMatchObject({ kind: "miss", recached: 30_000 });
       expect(MISS_RULE.implicit.tokens).toBeGreaterThan(MISS_RULE.explicit.tokens);
+    });
+
+    it("treats a Claude model as explicit however few calls a short session has", () => {
+      // 3 calls, one 6,000-token loss: enough to tell only because Anthropic caching is explicit by definition.
+      const s = session([{ input: 0, write: 100_000 }, { input: 0, read: 100_000, write: 10 }, { input: 0, read: 94_000, write: 6_010 }]);
+      markCacheEvents(s);
+      expect(s.responses[2]!.cacheEvent).toMatchObject({ kind: "miss", recached: 6_010 });
+    });
+
+    it("does not let a stray write make another model's cache explicit: 1 write in 3 calls, or 1% of a long session", () => {
+      const m = "gpt-5.6-terra";
+      const short = session([{ input: 30_000, model: m }, { input: 3_000, read: 27_000, write: 10, model: m }, { input: 4_500, read: 28_500, model: m }]);
+      markCacheEvents(short);
+      // The 4,500-token lag would be a miss under the explicit rule.
+      expect(short.responses[2]!.cacheEvent).toBeUndefined();
+      const long = session(Array.from({ length: 200 }, (_, i) => ({ input: i === 0 ? 30_000 : 4_500, read: i === 0 ? 0 : 27_000 + i, write: i === 100 ? 10 : 0, model: m })));
+      markCacheEvents(long);
+      expect(long.responses.filter((r) => r.cacheEvent)).toHaveLength(0);
+    });
+
+    it("treats a non-Claude model that writes on nearly every call as explicit once there are enough calls to tell", () => {
+      const m = "gpt-5.6-terra";
+      const calls = [{ input: 0, write: 30_000, model: m }, { input: 0, read: 30_000, write: 500, model: m }, { input: 0, read: 30_500, write: 500, model: m }, { input: 0, read: 26_500, write: 4_500, model: m }];
+      const s = session(calls);
+      markCacheEvents(s);
+      expect(s.responses[3]!.cacheEvent).toMatchObject({ kind: "miss", recached: 4_500 });
+      // With only 3 calls the same loss is not evidence of an explicit cache.
+      const three = session(calls.slice(0, 2).concat({ input: 0, read: 26_500, write: 4_500, model: m }));
+      markCacheEvents(three);
+      expect(three.responses[2]!.cacheEvent).toBeUndefined();
     });
   });
 
@@ -127,6 +162,25 @@ describe("cache miss detection", () => {
       expect(s.responses[3]!.cacheEvent).toBeUndefined();
       expect(summary).toMatchObject({ misses: 0, rebuilds: 1 });
       expect(summary?.extraCost).toBeUndefined();
+    });
+
+    it("pins how a compaction is matched to the next call: two compaction signals make one rebuild, and a call with no step is never one", () => {
+      // Claude Code writes both a boundary and a summary entry for one compaction.
+      const doubled = session([{ write: 200_000 }, { input: 5, read: 4_000, write: 21_000, before: [compaction, { ...compaction, id: "c2", text: "Compaction summary" }] }, { read: 25_000, write: 400 }]);
+      const summary = markCacheEvents(doubled);
+      expect(events(doubled).map((e) => e?.kind)).toEqual([undefined, "rebuild", undefined]);
+      expect(summary).toMatchObject({ rebuilds: 1, misses: 0 });
+      // A call the transcript shows no step for cannot be placed after a compaction, so it is judged on its numbers
+      // alone (a miss), and the compaction is credited to the next call that has a step. Pinned so the comparison
+      // does not quietly change: such calls are rare (an assistant message always has a block).
+      const stepless = session([{ write: 200_000 }, { input: 5, read: 4_000, write: 21_000, before: [compaction], noStep: true }, { input: 5, read: 4_000, write: 21_000 }]);
+      markCacheEvents(stepless);
+      expect(stepless.responses[1]!.cacheEvent?.kind).toBe("miss");
+      expect(stepless.responses[2]!.cacheEvent?.kind).toBe("rebuild");
+      // Without a compaction anywhere, a step-less call is just a call.
+      const plain = session([{ write: 200_000 }, { read: 200_000, write: 10, noStep: true }, { read: 200_010, write: 10 }]);
+      markCacheEvents(plain);
+      expect(events(plain)).toEqual([undefined, undefined, undefined]);
     });
 
     it("does not flag a compaction that the next call handled from cache", () => {
@@ -220,10 +274,33 @@ describe("cache miss detection", () => {
       expect(e.idle).toBeUndefined();
     });
 
-    it("uses 5 minutes as the lifetime when writes are not billed at the 1-hour rate", () => {
-      const s = session([{ write: 90_000, min: 0 }, { read: 24_000, write: 66_000, min: 26 }]);
+    it("uses 5 minutes as the lifetime for Claude Code writes with no 1-hour breakdown (Anthropic's default)", () => {
+      const s = session([{ write: 90_000, min: 0 }, { read: 24_000, write: 66_000, min: 26 }], {}, "claude-code");
       markCacheEvents(s);
       expect(s.responses[1]!.cacheEvent).toMatchObject({ gapMs: 26 * 60_000, idle: true });
+    });
+
+    it("does not call a gap under an hour idle when nothing records the cache lifetime (any other agent)", () => {
+      // pi with an explicit cache and no 1-hour writes: 5 minutes is a guess, so the gap is shown but not called idle.
+      const explicit = session([{ write: 90_000, min: 0 }, { read: 24_000, write: 66_000, min: 44 }, { read: 90_000, write: 10, min: 45 }, { read: 24_000, write: 66_010, min: 140 }], {}, "pi");
+      markCacheEvents(explicit);
+      expect(explicit.responses[1]!.cacheEvent).toMatchObject({ kind: "miss", gapMs: 44 * 60_000 });
+      expect(explicit.responses[1]!.cacheEvent!.idle).toBeUndefined();
+      // A gap longer than any cache lives is still explained.
+      expect(explicit.responses[3]!.cacheEvent).toMatchObject({ gapMs: 95 * 60_000, idle: true });
+      // The same for a model that reports writes on every call but is not an Anthropic model.
+      const m = "gpt-5.6-terra";
+      const odd = session([{ write: 90_000, model: m, min: 0 }, { read: 24_000, write: 66_000, model: m, min: 44 }, { read: 90_000, write: 10, model: m, min: 45 }, { read: 90_000, write: 10, model: m, min: 46 }], {}, "pi");
+      markCacheEvents(odd);
+      expect(odd.responses[1]!.cacheEvent).toMatchObject({ kind: "miss", gapMs: 44 * 60_000 });
+      expect(odd.responses[1]!.cacheEvent!.idle).toBeUndefined();
+    });
+
+    it("keeps the 1-hour lifetime evidenced by 1-hour writes, in any agent", () => {
+      const s = session([{ write: 90_000, write1h: 90_000, min: 0 }, { read: 24_000, write: 66_000, write1h: 66_000, min: 44 }, { read: 90_000, write: 10, write1h: 10, min: 45 }, { read: 24_000, write: 66_010, write1h: 66_010, min: 140 }], {}, "pi");
+      markCacheEvents(s);
+      expect(s.responses[1]!.cacheEvent!.idle).toBeUndefined();
+      expect(s.responses[3]!.cacheEvent!.idle).toBe(true);
     });
 
     it("gives no gap without timestamps, and still flags the miss", () => {
@@ -308,6 +385,18 @@ describe("cache miss detection", () => {
       const summary = markCacheEvents(s);
       expect(s.responses[1]!.cacheEvent!.cost).toBeCloseTo((100_000 * (2.5 - 0.25)) / 1e6, 9);
       expect(summary?.extraCost).toBeCloseTo(0.225, 9);
+    });
+
+    it("shows no dollars for a call the harness recorded as free, even for a model the price table knows", () => {
+      const s = session([{ write: 90_000, cost: 0 }, { read: 20_000, write: 70_000, cost: 0 }]);
+      const summary = markCacheEvents(s);
+      expect(s.responses[1]!.cacheEvent).toMatchObject({ kind: "miss" });
+      expect(s.responses[1]!.cacheEvent!.cost).toBeUndefined();
+      expect(summary?.extraCost).toBeUndefined();
+      // A priced call of the same model still gets its cost.
+      const paid = session([{ write: 90_000, cost: 1 }, { read: 20_000, write: 70_000, cost: 1 }]);
+      markCacheEvents(paid);
+      expect(paid.responses[1]!.cacheEvent!.cost).toBeGreaterThan(0);
     });
 
     it("counts only unexpected misses in the summary's extra cost, and marks it partial when some were unpriced", () => {

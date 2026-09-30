@@ -354,3 +354,23 @@ describe("terminology", () => {
     expect(el.querySelector(".rail-turn")!.textContent).toContain("2 model calls");
   });
 });
+
+describe("a share is untrusted input", () => {
+  it("ignores a cache event with an unknown kind or a non-numeric size, and drops bad gaps and costs", () => {
+    const bad = { kind: "miss evil", recached: 5_000 } as unknown as CacheEvent;
+    const noSize = { kind: "miss", recached: "lots" } as unknown as CacheEvent;
+    const junk = { kind: "miss", recached: 5_000, gapMs: "soon", cost: Number.NaN, idle: "yes" } as unknown as CacheEvent;
+    const s = build([{ turn: 0 }, { turn: 1, event: bad }, { turn: 2, event: noSize }, { turn: 3, event: junk }], { cache: summary({ misses: 3 }) });
+    const { el, transcript, setActive } = rail(s);
+    // Only the third is a usable event: a miss of 5.0k, with no gap, cost or idle claim.
+    const rows = Array.from(el.querySelectorAll("button.cache-row"), (r) => Array.from(r.querySelectorAll("span"), (x) => x.textContent));
+    expect(rows).toEqual([["4", "miss", "–", "5.0k", "–"]]);
+    expect(el.querySelectorAll(".marks .mark")).toHaveLength(1);
+    setActive(3);
+    expect(el.querySelector(".rail-turn .turn-cache")!.textContent).toBe("cache miss: 5.0k re-cached");
+    expect(document.body.innerHTML).not.toMatch(/NaN|evil|undefined/);
+    const foots = Array.from(transcript.querySelectorAll(".turn-foot"), (f) => f.querySelectorAll(".foot-cache").length);
+    expect(foots).toEqual([0, 0, 0, 1]);
+    expect(el.querySelector('[class*="evil"]')).toBeNull();
+  });
+});

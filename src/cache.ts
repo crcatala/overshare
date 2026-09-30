@@ -32,13 +32,16 @@ export const MISS_RULE = {
   implicit: { fraction: 0.5, tokens: 10_000 },
 } as const;
 
+/** Calls of a model needed before the share of them that write says whether its cache is explicit. */
+const EXPLICIT_MIN_CALLS = 4;
 const HOUR_MS = 3_600_000;
 const FIVE_MIN_MS = 300_000;
 
 /** What the extra cost of `recached` tokens is estimated from: recorded rates when the harness has them, else the price table. */
 function extraCost(model: string | undefined, u: Usage, recached: number, rates: Record<string, TokenRates> | undefined): number | undefined {
   const uncached = u.input + u.cacheWrite;
-  if (uncached <= 0) return undefined;
+  // A call the harness recorded as free (a subscription or free tier) has no dollars to lose, whatever list price says.
+  if (uncached <= 0 || u.cost === 0) return undefined;
   const recorded = model ? rates?.[model] : undefined;
   let input: number, read: number, write5: number, write1: number;
   if (recorded) {
@@ -63,15 +66,17 @@ const timeOf = (r: ResponseUsage): number => (r.timestamp ? Date.parse(r.timesta
  * elsewhere) and summarize the session's own calls. Undefined when no call reports prompt caching.
  * Run on the full session, before any share-mode projection.
  *
- * The idle gap explains a miss when it is longer than the cache lives: an hour when the model's cache
- * writes are billed at the 1-hour rate, 5 minutes for other Anthropic-style writes, and (best-effort
- * caches with no writes to go by) at most an hour.
+ * The idle gap explains a miss only when it is longer than the cache can live, and we only claim what
+ * the data supports: an hour when the model's writes are billed at the 1-hour rate, 5 minutes for
+ * Claude Code writes with no 1-hour breakdown (Anthropic's default), and otherwise (any other agent
+ * or provider, whose lifetime no transcript records) the hour that outlasts every cache we know of.
+ * A shorter gap is still shown, just not called idle.
  *
  * Not events: the first call of a session, the first own call after a fork's inherited history, the
  * first call after a call with no usage, calls the harness made itself (`purpose`), and calls on a
  * model that never reports cache tokens (the provider does no caching, or hides it).
  */
-export function markCacheEvents(session: Pick<NormalizedSession, "responses" | "turns"> & { stats?: Pick<NormalizedSession["stats"], "rates"> }): CacheSummary | undefined {
+export function markCacheEvents(session: Pick<NormalizedSession, "responses" | "turns"> & { harness?: Pick<NormalizedSession["harness"], "name">; stats?: Pick<NormalizedSession["stats"], "rates"> }): CacheSummary | undefined {
   // Which calls follow a compaction, from the order of steps in the transcript.
   const compactionsBefore = new Map<string, number>();
   let compactions = 0;
@@ -83,19 +88,25 @@ export function markCacheEvents(session: Pick<NormalizedSession, "responses" | "
   }
 
   // What each model's usage says about its provider's caching.
-  const models = new Map<string, { calls: number; writes: number; reports: boolean; explicit: boolean; ttl: number }>();
+  const claudeCode = session.harness?.name === "claude-code";
+  const models = new Map<string, { calls: number; writes: number; reports: boolean; explicit: boolean; oneHour: boolean; ttl: number }>();
   for (const r of session.responses) {
     if (r.purpose) continue;
-    const m = models.get(r.model ?? "") ?? { calls: 0, writes: 0, reports: false, explicit: false, ttl: FIVE_MIN_MS };
+    const m = models.get(r.model ?? "") ?? { calls: 0, writes: 0, reports: false, explicit: false, oneHour: false, ttl: HOUR_MS };
     m.calls += 1;
     if (r.usage.cacheRead + r.usage.cacheWrite > 0) m.reports = true;
     if (r.usage.cacheWrite > 0) m.writes += 1;
     // Writes billed at the 1-hour rate mean the entry lives for an hour (Anthropic's default is 5 minutes).
-    if ((r.usage.cacheWrite1h ?? 0) > 0) m.ttl = HOUR_MS;
+    if ((r.usage.cacheWrite1h ?? 0) > 0) m.oneHour = true;
     models.set(r.model ?? "", m);
   }
-  // Anthropic-style caching writes on nearly every call; a stray write on an implicit cache (1% of one GPT model's calls) does not make it explicit.
-  for (const m of models.values()) m.explicit = m.writes >= m.calls * 0.25;
+  for (const [model, m] of models) {
+    // Anthropic models cache explicitly by definition. For any other model go by what it reports: writes on
+    // nearly every call, over enough calls to tell (a stray write on an implicit cache, 1% of one GPT
+    // model's calls or 1 call in 3, does not make it explicit).
+    m.explicit = (model !== "" && findPrice(model) !== undefined) || (m.calls >= EXPLICIT_MIN_CALLS && m.writes >= m.calls * 0.25);
+    m.ttl = m.oneHour || !(claudeCode && m.explicit) ? HOUR_MS : FIVE_MIN_MS;
+  }
   const rates = session.stats?.rates;
 
   const sum = { requests: 0, cacheRead: 0, context: 0, misses: 0, rebuilds: 0, modelSwitches: 0, recached: 0, cost: 0, priced: 0, unpriced: 0 };
@@ -134,7 +145,7 @@ export function markCacheEvents(session: Pick<NormalizedSession, "responses" | "
         const event: CacheEvent = { kind, recached };
         if (Number.isFinite(gap) && gap >= 0) {
           event.gapMs = gap;
-          if (kind === "miss" && gap > (profile!.explicit ? profile!.ttl : HOUR_MS)) event.idle = true;
+          if (kind === "miss" && gap > profile!.ttl) event.idle = true;
         }
         const cost = extraCost(r.model, r.usage, recached, rates);
         if (cost !== undefined) event.cost = cost;

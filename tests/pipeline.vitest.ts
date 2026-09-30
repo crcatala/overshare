@@ -65,7 +65,7 @@ describe("prepareShare", () => {
     });
     expect(json).not.toContain("/home/tester");
     expect(session).toMatchObject({
-      schema: "agentshare/1",
+      schema: "agentshare/2",
       mode: "brief",
       title: "check the env for ~/work/demo",
       project: { cwd: "~/work/demo", name: "demo" },

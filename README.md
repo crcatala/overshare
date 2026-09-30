@@ -2,7 +2,7 @@
 
 Share coding-agent sessions (Claude Code, pi) as **redacted, unlisted links** with a
 static viewer. Transcripts are normalized into one harness-agnostic format
-(`agentshare/1`), redacted locally, projected to a share mode, re-scanned, and only
+(`agentshare/2`), redacted locally, projected to a share mode, re-scanned, and only
 then uploaded as a public-by-link file (a secret GitHub gist or a public R2 bucket).
 
 ```

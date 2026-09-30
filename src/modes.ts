@@ -53,7 +53,7 @@ export function projectSession(session: NormalizedSession, mode: ShareMode, opts
   return { ...session, mode, turns: session.turns.map((turn) => project({ ...turn, activity: turn.activity ?? turnActivity(turn) })) };
 }
 
-/** Also works on older brief/minimal shares that have no precomputed activity. */
+/** Counts from the full session's steps; every projection carries the result, so it is computed once, before any steps are collapsed. */
 function turnActivity(turn: Turn): TurnActivity {
   let toolCalls = 0;
   let toolErrors = 0;
@@ -64,10 +64,6 @@ function turnActivity(turn: Turn): TurnActivity {
       if (s.isError || s.result?.isError) toolErrors++;
       const action = s.action === "edit" ? "edited" : s.action === "write" ? "written" : s.action === "read" ? "read" : undefined;
       if (action) for (const file of s.files ?? []) files[action].add(file);
-    } else if (s.kind === "toolGroup") {
-      toolCalls += s.total;
-      toolErrors += s.calls.reduce((sum, c) => sum + c.errors, 0);
-      for (const action of ["read", "edited", "written"] as const) for (const file of s.files[action]) files[action].add(file);
     } else if (s.kind === "subagent") {
       toolCalls++;
       if (s.isError || s.result?.isError) toolErrors++;

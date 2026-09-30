@@ -27,6 +27,31 @@ import {
 
 type Entry = Record<string, any>;
 
+/**
+ * Only lines a person authored may start a turn (and so survive prompts mode). `origin` is absent
+ * on older transcripts and `{kind: "human"}` on current ones; any other kind (task-notification,
+ * and whatever Claude Code adds next) is harness-generated text, so an unknown kind fails closed.
+ */
+function isHumanOrigin(origin: unknown): boolean {
+  if (origin === undefined || origin === null) return true;
+  return typeof origin === "object" && (origin as Entry).kind === "human";
+}
+
+const originLabel = (origin: unknown): string => {
+  const kind = origin && typeof origin === "object" ? (origin as Entry).kind : undefined;
+  return typeof kind === "string" && kind ? kind : "unknown";
+};
+
+/** Background subagent completion: `<task-notification>` with the agent's final answer in `<result>`. */
+function parseTaskNotification(text: string): { toolUseId?: string; result: string } {
+  const at = text.indexOf("<result>");
+  // Read ids only from the header so text inside the answer cannot redirect it to another step.
+  const header = at === -1 ? text : text.slice(0, at);
+  const toolUseId = /<tool-use-id>\s*([^<\s]+)\s*<\/tool-use-id>/.exec(header)?.[1];
+  const result = at === -1 ? "" : (/^<result>([\s\S]*)<\/result>/.exec(text.slice(at))?.[1] ?? "");
+  return { toolUseId, result: stripInjectedContext(result) };
+}
+
 const CONVERSATION_TYPES = new Set(["user", "assistant", "system"]);
 
 export function parseClaudeCode(raw: string, options: AdapterOptions = {}): AdapterResult {
@@ -103,6 +128,10 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
       const a = e.attachment ?? {};
       // Prompts typed while the agent was busy arrive as queued_command attachments.
       if (a.type === "queued_command" && a.commandMode === "prompt" && typeof a.prompt === "string" && a.prompt.trim()) {
+        if (!isHumanOrigin(a.origin)) {
+          bump(dropped, `origin:${originLabel(a.origin)}`);
+          continue;
+        }
         promptFromCommand();
         b.startTurn({ text: stripInjectedContext(a.prompt) }, timestamp);
         continue;
@@ -162,6 +191,14 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
         } else {
           bump(dropped, "meta");
         }
+        continue;
+      }
+      // Harness-generated user lines (background subagent completions) are not prompts.
+      if (!isHumanOrigin(e.origin)) {
+        const kind = originLabel(e.origin);
+        const notification = kind === "task-notification" ? parseTaskNotification(rawText) : undefined;
+        if (notification?.toolUseId && b.completeSubagent(notification.toolUseId, notification.result)) bump(dropped, "task-notification");
+        else bump(dropped, notification ? "task-notification:unmatched" : `origin:${kind}`);
         continue;
       }
       if (handleCommandMarkup(rawText, timestamp)) continue;

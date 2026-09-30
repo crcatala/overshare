@@ -46,9 +46,7 @@ export function describeCost(stats: SessionStats): string[] {
   const how =
     stats.costSource === "estimated"
       ? "Estimated at API list price from the tokens in this transcript."
-      : stats.costSource === "session-total"
-        ? "The agent's running total for its last process; it can undercount a resumed session."
-        : "Recorded by the agent for each model call, at list price.";
+      : "Recorded by the agent for each model call, at list price.";
   const lines = ["Estimated cost", how, "Not a bill: subscription plans are not charged per token."];
   if (stats.costPartial) lines.push("Some calls have no cost (a model with no known price, or none recorded), so this is a lower bound.");
   if (stats.costSource === "estimated") lines.push("Can undercount: long-context, fast-mode and regional price surcharges are not modelled.");

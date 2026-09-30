@@ -165,6 +165,7 @@ export class TurnBuilder {
   readonly responses: ResponseUsage[] = [];
   private readonly responseIndex = new Map<string, ResponseUsage>();
   private readonly pendingTools = new Map<string, ToolStep | SubagentStep>();
+  private readonly subagentSteps = new Map<string, SubagentStep>();
   private stepSeq = 0;
 
   startTurn(user: UserPrompt, timestamp?: string): Turn {
@@ -205,6 +206,7 @@ export class TurnBuilder {
       const step: SubagentStep = { kind: "subagent", id: callId, ...meta, ...describeSubagent(name, input) };
       this.addStep(step);
       this.pendingTools.set(callId, step);
+      this.subagentSteps.set(callId, step);
       return;
     }
     const info = describeTool(name, input);
@@ -226,6 +228,19 @@ export class TurnBuilder {
         step.mode = (details as Record<string, unknown>).mode as string;
       }
     }
+  }
+
+  /**
+   * A background subagent finished: attach its (bounded) final answer to the step that launched
+   * it, replacing the "launched" acknowledgement. Returns false when no such launch is known.
+   */
+  completeSubagent(callId: string, text: string): boolean {
+    const step = this.subagentSteps.get(callId);
+    if (!step) return false;
+    step.async = true;
+    const body = text.trim();
+    if (body) step.result = boundedResult(body, SUBAGENT_RESULT_CHARS);
+    return true;
   }
 
   /**
@@ -266,6 +281,14 @@ export class TurnBuilder {
       }
     }
   }
+}
+
+/** Cap on the subagent answer kept per launching step (a bounded summary, not a transcript). */
+export const SUBAGENT_RESULT_CHARS = 4000;
+
+function boundedResult(text: string, max: number): ToolResult {
+  if (text.length <= max) return { text };
+  return { text: `${text.slice(0, max)}\n… [truncated ${text.length - max} chars]`, truncatedFrom: text.length };
 }
 
 export const usageTokens = (u: Usage): number => u.input + u.output + u.cacheRead + u.cacheWrite;

@@ -139,7 +139,7 @@ describe("local share index", () => {
     const dir = mkdtempSync(join(tmpdir(), "as-idx-"));
     const good = join(dir, "a.json");
     const bad = join(dir, "b.json");
-    writeFileSync(good, JSON.stringify({ schema: "agentshare/1", title: "T", harness: { name: "pi" }, mode: "brief", stats: { turns: 3 }, project: { name: "app", branch: "main" }, startedAt: "2026-01-01T00:00:00Z" }));
+    writeFileSync(good, JSON.stringify({ schema: "agentshare/2", title: "T", harness: { name: "pi" }, mode: "brief", stats: { turns: 3 }, project: { name: "app", branch: "main" }, startedAt: "2026-01-01T00:00:00Z" }));
     writeFileSync(bad, "{not json");
     const { server, url } = await startViewerServer({ port: 0, host: "127.0.0.1", files: [good, bad] });
     try {
@@ -165,7 +165,7 @@ describe("serve with unusual file names", () => {
     const { startViewerServer } = await import("../src/serve.js");
     const dir = mkdtempSync(join(tmpdir(), "as-pct-"));
     const src = join(dir, "src.json");
-    writeFileSync(src, JSON.stringify({ schema: "agentshare/1", title: "pct" }));
+    writeFileSync(src, JSON.stringify({ schema: "agentshare/2", title: "pct" }));
     const file = join(dir, "50%off.json");
     copyFileSync(src, file);
     const { server, url } = await startViewerServer({ port: 0, host: "127.0.0.1", files: [file] });

@@ -1,6 +1,6 @@
 ---
 id: ass-xz9u
-status: open
+status: closed
 deps: []
 links: [ass-75mx, ass-z5og, ass-5r99, ass-zc54, ass-rc52, ass-cjrn]
 created: 2026-09-30T14:55:28Z
@@ -34,3 +34,17 @@ Existing tests and fixtures only model the older attachment form (`queued_comman
 - Audit the local corpus: count user lines with `origin` set, per kind; confirm none are human prompts that would now vanish. Report in the PR.
 - `npm test`, `npm run typecheck`, `npm run build` pass.
 
+
+## Notes
+
+**2026-09-30T15:01:31Z**
+
+Fix implemented on fix/task-notification-turns: user lines are classified by origin (absent or kind=human is authored; any other kind fails closed and never starts a turn). Task-notification results attach to the launching SubagentStep by tool-use-id (bounded to 4000 chars, async=true, XML never shown, notification usage ignored). Corpus audit: origin kinds seen = human, task-notification only.
+
+**2026-09-30T15:02:20Z**
+
+Shipped in PR (fix/task-notification-turns). Validation: 9 new tests (8 fail without the fix); corpus 97 Claude sessions, origin kinds human + task-notification only, 0 human prompts affected; synthetic session 2b450029 goes from 3 turns (prompts mode leaked the subagent answer) to 1 turn. Follow-ups: background Bash task-notifications (5 in corpus) are dropped, not attached to their Bash step; already-published prompts-mode shares from affected sessions still contain the text.
+
+**2026-09-30T15:24:49Z**
+
+Follow-up in the same PR: dropped old-format handling (schema bumped to agentshare/2, 'session-total' cost source and the toolGroup activity recompute removed, notifications recognised by origin only).

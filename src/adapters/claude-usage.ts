@@ -28,6 +28,23 @@ export function mapClaudeUsage(u: Entry): Usage {
   };
 }
 
+/**
+ * What Claude Code's tool result for an Agent call says about the subagent that is worth keeping: its tool count and
+ * wall time. Its `totalTokens` and `usage` describe only the subagent's last model call, so they are not read;
+ * the totals come from the subagent's transcript.
+ */
+export function subagentCountsFrom(details: unknown): SubagentUsage | undefined {
+  if (!details || typeof details !== "object") return undefined;
+  const d = details as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const usage: SubagentUsage = {};
+  const toolUses = num(d.totalToolUseCount);
+  const durationMs = num(d.totalDurationMs);
+  if (toolUses !== undefined) usage.toolUses = toolUses;
+  if (durationMs !== undefined) usage.durationMs = durationMs;
+  return Object.keys(usage).length > 0 ? usage : undefined;
+}
+
 /** The id a response is deduplicated by: a message split over several lines repeats its `message.id`. */
 export const responseKey = (e: Entry): string | undefined => e.message?.id ?? (typeof e.uuid === "string" ? e.uuid : undefined);
 
@@ -79,7 +96,7 @@ export function readSubagentRuns(files: readonly SubagentFileInput[], mainKeys: 
   for (const file of [...files].sort((a, b) => (a.fileName < b.fileName ? -1 : a.fileName > b.fileName ? 1 : 0))) {
     const entries = parseLines(file.raw);
     const base = file.fileName.split(/[\\/]/).at(-1) ?? file.fileName;
-    const agentId = /^agent-(.+?)(?:\.jsonl)?$/.exec(base)?.[1] ?? str(entries.find((e) => str(e.agentId))?.agentId) ?? base;
+    const agentId = base.replace(/^agent-/, "").replace(/\.jsonl$/, "");
 
     const calls = new Map<string, ResponseUsage>();
     const tools = new Set<string>();

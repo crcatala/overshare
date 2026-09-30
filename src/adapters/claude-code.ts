@@ -1,12 +1,11 @@
 import { totalsOf, type ResponseUsage } from "../schema.js";
-import { linkSubagentRuns, mapClaudeUsage, readSubagentRuns, responseKey } from "./claude-usage.js";
+import { linkSubagentRuns, mapClaudeUsage, readSubagentRuns, responseKey, subagentCountsFrom } from "./claude-usage.js";
 import {
   TurnBuilder,
   baseSession,
   bump,
   estimateCosts,
   projectNameFromCwd,
-  subagentUsageFrom,
   usageTokens,
   stripInjectedContext,
   type AdapterOptions,
@@ -89,7 +88,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   const ordered = branchEntries(entries, options.leafId);
   // The tool result of an Agent call reports the subagent's last model call, not a total, so its token
   // figures are not shown as one; the totals come from the subagent transcripts (see claude-usage.ts).
-  const b = new TurnBuilder({ subagentUsage: (details) => subagentUsageFrom(details, { tokens: false }) });
+  const b = new TurnBuilder({ subagentUsage: subagentCountsFrom });
   const models: string[] = [];
   let pendingCommand: { name: string; args?: string; timestamp?: string } | undefined;
   let startedAt: string | undefined;

@@ -526,12 +526,6 @@ describe("files that are missing or damaged", () => {
     expect(session.stats.subagentUsage).toMatchObject({ agents: 1, responses: 1 });
     expect(session.stats.subagentUsage!.unlinked).toMatchObject({ agents: 2, responses: 0 });
   });
-
-  it("takes the agent id from the file name, or from the lines when the name has none", () => {
-    const named: SubagentFileInput = { fileName: "weird-name.jsonl", raw: `${JSON.stringify({ ...call("msg_1", [text("x")], usage(1, 1, 1, 1)), agentId: "from-line" })}\n` };
-    const { session } = parse(mainWithLaunch({ kind: "async" }, { agentId: "from-line" }), [named]);
-    expect(subagentSteps(session)[0]!.usage).toMatchObject({ turns: 1 });
-  });
 });
 
 describe("loadSubagentFiles", () => {

@@ -4,9 +4,8 @@
  *   npm run dev          Vite dev server at /session/ with HMR (CSS hot-swaps; TS edits
  *                        reload the page, which keeps the session since it lives in the
  *                        URL hash). Local shares are served at /session/local/ — the
- *                        fixture sessions by default (generated on first run and
- *                        whenever the saved ones are from an older schema), or the
- *                        files in $AGENT_SHARE_DEV_SHARES.
+ *                        fixture sessions by default (regenerated on every start),
+ *                        or the files in $AGENT_SHARE_DEV_SHARES.
  *   npm run build:viewer viewer/dist/session/ (relative asset URLs, so any base path
  *                        works) plus _headers, _redirects and robots.txt in viewer/dist/.
  *

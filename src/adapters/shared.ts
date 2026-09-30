@@ -144,27 +144,22 @@ export function describeSubagent(name: string, input: unknown): Omit<SubagentSte
   };
 }
 
-/**
- * Pull numeric usage stats out of a subagent tool result's structured details, if present.
- * `tokens: false` ignores the token figures and keeps the tool and duration counts: Claude Code's
- * tool result reports the subagent's last model call there, not a total (see `src/adapters/claude-subagents.ts`).
- */
-export function subagentUsageFrom(details: unknown, opts: { tokens?: boolean } = {}): SubagentStep["usage"] | undefined {
+/** Pull numeric usage stats out of a pi subagent tool result's structured details (`totalChildUsage`), if present. */
+export function subagentUsageFrom(details: unknown): SubagentStep["usage"] | undefined {
   if (!details || typeof details !== "object") return undefined;
   const d = details as Record<string, unknown>;
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
-  const withTokens = opts.tokens !== false;
-  const child = (withTokens ? (d.totalChildUsage ?? d.usage) : undefined) as Record<string, unknown> | undefined;
+  const child = d.totalChildUsage as Record<string, unknown> | undefined;
   const usage: NonNullable<SubagentStep["usage"]> = {};
   if (child && typeof child === "object") {
-    usage.input = num(child.input) ?? num(child.input_tokens);
-    usage.output = num(child.output) ?? num(child.output_tokens);
-    usage.cacheRead = num(child.cacheRead) ?? num(child.cache_read_input_tokens);
-    usage.cacheWrite = num(child.cacheWrite) ?? num(child.cache_creation_input_tokens);
+    usage.input = num(child.input);
+    usage.output = num(child.output);
+    usage.cacheRead = num(child.cacheRead);
+    usage.cacheWrite = num(child.cacheWrite);
     usage.cost = num(child.cost);
     usage.turns = num(child.turns);
   }
-  if (withTokens) usage.totalTokens = num(d.totalTokens);
+  usage.totalTokens = num(d.totalTokens);
   usage.toolUses = num(d.totalToolUseCount);
   usage.durationMs = num(d.totalDurationMs);
   const cleaned = Object.fromEntries(Object.entries(usage).filter(([, v]) => v !== undefined));

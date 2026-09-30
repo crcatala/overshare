@@ -56,13 +56,13 @@ not merely hidden by the viewer.
 | `prompts` | Only authored user prompts, followed by a compact, non-expandable activity line: tool calls/errors, unique files read/edited/written, thinking tokens and output tokens. No replies, thinking text, filenames, commands, tool inputs/results, subagent descriptions/results, event details, or expanded template/skill instructions. |
 
 All modes keep metadata (harness, models, repo/branch, duration, tool counts, tokens,
-cost) and per-response token usage. The viewer's **view mode dropdown** can step *down*
+cost) and per-model-call token usage. The viewer's **view mode dropdown** can step *down*
 (full → brief → minimal → prompts) but never up; unavailable modes explain which detail
 was not published. The dropdown is also available in the sticky header, including on mobile.
 
 Activity counts are per turn; repeated reads/edits of the same file count once per action,
 while every tool invocation (including subagent calls) counts. Zero or unavailable token
-metrics are omitted. “Output tokens” means reported model-response output, including
+metrics are omitted. “Output tokens” means reported model-call output, including
 thinking and tool-call generation—not a measurement of final-reply prose alone. Prompts
 shares retain only numeric turn activity and token usage alongside authored prompts and
 session metadata; the omitted content is stripped **before redaction and upload**.
@@ -228,11 +228,12 @@ Around the transcript, without pushing it off-center:
 - **Contents rail** (left): one row per prompt with its time and tool count; "all" adds
   the replies, tool runs and events inside each turn. Filter with `/`, click to jump; the
   turn in view is highlighted.
-- **Token rail** (right): session totals; *context by turn* — the largest prompt sent in
-  each turn (stacked cache read / cache write / new input) with its output on a row below;
-  the turn in view is marked and bars jump to their turn — then *the turn in view*, one
-  bar per model call on the same session-wide scale (so turns can be compared), tool
-  counts and files. Each chart labels the top of its scale.
+- **Token rail** (right): session totals; a *Cache* list of cache misses (below);
+  *context by turn* — the largest prompt sent in each turn (stacked cache read / cache
+  write / uncached input) with its output on a row below; the turn in view is marked and
+  bars jump to their turn — then *the turn in view*, one bar per model call on the same
+  session-wide scale (so turns can be compared), tool counts and files. Each chart labels
+  the top of its scale.
 - **Header**: title, agent/model/project/date, key stats, where the share was loaded
   from and that it isn't verified, and the controls (view mode, theme, settings, share).
   Once it scrolls away a one-line **minibar** takes over with the turn in view, reading
@@ -251,7 +252,37 @@ cache-write split with the price table in `src/pricing-data.ts` (regenerate it w
 `node scripts/update-prices.mjs`; older models pi's catalog lacks are kept by hand in
 `src/pricing.ts`). A model with no known price adds no cost rather than zero, and the
 total then ends in `+`. The estimate can undercount: long-context, fast-mode and regional
-price surcharges are not modelled. Thinking tokens are part of output.
+price surcharges are not modelled. Thinking tokens are part of output. *tokens processed*
+counts the whole prompt of every model call, so context re-read from cache is counted
+again each time: it is far larger than the conversation (hover it for the split into cache
+read, cache write, uncached input and output). *peak context* is the largest single prompt.
+
+**Cache misses.** The rail's *cache hit (tokens)* is the share of prompt tokens read from
+cache; one miss on a large prompt can cost more than the rest of a session, so the count
+of misses sits beside it, and a *Cache* section lists each one (turn, kind, gap since the
+previous call, tokens re-cached, extra cost; click to jump), marked in the context chart
+with a triangle (miss) or an open diamond (expected). The header adds *cache misses* only
+when there are some. Detection uses Claude Code's own `/usage` rule and vocabulary, from
+the token counts alone (`src/cache.ts`, run on the full session so share modes do not
+change it): a *miss* is a model call that re-processed more than 5% and at least 2,000
+tokens of the prompt the previous call could have read from cache (capped at this call's
+prompt, so a rewind that reads everything from cache is not a miss). Two kinds are
+expected and counted apart: a *rebuild* (the first call after a compaction) and a *model
+switch* (caches are per model). Calls the agent made itself (compaction, keep-alives,
+tool-made calls) are skipped, and so are providers that report no cache tokens. Idle
+time is only the explanation, never the trigger: a miss is labelled "after 4h 31m idle"
+when the gap outlasts the cache (1 hour when the writes are billed at the 1-hour rate,
+otherwise 5 minutes; at most an hour for caches that report no writes). Providers that
+never report cache writes (OpenAI-style, xAI, GLM, DeepSeek) cache best-effort in coarse
+blocks, so an ordinary call lags the previous prompt by a block or two; for an
+unexplained miss on those, more than half the prefix and at least 10,000 tokens must have
+been re-processed. The extra cost is the re-processed tokens at what the call paid (5-minute
+or 1-hour writes, uncached input) minus the cache-read price: from the price table for
+Claude Code, from the per-model prices in pi's recorded costs for pi.
+Limits: the compaction request itself (which pays for a cold cache after an idle break) is not
+written to Claude Code transcripts, so it cannot be flagged and only the rebuild after it shows.
+Claude Code also counts tool-result clearing as an expected rebuild; no transcript we have
+records it (`context_management` is always null), so such a call would show as a miss.
 
 Both rails collapse (`«`/`»`, or `[` and `]`). When the window is too narrow to fit them beside the column they become overlays opened from the
 minibar or the corner buttons. Keys: `j`/`k` next/previous prompt, `[`/`]` rails, `/`

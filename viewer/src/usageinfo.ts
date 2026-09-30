@@ -1,7 +1,48 @@
 /** Cost and out-of-scope usage figures with the tooltips that say what they mean; used by the header and the token rail. */
-import { describeCost, formatSessionCost, formatUsageTotals } from "../../src/format.ts";
-import type { SessionStats, UsageTotals } from "../../src/schema.ts";
+import { describeCost, formatCacheMisses, formatSessionCost, formatTokens, formatUsageTotals } from "../../src/format.ts";
+import { totalTokens, type CacheEventKind, type CacheSummary, type SessionStats, type UsageTotals } from "../../src/schema.ts";
 import { h, withTooltip } from "./dom.ts";
+import { svg } from "./el.ts";
+
+/** Tokens processed: every call re-reads the context, so hover says what it is made of. */
+export function tokensNode(st: SessionStats): HTMLElement {
+  const t = st.tokens;
+  const el = h("span", { class: "has-tip", tabindex: "0" }, formatTokens(totalTokens(t)));
+  withTooltip(el, () => [
+    "Tokens processed",
+    "Counts the whole prompt of every model call, so context re-read from cache is counted again each time. It is far more than the length of the conversation.",
+    `cache read ${formatTokens(t.cacheRead)} · cache write ${formatTokens(t.cacheWrite)} · uncached input ${formatTokens(t.input)} · output ${formatTokens(t.output)}`,
+  ]);
+  return el;
+}
+
+/** What a cache miss is; shared by the rail heading and the header figure. */
+export const CACHE_HELP = [
+  "A miss is a model call that had to re-process much of the prompt the previous call could have read from cache: over 5% and at least 2,000 tokens, as Claude Code counts it. For agents whose provider reports no cache writes (OpenAI-style, coarser caches) it takes over half and 10,000 tokens.",
+  "Caches expire when unused, typically after 5 minutes to 1 hour depending on plan and provider, so the first call after a long pause re-writes the whole prompt at a higher price.",
+  "Compaction and switching models are expected: the prompt changed or the cache is per model.",
+  "Gap is the time since the previous model call. Extra cost is the estimated difference from reading those tokens from cache.",
+];
+
+/** The header figure "cache misses: N (~$X)", with the explanation on hover. */
+export function cacheMissesNode(c: CacheSummary): HTMLElement {
+  const el = h("span", { class: "has-tip", tabindex: "0" }, formatCacheMisses(c));
+  withTooltip(el, () => ["Cache misses", ...CACHE_HELP]);
+  return el;
+}
+
+/**
+ * A small shape that marks a cache event where colour alone would not say it: a filled downward
+ * triangle for a miss, an open diamond for an expected rebuild or model switch.
+ */
+export function cacheMark(kind: CacheEventKind): SVGElement {
+  const miss = kind === "miss";
+  return svg(
+    "svg",
+    { viewBox: "0 0 10 10", width: "9", height: "9", class: `mark ${miss ? "mark-miss" : "mark-expected"}`, "aria-hidden": "true", focusable: "false" },
+    miss ? svg("path", { d: "M1 1.5h8L5 9z", fill: "currentColor" }) : svg("path", { d: "M5 1.2 8.8 5 5 8.8 1.2 5z", fill: "none", stroke: "currentColor", "stroke-width": "1.5", "stroke-linejoin": "round" }),
+  );
+}
 
 /** The cost figure, or undefined when the session has none. Hover explains how it was made and what it leaves out. */
 export function costNode(st: SessionStats): HTMLElement | undefined {

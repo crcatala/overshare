@@ -1,4 +1,4 @@
-import { formatBytes, formatSessionCost, formatTokens, formatUsageTotals, plural } from "./format.js";
+import { formatBytes, formatCacheSummary, formatSessionCost, formatTokens, formatUsageTotals, plural } from "./format.js";
 import type { ShareReport } from "./pipeline.js";
 import { SECRET_CATEGORIES, type RedactionCategory } from "./redact/index.js";
 import { totalTokens } from "./schema.js";
@@ -16,10 +16,12 @@ export function formatReport(r: ShareReport, opts: { maxFindings?: number; color
   lines.push(bold(`agent-share report · ${r.harness} · ${r.sessionId.slice(0, 8)} · mode=${r.mode}`));
   if (r.title) lines.push(`  "${r.title}"`);
   const cost = formatSessionCost(s);
-  const tokenLine = `${formatTokens(totalTokens(s.tokens))} tokens${cost ? ` · est. cost ${cost}` : ""}`;
+  const tokenLine = `${plural(s.responses, "model call")} · ${formatTokens(totalTokens(s.tokens))} tokens processed${cost ? ` · est. cost ${cost}` : ""}`;
   lines.push(
     dim(`  ${plural(s.turns, "turn")} · ${plural(s.toolCalls, "tool call")} · ${plural(s.subagents, "subagent")} · ${tokenLine} · ${formatBytes(r.bytes)} payload`),
   );
+  const cacheLine = s.cache ? formatCacheSummary(s.cache) : "";
+  if (cacheLine) lines.push(dim(`  prompt cache: ${s.cache!.cachedPct}% of prompt tokens read from cache · ${cacheLine}`));
 
   if (s.otherBranches) lines.push(dim(`  not counted: ${formatUsageTotals(s.otherBranches)} on other branches`));
   if (s.inherited) lines.push(dim(`  not counted: ${formatUsageTotals(s.inherited)} inherited from the parent session`));

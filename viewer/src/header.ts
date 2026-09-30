@@ -4,14 +4,14 @@
  */
 import { formatDuration, formatTokens } from "../../src/format.ts";
 import { availableModes } from "../../src/modes.ts";
-import { SHARE_MODES, totalTokens, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
+import { SHARE_MODES, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
 import { h, provenanceLine, withTooltip } from "./dom.ts";
 import { menuButton, menuItem } from "./menu.ts";
 import { settingsButton, type SettingsOptions } from "./settings.ts";
 import { shareButton, type ShareOptions } from "./share.ts";
 import type { Provenance } from "./source.ts";
 import type { TurnInfo } from "./transcript.ts";
-import { INHERITED_WHY, OTHER_BRANCHES_WHY, costNode, excludedNode } from "./usageinfo.ts";
+import { INHERITED_WHY, OTHER_BRANCHES_WHY, cacheMissesNode, costNode, excludedNode, tokensNode } from "./usageinfo.ts";
 
 export const HARNESS_LABEL: Record<string, string> = { "claude-code": "Claude Code", pi: "pi" };
 
@@ -100,9 +100,10 @@ export function renderHeader(s: NormalizedSession, provenance: Provenance | unde
     facts("facts-stats", [
       ["turns", String(st.turns)],
       ["tools", `${st.toolCalls}${st.toolErrors ? ` (${st.toolErrors} err)` : ""}`],
-      ["tokens", formatTokens(totalTokens(st.tokens))],
-      ["peak ctx", formatTokens(st.peakContext)],
+      ["tokens processed", tokensNode(st)],
+      ["peak context", formatTokens(st.peakContext)],
       ["est. cost", costNode(st)],
+      ["cache misses", st.cache && st.cache.misses > 0 ? cacheMissesNode(st.cache) : undefined],
       ["subagents", st.subagents ? String(st.subagents) : undefined],
       ["other branches", excludedNode(st.otherBranches, OTHER_BRANCHES_WHY)],
       ["inherited", excludedNode(st.inherited, INHERITED_WHY)],

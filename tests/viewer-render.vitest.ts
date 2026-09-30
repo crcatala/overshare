@@ -494,7 +494,7 @@ describe("cost and usage scope", () => {
     expect(box).toContain("$0.500");
     expect(box).not.toContain("$1.50");
     expect(box).toContain("1 call from parent (not counted)");
-    expect(el.querySelector(".turn-foot")!.textContent).toContain("2 responses");
+    expect(el.querySelector(".turn-foot")!.textContent).toContain("2 model calls");
     expect(el.querySelector(".turn-foot")!.textContent).toContain("$0.500");
     expect(el.querySelector(".turn-foot")!.textContent).toContain("1 inherited");
   });

@@ -1,6 +1,6 @@
 ---
 id: ass-cjrn
-status: open
+status: in_progress
 deps: []
 links: [ass-75mx, ass-xz9u, ass-z5og, ass-5r99, ass-zc54, ass-rc52, ass-zr02]
 created: 2026-09-30T14:55:28Z

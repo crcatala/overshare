@@ -74,11 +74,56 @@ describe("share modes", () => {
     expect(JSON.stringify(minimal)).not.toContain("investigating");
   });
 
+  it("prompts strips every work string, retaining only prompts, metadata and numeric activity", () => {
+    const full = session();
+    full.turns[0]!.user!.expanded = "expanded skill instructions";
+    full.turns[0]!.steps.push({ kind: "event", id: "evt", event: "compaction", text: "event prose", detail: "compaction secrets" });
+    const prompts = projectSession(full, "prompts");
+    expect(prompts.turns[0]).toMatchObject({
+      user: { text: "refactor the loader" }, steps: [],
+      activity: { toolCalls: 5, toolErrors: 1, files: { read: 2, edited: 1, written: 0 } },
+    });
+    expect(prompts.turns[0]!.user!.expanded).toBeUndefined();
+    expect(prompts.responses).toEqual(full.responses);
+    expect(prompts.stats).toEqual(full.stats);
+    const json = JSON.stringify(prompts);
+    for (const text of ["src/a.ts", "src/b.ts", "npm test", "consider options", "Fixed.", "investigating", "subagent output", "Explore", "expanded skill", "event prose", "compaction secrets", "AAAAAAAAAA"]) expect(json).not.toContain(text);
+    expect(projectSession(prompts, "prompts")).toEqual(prompts);
+    expect(availableModes("prompts")).toEqual(["prompts"]);
+    for (const mode of ["full", "brief", "minimal"] as const) expect(() => projectSession(prompts, mode)).toThrow();
+  });
+
+  it("derives the same numeric activity directly, through richer projections and from legacy shares", () => {
+    const full = session();
+    const direct = projectSession(full, "prompts");
+    for (const mode of ["full", "brief", "minimal"] as const) {
+      const projected = projectSession(full, mode);
+      expect(projectSession(projected, "prompts")).toEqual(direct);
+      // Older shares have no activity property; their remaining groups still carry file paths/counts.
+      for (const turn of projected.turns) delete turn.activity;
+      expect(projectSession(projected, "prompts")).toEqual(direct);
+    }
+  });
+
+  it("counts calls separately from unique files, by action and by turn", () => {
+    const full = session();
+    full.turns[0]!.steps.push(
+      { kind: "tool", id: "again", name: "Read", action: "read", summary: "src/a.ts", files: ["src/a.ts"] },
+      { kind: "tool", id: "write", name: "Write", action: "write", summary: "src/a.ts", files: ["src/a.ts"], result: { text: "failed", isError: true } },
+    );
+    full.turns.push({ index: 1, user: { text: "next" }, steps: [{ kind: "tool", id: "next", name: "Read", action: "read", summary: "src/a.ts", files: ["src/a.ts"] }] });
+    const prompts = projectSession(full, "prompts");
+    expect(prompts.turns.map((t) => t.activity)).toEqual([
+      { toolCalls: 7, toolErrors: 2, files: { read: 2, edited: 1, written: 1 } },
+      { toolCalls: 1, toolErrors: 0, files: { read: 1, edited: 0, written: 0 } },
+    ]);
+  });
+
   it("can step down from brief to minimal but never up", () => {
     const brief = projectSession(session(), "brief");
     const minimal = projectSession(brief, "minimal");
     expect(minimal.turns[0]!.steps[0]).toMatchObject({ kind: "toolGroup", total: 4 });
     expect(() => projectSession(minimal, "full")).toThrow();
-    expect(availableModes("brief")).toEqual(["brief", "minimal"]);
+    expect(availableModes("brief")).toEqual(["brief", "minimal", "prompts"]);
   });
 });

@@ -60,8 +60,8 @@ const steps: Step[] = [
   { kind: "subagent", id: "a", tool: "Task", agents: ["reviewer"], description: "Review the rounding fix", result: { text: "Looks good, no regressions" } },
 ];
 const s = session([
-  { index: 0, user: { text: "Fix invoice rounding before the release" }, steps },
-  { index: 1, user: { text: "Ship it" }, steps: [{ kind: "text", id: "z", text: "Shipped to staging" }] },
+  { index: 0, user: { text: "Fix invoice rounding before the release", authored: true }, steps },
+  { index: 1, user: { text: "Ship it", authored: true }, steps: [{ kind: "text", id: "z", text: "Shipped to staging" }] },
 ]);
 
 const find = (query: string, output = false, from = s) => search(buildIndex(from), queryTokens(query), output).map((h) => `${h.doc.id} ${h.field.source}`);
@@ -86,6 +86,10 @@ describe("buildIndex", () => {
     expect(find("invoices create", true, brief)).toEqual(["s-0-0 files"]);
     const minimal = projectSession(s, "minimal");
     expect(find("migrate", true, minimal)).toEqual([]);
+    const prompts = projectSession(s, "prompts");
+    expect(buildIndex(prompts).map((d) => d.id)).toEqual(["turn-0-prompt", "turn-1-prompt"]);
+    expect(find("invoice rounding", true, prompts)).toEqual(["turn-0-prompt prompt"]);
+    for (const query of ["migrate", "parseInvoice", "reviewer", "ECONNREFUSED", "Shipped"]) expect(find(query, true, prompts)).toEqual([]);
   });
 });
 

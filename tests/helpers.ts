@@ -144,6 +144,12 @@ export class PiTranscript {
     return this;
   }
 
+  /** Test-only: fork the next entry from an existing entry without changing the public builder flow. */
+  forkAfter(id: string): this {
+    this.last = id;
+    return this;
+  }
+
   entry(type: string, extra: Json): string {
     this.seq += 1;
     const id = `e${this.seq}`;
@@ -153,7 +159,7 @@ export class PiTranscript {
   }
 
   user(text: string): this {
-    this.entry("message", { message: { role: "user", content: [{ type: "text", text }] } });
+    this.entry("message", { message: { role: "user", content: [{ type: "text", text }], timestamp: Date.now() } });
     return this;
   }
 

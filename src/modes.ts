@@ -1,7 +1,7 @@
 /**
  * Share modes. Projection happens *before* upload so that data a mode omits is never
  * published (hiding it in the viewer alone would still leak it). The viewer reuses
- * these functions to step down from a richer shared mode (full → brief → minimal).
+ * these functions to step down from a richer shared mode (full → brief → minimal → prompts).
  * Browser-safe: no Node imports.
  */
 import type {
@@ -12,25 +12,80 @@ import type {
   ToolGroupStep,
   ToolResult,
   Turn,
+  TurnActivity,
 } from "./schema.js";
+import { SHARE_MODES } from "./schema.js";
 
 export interface ProjectOptions {
   /** Max characters kept per tool result / large tool input string in full mode. */
   maxToolChars?: number;
 }
 
-const RANK: Record<ShareMode, number> = { full: 2, brief: 1, minimal: 0 };
+const RANK: Record<ShareMode, number> = { full: 3, brief: 2, minimal: 1, prompts: 0 };
+
+export class PromptsUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PromptsUnavailableError";
+  }
+}
+
+/** Legacy pi user messages may be template expansions with no recoverable authored input. */
+export function promptsUnavailableReason(session: NormalizedSession): string | undefined {
+  if (session.harness.name !== "pi") return;
+  const unknown = session.turns.filter((t) => t.user && t.user.authored !== true).length;
+  if (!unknown) return;
+  return `Cannot use prompts mode: ${unknown} pi user prompt(s) have no verified pre-expansion input. ` +
+    "Private template/skill instructions may be stored as user text. Install or reload the updated pi share extension before submitting new idle prompts; existing inputs or queued expansions cannot be recovered reliably. Other modes require reviewing the stored prompt text.";
+}
 
 /** Modes that can be derived from a session shared in `mode`. */
-export function availableModes(mode: ShareMode): ShareMode[] {
-  return (["full", "brief", "minimal"] as ShareMode[]).filter((m) => RANK[m] <= RANK[mode]);
+export function availableModes(mode: ShareMode, promptsAllowed = true): ShareMode[] {
+  return SHARE_MODES.filter((m) => RANK[m] <= RANK[mode] && (m !== "prompts" || promptsAllowed));
 }
 
 /** The result's `mode` is `mode`, not the mode `session` was published in; keep that if you need it. */
 export function projectSession(session: NormalizedSession, mode: ShareMode, opts: ProjectOptions = {}): NormalizedSession {
   if (RANK[mode] > RANK[session.mode]) throw new Error(`Cannot project a ${session.mode} session up to ${mode}`);
-  const project = mode === "full" ? (t: Turn) => fullTurn(t, opts.maxToolChars ?? 20_000) : mode === "brief" ? briefTurn : minimalTurn;
-  return { ...session, mode, turns: session.turns.map(project) };
+  const reason = mode === "prompts" ? promptsUnavailableReason(session) : undefined;
+  if (reason) throw new PromptsUnavailableError(reason);
+  const project = mode === "full" ? (t: Turn) => fullTurn(t, opts.maxToolChars ?? 20_000) : mode === "brief" ? briefTurn : mode === "minimal" ? minimalTurn : promptsTurn;
+  return { ...session, mode, turns: session.turns.map((turn) => project({ ...turn, activity: turn.activity ?? turnActivity(turn) })) };
+}
+
+/** Also works on older brief/minimal shares that have no precomputed activity. */
+function turnActivity(turn: Turn): TurnActivity {
+  let toolCalls = 0;
+  let toolErrors = 0;
+  const files = { read: new Set<string>(), edited: new Set<string>(), written: new Set<string>() };
+  for (const s of turn.steps) {
+    if (s.kind === "tool") {
+      toolCalls++;
+      if (s.isError || s.result?.isError) toolErrors++;
+      const action = s.action === "edit" ? "edited" : s.action === "write" ? "written" : s.action === "read" ? "read" : undefined;
+      if (action) for (const file of s.files ?? []) files[action].add(file);
+    } else if (s.kind === "toolGroup") {
+      toolCalls += s.total;
+      toolErrors += s.calls.reduce((sum, c) => sum + c.errors, 0);
+      for (const action of ["read", "edited", "written"] as const) for (const file of s.files[action]) files[action].add(file);
+    } else if (s.kind === "subagent") {
+      toolCalls++;
+      if (s.isError || s.result?.isError) toolErrors++;
+    }
+  }
+  return { toolCalls, toolErrors, files: { read: files.read.size, edited: files.edited.size, written: files.written.size } };
+}
+
+/** Only authored user prompts and numeric counts survive; no work or expanded skill text. */
+function promptsTurn(turn: Turn): Turn {
+  const u = turn.user;
+  return {
+    index: turn.index,
+    timestamp: turn.timestamp,
+    user: u ? { text: u.text, authored: u.authored, command: u.command, images: u.images } : undefined,
+    activity: turn.activity,
+    steps: [],
+  };
 }
 
 function truncate(text: string, max: number): { text: string; truncatedFrom?: number } {

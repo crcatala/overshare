@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { PI_INPUT_PROVENANCE_TYPE } from "../schema.js";
 import { TINY_PNG } from "./claude-code.js";
 import type { Rng } from "./random.js";
 import type { Block, Item, SessionScript, ToolCall } from "./script.js";
@@ -6,7 +8,7 @@ import { TokenModel, costOf } from "./tokens.js";
 type Json = Record<string, unknown>;
 
 /** Emit a pi transcript (`~/.pi/agent/sessions/--<slug>--/<ts>_<id>.jsonl`) for a script. */
-export function emitPi(script: SessionScript, rng: Rng, opts: { sessionId: string; start: number; home: string }): string {
+export function emitPi(script: SessionScript, rng: Rng, opts: { sessionId: string; start: number; home: string; inputProvenance?: boolean }): string {
   const lines: Json[] = [];
   const tokens = new TokenModel(rng, "openai", 9_000);
   let last: string | null = null;
@@ -25,6 +27,17 @@ export function emitPi(script: SessionScript, rng: Rng, opts: { sessionId: strin
     return id;
   };
   const message = (msg: Json) => entry("message", { message: { timestamp: now, ...msg } });
+  const userMessage = (text: string, content: Json[]) => {
+    const timestamp = now;
+    if (opts.inputProvenance !== false) {
+      const stored = content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+      entry("custom", { customType: PI_INPUT_PROVENANCE_TYPE, data: {
+        version: 1, text, source: "interactive", messageTimestamp: timestamp,
+        messageHash: createHash("sha256").update(stored).digest("hex"),
+      } });
+    }
+    message({ role: "user", content, timestamp });
+  };
 
   lines.push({ type: "session", version: 3, id: opts.sessionId, timestamp: new Date(now).toISOString(), cwd: script.cwd });
   entry("model_change", { provider, modelId: model });
@@ -57,13 +70,13 @@ export function emitPi(script: SessionScript, rng: Rng, opts: { sessionId: strin
           tick(20, 120);
           const content: Json[] = [{ type: "text", text: item.text }];
           if (item.t === "prompt" && item.image) content.push({ type: "image", data: TINY_PNG, mimeType: "image/png" });
-          message({ role: "user", content });
+          userMessage(item.text, content);
           tokens.add(item.text.length);
           break;
         }
         case "commandPrompt":
           // pi prompt templates expand client-side; the transcript holds the expanded text.
-          message({ role: "user", content: [{ type: "text", text: item.expanded }] });
+          userMessage(`${item.name}${item.args ? ` ${item.args}` : ""}`, [{ type: "text", text: item.expanded }]);
           tokens.add(item.expanded.length);
           break;
         case "response": {

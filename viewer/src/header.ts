@@ -4,8 +4,9 @@
  */
 import { formatCost, formatDuration, formatTokens } from "../../src/format.ts";
 import { availableModes } from "../../src/modes.ts";
-import { totalTokens, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
+import { SHARE_MODES, totalTokens, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
 import { h, provenanceLine, withTooltip } from "./dom.ts";
+import { menuButton, menuItem } from "./menu.ts";
 import { settingsButton, type SettingsOptions } from "./settings.ts";
 import { shareButton, type ShareOptions } from "./share.ts";
 import type { Provenance } from "./source.ts";
@@ -16,6 +17,8 @@ export const HARNESS_LABEL: Record<string, string> = { "claude-code": "Claude Co
 export interface Controls {
   /** The mode the session was published in; the views available are it and the ones below. */
   sharedMode: ShareMode;
+  /** Why a pi share cannot safely distinguish authored input from template expansions. */
+  promptsUnavailable?: string;
   view: ShareMode;
   setView: (m: ShareMode) => void;
   toggleTheme: () => void;
@@ -31,25 +34,30 @@ export function formatDate(iso?: string): string | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+const MODE_BLURB: Record<ShareMode, string> = {
+  full: "Prompts, replies, thinking and tool details",
+  brief: "Prompts and replies, with grouped work",
+  minimal: "Prompts, final replies and tool counts",
+  prompts: "Just prompts, with compact activity counts",
+};
+
 function modeSwitch(c: Controls): HTMLElement {
-  const modes = availableModes(c.sharedMode);
-  return h(
-    "div",
-    { class: "modes", role: "group", "aria-label": "View mode" },
-    ...(["full", "brief", "minimal"] as ShareMode[]).map((m) =>
-      h(
-        "button",
-        {
-          type: "button",
-          disabled: !modes.includes(m),
-          title: modes.includes(m) ? `Show ${m} view` : `Shared as ${c.sharedMode}; ${m} detail was not published`,
-          "aria-pressed": String(m === c.view),
-          onclick: () => c.setView(m),
-        },
-        m,
-      ),
-    ),
-  );
+  const modes = availableModes(c.sharedMode, !c.promptsUnavailable);
+  const button = h("button", { type: "button", class: "mode-select", "aria-label": `View mode: ${c.view}`, title: "Change view mode" },
+    h("span", {}, c.view), h("span", { class: "mode-caret", "aria-hidden": "true" }, "▾"));
+  return menuButton(button, "View mode", (close) => {
+    const items = SHARE_MODES.map((m) => {
+      const allowed = modes.includes(m);
+      const blurb = allowed ? MODE_BLURB[m] : m === "prompts" && c.promptsUnavailable ? c.promptsUnavailable : `Shared as ${c.sharedMode}; ${m} detail was not published`;
+      return menuItem(m, blurb, () => {
+        const inMinibar = Boolean(button.closest(".minibar"));
+        close();
+        c.setView(m);
+        (document.querySelector<HTMLElement>(`${inMinibar ? ".minibar" : ".hdr"} .mode-select`) ?? button).focus({ preventScroll: true });
+      }, { checked: m === c.view, disabled: !allowed });
+    });
+    return { children: [h("div", { class: "menu-head" }, "View mode"), ...items], items, focus: items.find((i) => i.getAttribute("aria-checked") === "true") };
+  });
 }
 
 export function iconButton(label: string, glyph: string, onclick: () => void, cls = ""): HTMLElement {

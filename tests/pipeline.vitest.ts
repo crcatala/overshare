@@ -29,6 +29,32 @@ describe("prepareShare", () => {
     expect(brief.json).not.toContain("SERVICE_TOKEN");
   });
 
+  it("strips prompts-mode work before redaction but still redacts the authored prompt", () => {
+    const hidden = fake.envValue();
+    const visible = fake.envValue();
+    const raw = new ClaudeTranscript()
+      .user(`Please check ${visible}`)
+      .assistant("m1", [
+        { type: "thinking", thinking: `reasoning ${hidden}`, signature: "sig" },
+        { type: "tool_use", id: "r", name: "Read", input: { file_path: `src/${hidden}.ts` } },
+      ], ccUsage(10, 5, 0, 0, 2))
+      .toolResult("r", `output ${hidden}`)
+      .assistant("m2", [{ type: "text", text: `final reply ${hidden}` }], ccUsage(10, 5))
+      .toJsonl();
+    const { session, json, report } = prepareShare(raw, {
+      mode: "prompts", config: DEFAULT_CONFIG, machine,
+      knownSecrets: [{ value: hidden, label: "HIDDEN", source: "env" }, { value: visible, label: "VISIBLE", source: "env" }],
+    });
+    expect(json).not.toContain(hidden);
+    expect(json).not.toContain(visible);
+    expect(report.findings.every((f) => !f.where.includes("Read") && !f.where.includes("thinking") && !f.where.includes("text"))).toBe(true);
+    expect(report.findings.some((f) => f.where.includes("prompt"))).toBe(true);
+    expect(session.turns[0]).toMatchObject({ steps: [], activity: { toolCalls: 1, files: { read: 1, edited: 0, written: 0 } } });
+    expect(session.stats).toMatchObject({ toolCalls: 1, thinking: { tokens: 2 } });
+    expect(report.blocked).toBe(false);
+    expect(report.clean).toBe(false); // Retained user content still needs review.
+  });
+
   it("never leaves the home directory in the payload and fills metadata", () => {
     const { session, json, report } = prepareShare(transcriptWithSecretInToolOutput("x"), {
       mode: "brief",

@@ -8,10 +8,13 @@
 
 export const SCHEMA_VERSION = "agentshare/1" as const;
 
-export type ShareMode = "full" | "brief" | "minimal";
-export const SHARE_MODES: readonly ShareMode[] = ["full", "brief", "minimal"];
+export type ShareMode = "full" | "brief" | "minimal" | "prompts";
+export const SHARE_MODES: readonly ShareMode[] = ["full", "brief", "minimal", "prompts"];
 
 export type HarnessName = "claude-code" | "pi";
+
+/** Local-only pi extension entry; its payload is never copied into a share. */
+export const PI_INPUT_PROVENANCE_TYPE = "agent-share:authored-input";
 
 export interface Usage {
   /** Uncached prompt tokens. */
@@ -80,6 +83,8 @@ export interface NormalizedSession {
 
 export interface UserPrompt {
   text: string;
+  /** For pi, true only when pre-expansion input was bound to this native message. Missing means unverified. */
+  authored?: boolean;
   /** Present when the prompt was a slash command / skill invocation. */
   command?: { name: string; args?: string };
   /** Prompt text a command expanded into (full mode only). */
@@ -87,10 +92,19 @@ export interface UserPrompt {
   images?: number;
 }
 
+/** Numeric-only activity retained when the turn's work is omitted. File counts are unique per action. */
+export interface TurnActivity {
+  toolCalls: number;
+  toolErrors: number;
+  files: { read: number; edited: number; written: number };
+}
+
 export interface Turn {
   index: number;
   timestamp?: string;
   user?: UserPrompt;
+  /** Captured before projection, so stepping down does not lose counts. */
+  activity?: TurnActivity;
   steps: Step[];
 }
 

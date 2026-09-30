@@ -33,6 +33,7 @@
   --seg-input: light-dark(#79740e, #b8bb26);
   --seg-output: light-dark(#8f3f71, #d3869b);
   --shadow: none;
+  --menu-radius: 0px;
   --content-w: 840px;
   /* Room above the framed header and rails for the titles set into their borders. */
   --page-top: 36px;
@@ -101,15 +102,16 @@
 [data-variant="log"] .hdr-fine .facts dd {
   color: var(--dim) !important;
 }
-[data-variant="log"] .modes {
+[data-variant="log"] .mode-select {
   background: none;
-  border: 1px solid var(--line);
-  padding: 0;
+  padding: 3px 1ch;
 }
-[data-variant="log"] .modes button[aria-pressed="true"] {
-  background: var(--accent);
+[data-variant="log"] .mode-select[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--accent) 55%, var(--ink));
   color: var(--accent-ink);
-  box-shadow: none;
+}
+[data-variant="log"] .mode-select[aria-expanded="true"] .mode-caret {
+  color: inherit;
 }
 
 /* rows: time │ role │ text */
@@ -484,11 +486,9 @@
 [data-variant="log"] .mb-label {
   color: var(--ink-2);
 }
-[data-variant="log"] .minibar .modes {
+[data-variant="log"] .minibar .mode-select {
   border: 0;
   align-self: stretch;
-}
-[data-variant="log"] .minibar .modes button {
   padding: 0 1ch;
 }
 [data-variant="log"] .mb-progress {

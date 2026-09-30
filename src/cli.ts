@@ -7,6 +7,7 @@ import { SHARE_TARGETS, loadConfig, type ShareTarget } from "./config.js";
 import { exportFixtureShares, generateFixtures } from "./fixtures/index.js";
 import { formatBytes, formatTokens } from "./format.js";
 import { prepareShare, type PreparedShare } from "./pipeline.js";
+import { PromptsUnavailableError } from "./modes.js";
 import { accessWarnings, createPublisher, parseShareRef, preflightWarnings } from "./publish/index.js";
 import { readSecretsFile } from "./redact/known-values.js";
 import { formatReport } from "./report.js";
@@ -37,7 +38,7 @@ function withSessionOptions(cmd: Command, defaultMode: ShareMode): Command {
     .option("-c, --current", "use the current session (Claude Code: $CLAUDE_CODE_SESSION_ID; else newest for this directory)")
     .addOption(new Option("--harness <name>", "restrict to one harness").choices(["claude-code", "pi"]))
     .option("--leaf <entryId>", "export the branch ending at this entry (tree-shaped sessions)")
-    .option("-m, --mode <mode>", "share mode: full | brief | minimal", parseMode, defaultMode)
+    .option("-m, --mode <mode>", `share mode: ${SHARE_MODES.join(" | ")}`, parseMode, defaultMode)
     .option("--secrets-file <file...>", "extra values to redact: KEY=VALUE lines or one value per line");
 }
 
@@ -253,5 +254,5 @@ program
 
 program.parseAsync().catch((err: unknown) => {
   console.error(`agent-share: ${err instanceof Error ? err.message : String(err)}`);
-  process.exitCode = EXIT.error;
+  process.exitCode = err instanceof PromptsUnavailableError ? EXIT.blocked : EXIT.error;
 });

@@ -1,5 +1,5 @@
 /**
- * Menus that open below a header button (settings, share). A menu is attached to <body>
+ * Menus that open below a header button (view mode, settings, share). A menu is attached to <body>
  * with fixed positioning, because the minibar it can open from is transformed and blurred
  * (either would trap a fixed child), and in one variant clipped.
  */
@@ -82,9 +82,10 @@ export function menuButton(button: HTMLElement, label: string, build: (close: ()
           e.stopPropagation();
           close();
           button.focus();
-        } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
           e.preventDefault();
-          enabled[(i + (e.key === "ArrowDown" ? 1 : enabled.length - 1)) % enabled.length]?.focus({ preventScroll: true });
+          const to = e.key === "Home" ? 0 : e.key === "End" ? enabled.length - 1 : (i + (e.key === "ArrowDown" ? 1 : enabled.length - 1)) % enabled.length;
+          enabled[to]?.focus({ preventScroll: true });
         } else if (e.key === "Tab") close();
       },
       { signal },
@@ -92,5 +93,11 @@ export function menuButton(button: HTMLElement, label: string, build: (close: ()
   };
 
   button.addEventListener("click", () => (button.getAttribute("aria-expanded") === "true" ? closeMenus() : open()));
+  button.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      open();
+    }
+  });
   return button;
 }

@@ -239,6 +239,18 @@ Around the transcript, without pushing it off-center:
   progress and the controls; it spans the window, with its contents lined up with the
   rails.
 
+**How the token rail counts.** Totals cover the model calls on the branch being shown,
+including calls the agent made itself (pi compaction and branch summaries, tool-made calls,
+cache keep-alives). Two things are kept out and reported on their own lines when present:
+spend on *other branches* of the same file (rewound or abandoned work) and, for a pi
+session forked from another, history *inherited* from the parent (drawn muted in the
+charts). Subagent (sidechain) usage is not included yet. *est. cost* is an estimate at API
+list price, not a bill: pi records a cost for every call, while Claude Code records only
+tokens, so its cost is computed from the token counts, the model and the 5-minute/1-hour
+cache-write split with the price table in `src/pricing-data.ts` (regenerate it with
+`node scripts/update-prices.mjs`). A model with no known price adds no cost rather than
+zero, and the total then ends in `+`. Thinking tokens are part of output.
+
 Both rails collapse (`«`/`»`, or `[` and `]`). When the window is too narrow to fit them beside the column they become overlays opened from the
 minibar or the corner buttons. Keys: `j`/`k` next/previous prompt, `[`/`]` rails, `/`
 filter the contents, `v`/`V` cycle design variants.

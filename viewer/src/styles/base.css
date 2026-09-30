@@ -1304,6 +1304,9 @@ button.col {
 .seg {
   border-radius: 1px;
 }
+.col.inh .seg {
+  opacity: 0.4;
+}
 .seg-cache-read {
   background: var(--seg-cache-read);
 }

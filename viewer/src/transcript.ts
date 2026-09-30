@@ -409,7 +409,8 @@ function turnFoot(list: ResponseUsage[] | undefined): HTMLElement | null {
     ctxSum += contextTokens(r.usage);
     if (r.usage.cost !== undefined) cost = (cost ?? 0) + r.usage.cost;
   }
-  const parts = [plural(list.length, "response"), `ctx ${formatTokens(peak)}`, `out ${formatTokens(out)}`, ctxSum ? `${Math.round((cached / ctxSum) * 100)}% cached` : "", cost !== undefined ? formatCost(cost) : ""].filter(Boolean);
+  const inherited = list.every((r) => r.inherited);
+  const parts = [plural(list.length, "response"), `ctx ${formatTokens(peak)}`, `out ${formatTokens(out)}`, ctxSum ? `${Math.round((cached / ctxSum) * 100)}% cached` : "", cost !== undefined && !inherited ? formatCost(cost) : "", inherited ? "inherited from parent session" : ""].filter(Boolean);
   return h("div", { class: "turn-foot", "aria-label": "Token usage for this turn" }, h("span", {}, parts.join(" · ")));
 }
 

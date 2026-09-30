@@ -1,6 +1,6 @@
 ---
 id: ass-zc54
-status: open
+status: closed
 deps: []
 links: [ass-75mx, ass-xz9u, ass-z5og, ass-5r99, ass-rc52, ass-cjrn]
 created: 2026-09-30T14:55:28Z
@@ -31,3 +31,9 @@ Source: throwaway repo ~/workspace/usage-sandbox, transcripts in ~/.claude/proje
 - Fixtures load through the existing fixture/demo machinery without breaking `npm run demo`.
 - `npm test`, `npm run typecheck`, `npm run build` pass.
 
+
+## Notes
+
+**2026-09-30T15:43:00Z**
+
+Shipped: 7 sanitized Claude 2.1.285 sessions in tests/fixtures/claude-subagents (layout mirrors ~/.claude/projects: main jsonl + <id>/subagents/agent-*.jsonl + .meta.json; 301 KB total, 27 files), scripts/sanitize-claude-fixtures.mjs to regenerate, tests/subagent-fixtures.ts (ground-truth helper: unique message.id usage over main+subagent files, cost-state totals) and tests/claude-subagent-fixtures.vitest.ts (31 tests). Invariant holds exactly (4 token fields, per model) in 6 of 7; 9150e1c1 (interactive background run) is NOT reconciled: cost-state exceeds the files by +1648 in / +890 out / +71616 cacheRead / +372 cacheWrite, pinned in the test, files never exceed cost-state; cause not established (likely unpersisted side calls). All seven show main writing 1h cache and subagents 5m. Launch shapes: async+notification (2b450029 x2, 9150e1c1), foreground with tool_result usage (491c3f9b, 9a69feab, 2a10ef7b, edf2048e), parallel (bf3c7500), mixed-model (9a69feab), fast vs standard (2a10ef7b/edf2048e). For ass-75mx: use tests/subagent-fixtures.ts (transcriptTotals/costStateTotals) as the cross-check; meta.json toolUseId links each file to its launching Agent tool_use in all 7 sessions; the raw dedupe rule is largest usage per message.id (streamed partials differ in subagent files, e.g. output 4 then 135).

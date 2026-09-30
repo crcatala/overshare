@@ -80,6 +80,7 @@ export interface TranscriptOptions {
 
 interface Ctx extends TranscriptOptions {
   cwd?: string;
+  harness: NormalizedSession["harness"]["name"];
   byTurn: Map<number, ResponseUsage[]>;
 }
 
@@ -312,13 +313,17 @@ function renderThinking(t: ThinkingStep, id: string, ctx: Ctx): HTMLElement {
   return el;
 }
 
-function renderSubagent(s: SubagentStep, id: string): HTMLElement {
+function renderSubagent(s: SubagentStep, id: string, ctx: Ctx): HTMLElement {
   const el = entry("sub", id, "agent", s.timestamp);
   if (s.isError) el.classList.add("is-error");
   const u = s.usage;
+  // Claude Code's tool result carries only the subagent's last model call. Shares made before the adapter read the
+  // subagent transcripts (`source: "transcript"`) still hold that figure, so it is labelled rather than shown as a total.
+  const lastCall = ctx.harness === "claude-code" && u?.source !== "transcript";
+  const tokens = u ? (u.totalTokens ? `${formatTokens(u.totalTokens)} tok` : u.input !== undefined ? `${formatTokens((u.input ?? 0) + (u.cacheRead ?? 0) + (u.output ?? 0))} tok` : "") : "";
   const stats = u
     ? [
-        u.totalTokens ? `${formatTokens(u.totalTokens)} tok` : u.input !== undefined ? `${formatTokens((u.input ?? 0) + (u.cacheRead ?? 0) + (u.output ?? 0))} tok` : "",
+        tokens && lastCall ? `${tokens} (last call)` : tokens,
         u.turns ? plural(u.turns, "turn") : "",
         u.toolUses ? plural(u.toolUses, "tool") : "",
         u.durationMs ? formatDuration(u.durationMs) : "",
@@ -356,7 +361,7 @@ function renderStep(step: Step, id: string, ctx: Ctx): HTMLElement {
     case "toolGroup":
       return renderGroup(step, id, ctx);
     case "subagent":
-      return renderSubagent(step, id);
+      return renderSubagent(step, id, ctx);
     case "event":
       return renderEvent(step, id);
   }
@@ -551,7 +556,7 @@ export function responsesByTurn(session: NormalizedSession): Map<number, Respons
 }
 
 export function renderTranscript(session: NormalizedSession, opts: TranscriptOptions = {}): { el: HTMLElement; turns: TurnInfo[] } {
-  const ctx: Ctx = { ...opts, cwd: session.project?.cwd, byTurn: responsesByTurn(session) };
+  const ctx: Ctx = { ...opts, cwd: session.project?.cwd, harness: session.harness.name, byTurn: responsesByTurn(session) };
   const turns: TurnInfo[] = [];
   let ordinal = 0;
   const sections = session.turns

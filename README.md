@@ -245,7 +245,7 @@ including calls the agent made itself (pi compaction and branch summaries, tool-
 cache keep-alives). Two things are kept out and reported on their own lines when present:
 spend on *other branches* of the same file (rewound or abandoned work) and, for a pi
 session forked from another, history *inherited* from the parent (drawn muted in the
-charts). Subagent (sidechain) usage is not included yet. *est. cost* is an estimate at API
+charts). Subagent usage is kept out of these totals too, and shown on its own (next paragraph). *est. cost* is an estimate at API
 list price, not a bill: pi records a cost for every call, while Claude Code records only
 tokens, so its cost is computed from the token counts, the model and the 5-minute/1-hour
 cache-write split with the price table in `src/pricing-data.ts` (regenerate it with
@@ -256,6 +256,17 @@ price surcharges are not modelled. Thinking tokens are part of output. *tokens p
 counts the whole prompt of every model call, so context re-read from cache is counted
 again each time: it is far larger than the conversation (hover it for the split into cache
 read, cache write, uncached input and output). *peak context* is the largest single prompt.
+
+**Subagents.** For Claude Code the rail's Session figures are labelled *main conversation*, and a
+separate *Subagents* section gives what the subagents cost on their own: how many, *tokens
+processed*, *est. cost* and *model calls*, read from their transcripts (hover the cost for the
+split by model). Subagents no step on the shown branch launched (a forked skill, a rewound
+branch) are a *not launched here* row, never folded into either figure. The header fact reads
+`subagents: 3 (~$0.03)`. Each subagent's own tokens and cost are on its step (open it for the
+split by token class and the model), and the turn that launched it, even when it finished
+later, shows what its subagents used in the turn box and footer. They are not drawn in
+*Context by turn* (a subagent has its own context window) and not in the cache figures. pi
+keeps its best-effort chip and no subagent totals.
 
 **Cache misses.** The rail's *cache hit (tokens)* is the share of prompt tokens read from
 cache; one miss on a large prompt can cost more than the rest of a session, so the count
@@ -414,8 +425,9 @@ Both publish directly when the report is clean and ask for confirmation otherwis
 
 Subagent runs are detected (Claude Code `Agent`/`Task`; pi `subagent` launches, not its
 management actions) and kept as metadata only: agent names, task description, mode,
-async flag, error state and any usage the result reports (tokens, turns, tool uses,
-duration, cost). Child transcripts are not included.
+async flag, error state and usage (tokens, model calls, tool uses, duration, cost; for Claude
+Code summed from the subagent's own transcript, plus a bounded summary of its final message).
+Child transcripts are not included.
 
 ## Adding a harness
 

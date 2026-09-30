@@ -1,6 +1,6 @@
 ---
 id: ass-cjrn
-status: in_progress
+status: closed
 deps: []
 links: [ass-75mx, ass-xz9u, ass-z5og, ass-5r99, ass-zc54, ass-rc52, ass-zr02]
 created: 2026-09-30T14:55:28Z
@@ -22,3 +22,9 @@ Small independent fix, shippable before the adapter ticket:
 - A test with a foreground-shaped tool_result asserts the chip no longer shows last-call figures as totals.
 - Viewer tests, typecheck and build pass.
 
+
+## Notes
+
+**2026-09-30T19:52:36Z**
+
+Shipped with ass-75mx on feat/subagent-usage. Claude adapter no longer uses tool_result totalTokens/usage (last call only); toolUses and durationMs kept; pi unchanged. Shares made before this still carry the last-call figure, so the viewer labels it '(last call)' for claude-code steps without source: transcript. Tests: adapter (foreground-shaped tool_result) and 4 viewer chip tests.

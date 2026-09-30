@@ -50,7 +50,7 @@ describe("cli", { timeout: 30_000 }, () => {
     const r = cli(["export", sessionFile(secret), "--mode", "full", "-o", out, "-q"]);
     expect(r.status).toBe(0);
     const json = readFileSync(out, "utf8");
-    expect(JSON.parse(json).schema).toBe("agentshare/1");
+    expect(JSON.parse(json).schema).toBe("agentshare/2");
     expect(json).not.toContain(secret);
   });
 

@@ -35,14 +35,14 @@ describe("R2Publisher", () => {
     try {
       const config: R2Config = { bucket: "shares", prefix: "s/", publicUrl: "https://shares.example.com/", endpoint: s3.endpoint };
       const publisher = new R2Publisher({ config, credentials, viewerUrl: "https://viewer.example.com/session/" });
-      const result = await publisher.publish({ filename: "session.json", content: '{"schema":"agentshare/1"}', description: "d" });
+      const result = await publisher.publish({ filename: "session.json", content: '{"schema":"agentshare/2"}', description: "d" });
       expect(result.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
       expect(result.viewerUrl).toBe(`https://viewer.example.com/session/#r2:${result.id}`);
       expect(result.url).toBe(`https://shares.example.com/s/${result.id}.json`);
       const put = s3.requests[0]!;
       expect(put.method).toBe("PUT");
       expect(put.url).toBe(`/shares/s/${result.id}.json`);
-      expect(put.body).toBe('{"schema":"agentshare/1"}');
+      expect(put.body).toBe('{"schema":"agentshare/2"}');
       expect(put.headers["content-type"]).toBe("application/json; charset=utf-8");
       expect(put.headers.authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=AKIDTEST\/\d{8}\/auto\/s3\/aws4_request/);
 

@@ -1,12 +1,12 @@
 /**
- * The normalized, harness-agnostic session format ("agentshare/1").
+ * The normalized, harness-agnostic session format ("agentshare/2").
  *
  * Adapters convert each harness's native transcript into this shape; redaction,
  * mode projection, publishing and the viewer only ever see this shape. This file
  * is shared with the browser viewer, so it must stay free of Node imports.
  */
 
-export const SCHEMA_VERSION = "agentshare/1" as const;
+export const SCHEMA_VERSION = "agentshare/2" as const;
 
 export type ShareMode = "full" | "brief" | "minimal" | "prompts";
 export const SHARE_MODES: readonly ShareMode[] = ["full", "brief", "minimal", "prompts"];
@@ -63,7 +63,7 @@ export interface ResponseUsage {
   purpose?: ResponsePurpose;
   /** Inherited from a parent session's history (pi forks copy it); not spend of this session. */
   inherited?: true;
-  /** Set when this call re-processed context it could have read from cache. Absent in shares made before cache events. */
+  /** Set when this call re-processed context it could have read from cache. */
   cacheEvent?: CacheEvent;
 }
 
@@ -118,9 +118,8 @@ export interface SessionStats {
   cost?: number;
   /**
    * `per-response`: recorded by the harness (pi). `estimated`: computed from tokens at list price (Claude Code).
-   * `session-total` only appears in shares made before costs were estimated (Claude Code's per-process total).
    */
-  costSource?: "per-response" | "estimated" | "session-total";
+  costSource?: "per-response" | "estimated";
   /** Some calls had no recorded or estimable cost (unknown model), so `cost` undercounts. */
   costPartial?: boolean;
   /** Usage in the file that is not on the exported branch (abandoned branches); not included above. */
@@ -128,7 +127,7 @@ export interface SessionStats {
   /** Usage inherited from a parent session (forks); not included above. */
   inherited?: UsageTotals;
   /**
-   * Prompt cache summary; absent when no call reports caching and in shares made before it existed.
+   * Prompt cache summary; absent when no call reports caching.
    * Computed on the full session, so share modes do not change it.
    */
   cache?: CacheSummary;

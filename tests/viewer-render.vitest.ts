@@ -510,9 +510,4 @@ describe("cost and usage scope", () => {
     expect(document.querySelector(".tooltip")?.textContent).toContain("compaction");
     document.body.replaceChildren();
   });
-
-  it("renders shares made before costs were estimated", () => {
-    const old = withStats(base(), { cost: 16.96, costSource: "session-total" });
-    expect(railRows(old).rows["est. cost"]).toBe("$16.96");
-  });
 });

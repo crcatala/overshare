@@ -75,19 +75,17 @@ describe("claude background-subagent task notifications", () => {
     expect(subagents(projectSession(session, "brief").turns[0]!.steps)).toHaveLength(2);
   });
 
-  it("are recognised without an origin (text shape) and when the id is unknown", () => {
+  it("with an id no launch matches are dropped, not turned into turns", () => {
     const t = asyncSession();
-    t.lines = t.lines.map((l) => {
-      if (l.origin === undefined) return l;
-      const { origin: _origin, ...rest } = l;
-      return rest;
-    });
     t.user(notification("tu_missing", "ANSWER-C orphan"), { origin: NOTIFICATION_ORIGIN });
+    t.user(notification("", "ANSWER-D no id"), { origin: NOTIFICATION_ORIGIN });
     const { session, dropped } = parseClaudeCode(t.toJsonl());
     expect(session.turns).toHaveLength(1);
     expect(dropped["task-notification"]).toBe(2);
-    expect(dropped["task-notification:unmatched"]).toBe(1);
-    expect(JSON.stringify(projectSession(session, "prompts"))).not.toContain("ANSWER-C");
+    expect(dropped["task-notification:unmatched"]).toBe(2);
+    const prompts = JSON.stringify(projectSession(session, "prompts"));
+    expect(prompts).not.toContain("ANSWER-C");
+    expect(prompts).not.toContain("ANSWER-D");
   });
 
   it("read ids only from the header, so an answer cannot redirect itself to another step", () => {

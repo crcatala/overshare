@@ -43,8 +43,7 @@ const originLabel = (origin: unknown): string => {
 };
 
 /** Background subagent completion: `<task-notification>` with the agent's final answer in `<result>`. */
-function parseTaskNotification(text: string): { toolUseId?: string; result: string } | undefined {
-  if (!/^\s*<task-notification>/.test(text)) return undefined;
+function parseTaskNotification(text: string): { toolUseId?: string; result: string } {
   const at = text.indexOf("<result>");
   // Read ids only from the header so text inside the answer cannot redirect it to another step.
   const header = at === -1 ? text : text.slice(0, at);
@@ -195,13 +194,11 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
         continue;
       }
       // Harness-generated user lines (background subagent completions) are not prompts.
-      const notification = parseTaskNotification(rawText);
-      if (notification || !isHumanOrigin(e.origin)) {
-        if (notification?.toolUseId && b.completeSubagent(notification.toolUseId, notification.result)) {
-          bump(dropped, "task-notification");
-        } else {
-          bump(dropped, notification ? "task-notification:unmatched" : `origin:${originLabel(e.origin)}`);
-        }
+      if (!isHumanOrigin(e.origin)) {
+        const kind = originLabel(e.origin);
+        const notification = kind === "task-notification" ? parseTaskNotification(rawText) : undefined;
+        if (notification?.toolUseId && b.completeSubagent(notification.toolUseId, notification.result)) bump(dropped, "task-notification");
+        else bump(dropped, notification ? "task-notification:unmatched" : `origin:${kind}`);
         continue;
       }
       if (handleCommandMarkup(rawText, timestamp)) continue;

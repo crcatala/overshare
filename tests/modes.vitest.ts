@@ -93,14 +93,11 @@ describe("share modes", () => {
     for (const mode of ["full", "brief", "minimal"] as const) expect(() => projectSession(prompts, mode)).toThrow();
   });
 
-  it("derives the same numeric activity directly, through richer projections and from legacy shares", () => {
+  it("derives the same numeric activity directly, and through richer projections", () => {
     const full = session();
     const direct = projectSession(full, "prompts");
     for (const mode of ["full", "brief", "minimal"] as const) {
       const projected = projectSession(full, mode);
-      expect(projectSession(projected, "prompts")).toEqual(direct);
-      // Older shares have no activity property; their remaining groups still carry file paths/counts.
-      for (const turn of projected.turns) delete turn.activity;
       expect(projectSession(projected, "prompts")).toEqual(direct);
     }
   });

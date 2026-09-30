@@ -44,3 +44,7 @@ Fix implemented on fix/task-notification-turns: user lines are classified by ori
 **2026-09-30T15:02:20Z**
 
 Shipped in PR (fix/task-notification-turns). Validation: 9 new tests (8 fail without the fix); corpus 97 Claude sessions, origin kinds human + task-notification only, 0 human prompts affected; synthetic session 2b450029 goes from 3 turns (prompts mode leaked the subagent answer) to 1 turn. Follow-ups: background Bash task-notifications (5 in corpus) are dropped, not attached to their Bash step; already-published prompts-mode shares from affected sessions still contain the text.
+
+**2026-09-30T15:24:49Z**
+
+Follow-up in the same PR: dropped old-format handling (schema bumped to agentshare/2, 'session-total' cost source and the toolGroup activity recompute removed, notifications recognised by origin only).

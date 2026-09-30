@@ -482,6 +482,23 @@ describe("cost and usage scope", () => {
     expect(foot[1]!.textContent).toContain("$0.500");
   });
 
+  it("counts only a mixed turn's own calls (a fork continued mid-turn)", () => {
+    const s = session([turn(0, [{ kind: "text", id: "a", text: "parent then child" }])], [
+      { id: "r0", turn: 0, usage: priced(1), inherited: true },
+      { id: "r1", turn: 0, usage: priced(0.5) },
+    ]);
+    const { turns, el } = renderTranscript(s);
+    const rail = renderTokenRail(s, turns, () => {});
+    rail.setActive(0);
+    const box = rail.el.querySelector(".rail-turn")!.textContent!;
+    expect(box).toContain("$0.500");
+    expect(box).not.toContain("$1.50");
+    expect(box).toContain("1 call from parent (not counted)");
+    expect(el.querySelector(".turn-foot")!.textContent).toContain("2 responses");
+    expect(el.querySelector(".turn-foot")!.textContent).toContain("$0.500");
+    expect(el.querySelector(".turn-foot")!.textContent).toContain("1 inherited");
+  });
+
   it("names the purpose of calls the harness made itself", () => {
     const s = session([turn(0, [{ kind: "text", id: "a", text: "hi" }])], [{ id: "c", turn: 0, usage: priced(0.01), purpose: "compaction" }]);
     const { turns } = renderTranscript(s);

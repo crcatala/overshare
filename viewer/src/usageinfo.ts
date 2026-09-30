@@ -15,7 +15,7 @@ export function costNode(st: SessionStats): HTMLElement | undefined {
 /** Usage the session totals leave out (`why` says why); shown only when there is some. */
 export function excludedNode(t: UsageTotals | undefined, why: string): HTMLElement | undefined {
   if (!t) return undefined;
-  const el = h("span", { class: "has-tip", tabindex: "0" }, `${t.cost !== undefined ? `${formatSessionCost({ cost: t.cost })} · ` : ""}${plural(t)}`);
+  const el = h("span", { class: "has-tip", tabindex: "0" }, `${formatSessionCost(t) ? `${formatSessionCost(t)} · ` : ""}${plural(t)}`);
   withTooltip(el, () => ["Not in the totals above", `${formatUsageTotals(t)} ${why}.`]);
   return el;
 }

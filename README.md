@@ -248,8 +248,10 @@ charts). Subagent (sidechain) usage is not included yet. *est. cost* is an estim
 list price, not a bill: pi records a cost for every call, while Claude Code records only
 tokens, so its cost is computed from the token counts, the model and the 5-minute/1-hour
 cache-write split with the price table in `src/pricing-data.ts` (regenerate it with
-`node scripts/update-prices.mjs`). A model with no known price adds no cost rather than
-zero, and the total then ends in `+`. Thinking tokens are part of output.
+`node scripts/update-prices.mjs`; older models pi's catalog lacks are kept by hand in
+`src/pricing.ts`). A model with no known price adds no cost rather than zero, and the
+total then ends in `+`. The estimate can undercount: long-context, fast-mode and regional
+price surcharges are not modelled. Thinking tokens are part of output.
 
 Both rails collapse (`«`/`»`, or `[` and `]`). When the window is too narrow to fit them beside the column they become overlays opened from the
 minibar or the corner buttons. Keys: `j`/`k` next/previous prompt, `[`/`]` rails, `/`

@@ -377,12 +377,15 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
       return;
     }
     const n = t.responses.length;
-    const u = sumUsage(t.responses);
+    // A turn a fork continued holds both inherited and own calls; only the own ones are this session's spend.
+    const own = t.responses.filter((r) => !r.inherited);
+    const inheritedCalls = n - own.length;
+    const u = sumUsage(own.length ? own : t.responses);
     const peak = Math.max(...t.responses.map((r) => contextTokens(r.usage)));
     const ctxSum = contextTokens(u);
     const run = running.get(t.index);
     const respCols: Column[] = t.responses.map((r, i) => ({ turns: [t.index], context: r.usage, output: r.usage.output, ...(r.inherited ? { inherited: true } : {}), tip: () => responseTip(r, i, n) }));
-    const inherited = t.responses.every((r) => r.inherited);
+    const inherited = own.length === 0;
     const respChart = chart(bucket(respCols, 60), callScale, { label: `Context per model call for ${plural(n, "call")}`, ctxH: 36, outH: 12 });
     turnBox.replaceChildren(
       helpHeading(t.ordinal ? `Turn ${t.ordinal}` : "Start", TURN_HELP, h("span", { class: "h3-meta" }, plural(n, "model call"))),
@@ -393,7 +396,7 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
         ["output", `${formatTokens(u.output)}${u.reasoning ? ` (${formatTokens(u.reasoning)} think)` : ""}`],
         ["est. cost", inherited ? undefined : u.cost !== undefined ? formatCost(u.cost) : undefined],
         ["so far", inherited ? undefined : run ? `${formatTokens(run.tokens)}${run.cost !== undefined ? ` · ${formatCost(run.cost)}` : ""}` : undefined],
-        ["from", inherited ? "parent session (not counted)" : undefined],
+        ["from", inherited ? "parent session (not counted)" : inheritedCalls ? `${plural(inheritedCalls, "call")} from parent (not counted)` : undefined],
       ]),
     );
   };

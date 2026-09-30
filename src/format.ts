@@ -32,13 +32,13 @@ export function plural(n: number, word: string, pluralWord = `${word}s`): string
 }
 
 /** Session cost for display; a trailing "+" marks a lower bound (some calls had no known price). */
-export function formatSessionCost(stats: Pick<SessionStats, "cost" | "costPartial">): string | undefined {
+export function formatSessionCost(stats: { cost?: number; costPartial?: boolean }): string | undefined {
   return stats.cost === undefined ? undefined : `${formatCost(stats.cost)}${stats.costPartial ? "+" : ""}`;
 }
 
 /** Usage kept out of the session totals (other branches, inherited history), as one short line. */
 export function formatUsageTotals(t: UsageTotals): string {
-  return [plural(t.responses, "call"), `${formatTokens(totalTokens(t.tokens))} tokens`, t.cost !== undefined ? formatCost(t.cost) : ""].filter(Boolean).join(" · ");
+  return [plural(t.responses, "call"), `${formatTokens(totalTokens(t.tokens))} tokens`, formatSessionCost(t) ?? ""].filter(Boolean).join(" · ");
 }
 
 /** What the cost figure means, and what it leaves out. The first line is a title. */
@@ -50,7 +50,8 @@ export function describeCost(stats: SessionStats): string[] {
         ? "The agent's running total for its last process; it can undercount a resumed session."
         : "Recorded by the agent for each model call, at list price.";
   const lines = ["Estimated cost", how, "Not a bill: subscription plans are not charged per token."];
-  if (stats.costPartial) lines.push("Some calls used a model with no known price, so this is a lower bound.");
+  if (stats.costPartial) lines.push("Some calls have no cost (a model with no known price, or none recorded), so this is a lower bound.");
+  if (stats.costSource === "estimated") lines.push("Can undercount: long-context, fast-mode and regional price surcharges are not modelled.");
   lines.push("Covers the main conversation on the branch shown. Subagent usage is not included.");
   if (stats.otherBranches) lines.push(`Not included: ${formatUsageTotals(stats.otherBranches)} on other branches.`);
   if (stats.inherited) lines.push(`Not included: ${formatUsageTotals(stats.inherited)} inherited from the parent session.`);

@@ -2,7 +2,7 @@
 id: ass-jx4l
 status: closed
 deps: []
-links: [ass-lq0c, ass-rc52]
+links: [ass-lq0c, ass-rc52, ass-zr02]
 created: 2026-09-30T02:18:30Z
 type: bug
 priority: 2
@@ -81,3 +81,7 @@ Cache-miss detection and its UI, and the remaining terminology changes (PR 2, se
 **2026-09-30T02:38:16Z**
 
 Implemented on feat/token-accuracy. Schema additions are optional-only (cacheWrite1h, ResponseUsage.purpose/inherited, stats.costPartial/otherBranches/inherited, costSource 'estimated'), so published shares render unchanged. Claude cost is estimated per response from a vendored price snapshot (scripts/update-prices.mjs, source: pi-ai catalog); cost-state is no longer read. Verified on the dev corpus with 'npm run audit:usage': estimate vs cost-state median -3.1%, never above; pi token sums equal provider totalTokens on 15,175 calls. Local results: 68bb822e now $32.22 (was $16.96); the 7 forks match ccusage's new-work cost exactly; 72 zero-usage aborted/error pi calls on exported branches are no longer counted (154 file-wide, the rest sit on other branches). Not done here by design: subagent usage (ass-rc52), cache-miss UI + terminology (ass-lq0c).
+
+**2026-09-30T02:57:41Z**
+
+Review follow-up (PR #15): older Claude models now priced from a hand-kept supplement; UsageTotals.costPartial; 'can undercount' tooltip line; mixed inherited/own turns count own calls only; audit script now checks adapter output. Deferred items filed as ass-zr02.

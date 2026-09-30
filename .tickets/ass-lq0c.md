@@ -2,7 +2,7 @@
 id: ass-lq0c
 status: open
 deps: [ass-jx4l]
-links: [ass-jx4l, ass-rc52]
+links: [ass-jx4l, ass-rc52, ass-zr02]
 created: 2026-09-30T02:18:33Z
 type: feature
 priority: 2

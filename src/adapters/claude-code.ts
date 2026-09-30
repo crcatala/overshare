@@ -221,6 +221,8 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   session.models = models;
   session.turns = b.turns;
   session.responses = b.responses;
+  // Nothing in Claude Code transcripts identifies history copied from another session (pi forks
+  // say so in the header), so unlike pi nothing is ever marked `inherited` here.
   // Claude Code records tokens, not dollars: costs are estimated at list price.
   session.stats.costSource = "estimated";
   const otherBranches = totalsOf(offBranchResponses(entries, ordered));

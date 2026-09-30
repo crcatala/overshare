@@ -38,6 +38,26 @@ describe("pricing", () => {
     expect(estimateCost("claude-opus-5-5", usage({ ...base, reasoning: 30 }))).toBeCloseTo(2240 / 1e6, 12);
   });
 
+  it("prices older models pi's catalog lacks from the hand-kept supplement", () => {
+    const expected: Record<string, [number, number]> = {
+      "claude-3-5-sonnet-20241022": [3, 15],
+      "claude-3-5-sonnet-latest": [3, 15],
+      "claude-3-7-sonnet-20250219": [3, 15],
+      "claude-3-5-haiku-20241022": [0.8, 4],
+      "claude-3-haiku-20240307": [0.25, 1.25],
+      "claude-3-opus-20240229": [15, 75],
+      "claude-sonnet-4-20250514": [3, 15],
+      "claude-sonnet-4-0": [3, 15],
+      "claude-opus-4-20250514": [15, 75],
+      "claude-opus-4-1-20250805": [15, 75],
+    };
+    for (const [id, [input, output]] of Object.entries(expected)) expect(findPrice(id), id).toMatchObject({ input, output });
+    // 15 + 75 + 1.5*1000/1e3... per million: 10*15 + 50*75 + 1000*1.5 + 200*18.75
+    expect(estimateCost("claude-opus-4-1-20250805", usage({ input: 10, output: 50, cacheRead: 1000, cacheWrite: 200 }))).toBeCloseTo((150 + 3750 + 1500 + 3750) / 1e6, 12);
+    // A 4.5 model must not be mistaken for the 4.0 family.
+    expect(findPrice("claude-sonnet-4-5-20250929")).toEqual(ANTHROPIC_PRICES["claude-sonnet-4-5-20250929"]);
+  });
+
   it("prices the model the generated Claude Code fixtures use", () => {
     expect(findPrice(CLAUDE_FIXTURE_MODEL)).toBeDefined();
   });

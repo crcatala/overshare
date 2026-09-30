@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { parseClaudeCode } from "../src/adapters/claude-code.js";
 import { parsePi } from "../src/adapters/pi.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { formatSessionCost, formatTokens, describeCost } from "../src/format.js";
+import { describeCost, formatSessionCost, formatTokens, formatUsageTotals } from "../src/format.js";
 import { prepareShare } from "../src/pipeline.js";
+import { formatReport } from "../src/report.js";
 import { SHARE_MODES } from "../src/schema.js";
 import { computeStats } from "../src/stats.js";
 import { ClaudeTranscript, PiTranscript, ccUsage, piUsage } from "./helpers.js";
@@ -65,6 +66,9 @@ describe("Claude Code usage", () => {
     expect(part.costPartial).toBe(true);
     expect(formatSessionCost(part)).toMatch(/\+$/);
     expect(describeCost(part).join(" ")).toMatch(/lower bound/);
+    // An estimate says it can undercount; a cost the agent recorded itself does not.
+    expect(describeCost(part).join(" ")).toMatch(/Can undercount/);
+    expect(describeCost({ ...part, costSource: "per-response" }).join(" ")).not.toMatch(/Can undercount/);
   });
 
   it("reports spend on rewound branches separately from the exported branch", () => {
@@ -86,6 +90,41 @@ describe("Claude Code usage", () => {
     const st = stats(t.toJsonl(), "claude");
     expect(st.otherBranches).toBeUndefined();
     expect(st.tokens.output).toBe(50);
+  });
+
+  it("keeps history before a compaction on the branch, and still reports rewound spend", () => {
+    const t = new ClaudeTranscript().user("q").assistant("m1", [{ type: "text", text: "a" }], ccUsage(10, 50, 1000, 200), OPUS);
+    const fork = t.lastUuid;
+    t.user("old path").assistant("mOld", [{ type: "text", text: "old" }], ccUsage(4, 30, 2000, 0), OPUS);
+    t.rewindTo(fork).user("go on").assistant("m2", [{ type: "text", text: "b" }], ccUsage(5, 20, 1500, 0), OPUS);
+    // After a compaction the boundary has no parent and links back through logicalParentUuid.
+    t.system("compact_boundary", { parentUuid: null, logicalParentUuid: t.lastUuid, compactMetadata: { trigger: "manual", preTokens: 90_000 } });
+    t.user("after").assistant("m3", [{ type: "text", text: "c" }], ccUsage(6, 10, 500, 100), OPUS);
+    const { session } = parseClaudeCode(t.toJsonl());
+    expect(session.responses.map((r) => r.id)).toEqual(["m1", "m2", "m3"]);
+    expect(session.turns.flatMap((x) => x.steps).some((s) => s.kind === "event" && s.event === "compaction")).toBe(true);
+    const st = computeStats(session);
+    expect(st.compactions).toBe(1);
+    expect(st.otherBranches).toMatchObject({ responses: 1, tokens: { input: 4, output: 30, cacheRead: 2000 } });
+  });
+
+  it("marks off-branch cost as a lower bound when some of those calls are unpriced", () => {
+    const t = new ClaudeTranscript().user("q").assistant("m1", [{ type: "text", text: "a" }], ccUsage(10, 50, 1000, 200), OPUS);
+    const fork = t.lastUuid;
+    t.user("old").assistant("mA", [{ type: "text", text: "x" }], ccUsage(4, 30, 2000, 0), OPUS).assistant("mB", [{ type: "text", text: "y" }], ccUsage(4, 30, 2000, 0), "claude-unreleased-9");
+    t.rewindTo(fork).user("new").assistant("mNew", [{ type: "text", text: "z" }], ccUsage(5, 20, 1500, 0), OPUS);
+    const other = stats(t.toJsonl(), "claude").otherBranches!;
+    expect(other.responses).toBe(2);
+    expect(other.costPartial).toBe(true);
+    expect(formatUsageTotals(other)).toMatch(/\+$/);
+
+    const allUnpriced = new ClaudeTranscript().user("q").assistant("m1", [{ type: "text", text: "a" }], ccUsage(10, 50, 1000, 200), OPUS);
+    const f = allUnpriced.lastUuid;
+    allUnpriced.user("old").assistant("mB", [{ type: "text", text: "y" }], ccUsage(4, 30, 2000, 0), "claude-unreleased-9");
+    allUnpriced.rewindTo(f).user("new").assistant("mNew", [{ type: "text", text: "z" }], ccUsage(5, 20, 1500, 0), OPUS);
+    const none = stats(allUnpriced.toJsonl(), "claude").otherBranches!;
+    expect(none.cost).toBeUndefined();
+    expect(none.costPartial).toBeUndefined();
   });
 });
 
@@ -160,9 +199,79 @@ describe("pi usage", () => {
     expect(st.peakContext).toBe(300);
   });
 
+  it("counts a usage entry on an abandoned branch as other-branch spend", () => {
+    const t = new PiTranscript().user("first").assistant([{ type: "text", text: "a1" }], piUsage(100, 10, 0, 0, 0.01));
+    const fork = t.lastId;
+    t.entry("usage", { kind: "cache_warm", provider: "p", model: "m", usage: piUsage(1, 1, 30000, 0, 0.006) });
+    t.branchFrom(fork).user("new").assistant([{ type: "text", text: "a3" }], piUsage(300, 30, 0, 0, 0.03));
+    const st = stats(t.toJsonl(), "pi");
+    expect(st).toMatchObject({ responses: 2, cost: 0.04 });
+    expect(st.otherBranches).toMatchObject({ responses: 1, cost: 0.006, tokens: { input: 1, output: 1, cacheRead: 30000 } });
+  });
+
+  it("does not count an abandoned branch of the parent's history as the fork's other-branch spend", () => {
+    const t = new PiTranscript().user("p1").assistant([{ type: "text", text: "a1" }], piUsage(100, 10, 0, 0, 0.01));
+    const fork = t.lastId;
+    t.user("abandoned").assistant([{ type: "text", text: "ab" }], piUsage(200, 20, 0, 0, 0.02));
+    t.branchFrom(fork).user("p2").assistant([{ type: "text", text: "a2" }], piUsage(150, 15, 0, 0, 0.015));
+    const header = t.lines[0] as Record<string, unknown>;
+    header.parentSession = "/somewhere/parent.jsonl";
+    header.timestamp = "2026-01-01T00:00:06.500Z"; // after the parent's six entries, before the child's
+    t.user("child").assistant([{ type: "text", text: "c1" }], piUsage(300, 30, 0, 0, 0.03));
+    const st = stats(t.toJsonl(), "pi");
+    // The parent's abandoned branch belongs to the parent: it is neither inherited nor this session's other branch.
+    expect(st.inherited).toMatchObject({ responses: 2, cost: 0.025 });
+    expect(st.otherBranches).toBeUndefined();
+    expect(st).toMatchObject({ responses: 1, cost: 0.03 });
+  });
+
+  it("treats entries without a usable timestamp as this session's own", () => {
+    const build = (headerTimestamp: string, dropStamp = false) => {
+      const t = new PiTranscript().user("p").assistant([{ type: "text", text: "a1" }], piUsage(100, 10, 0, 0, 0.01));
+      const header = t.lines[0] as Record<string, unknown>;
+      header.parentSession = "/somewhere/parent.jsonl";
+      header.timestamp = headerTimestamp;
+      if (dropStamp) delete (t.lines[2] as Record<string, unknown>).timestamp;
+      return t.toJsonl();
+    };
+    // Fork header stamped after the copied entries: inherited...
+    expect(stats(build("2026-01-01T00:01:00.000Z"), "pi").inherited?.responses).toBe(1);
+    // ...unless the entry has no timestamp to compare, or the header's is unparseable.
+    expect(stats(build("2026-01-01T00:01:00.000Z", true), "pi").inherited).toBeUndefined();
+    expect(stats(build("not a date"), "pi").inherited).toBeUndefined();
+  });
+
   it("treats a session without a parent as having nothing inherited", () => {
     const t = new PiTranscript().user("q").assistant([{ type: "text", text: "a" }], piUsage(100, 10, 0, 0, 0.01));
     expect(stats(t.toJsonl(), "pi").inherited).toBeUndefined();
+  });
+});
+
+describe("CLI report", () => {
+  const machine = { homeDir: "/home/tester", username: "tester", hostname: "box" };
+  const report = (raw: string) => formatReport(prepareShare(raw, { mode: "brief", config: DEFAULT_CONFIG, machine, knownSecrets: [] }).report);
+
+  it("labels the cost an estimate and lists usage it did not count", () => {
+    const t = new ClaudeTranscript().user("q").assistant("m1", [{ type: "text", text: "a" }], ccUsage(10, 50, 1000, 200), OPUS);
+    const fork = t.lastUuid;
+    t.user("old").assistant("mOld", [{ type: "text", text: "old" }], ccUsage(4, 30, 2000, 0), OPUS);
+    t.rewindTo(fork).user("new").assistant("mNew", [{ type: "text", text: "new" }], ccUsage(5, 20, 1500, 0), OPUS);
+    const text = report(t.toJsonl());
+    expect(text).toMatch(/est\. cost \$0\.00\d/);
+    expect(text).toMatch(/not counted: 1 call · .* tokens · \$0\.00\d on other branches/);
+    expect(text).not.toMatch(/inherited/);
+  });
+
+  it("lists inherited history for a fork, and marks a lower-bound cost", () => {
+    const t = new PiTranscript().user("p").assistant([{ type: "text", text: "a1" }], piUsage(100, 10, 0, 0, 0.01));
+    const header = t.lines[0] as Record<string, unknown>;
+    header.parentSession = "/somewhere/parent.jsonl";
+    header.timestamp = "2026-01-01T00:00:02.500Z"; // after the parent's two entries
+    t.user("child").assistant([{ type: "text", text: "c1" }], piUsage(300, 30, 0, 0, 0.03));
+    t.assistant([{ type: "text", text: "c2" }], { input: 5, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 10 }); // no cost recorded
+    const text = report(t.toJsonl());
+    expect(text).toContain("est. cost $0.030+");
+    expect(text).toMatch(/not counted: 1 call · .* tokens · \$0\.010 inherited from the parent session/);
   });
 });
 

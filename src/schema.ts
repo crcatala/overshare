@@ -51,6 +51,8 @@ export interface UsageTotals {
   responses: number;
   tokens: Usage;
   cost?: number;
+  /** Some calls had no cost (unknown model price, or none recorded), so `cost` undercounts. */
+  costPartial?: boolean;
 }
 
 export interface SessionStats {
@@ -244,7 +246,8 @@ export function totalsOf(list: ResponseUsage[]): UsageTotals | undefined {
   let tokens = emptyUsage();
   for (const r of list) tokens = addUsage(tokens, r.usage);
   const { cost, ...rest } = tokens;
-  return { responses: list.length, tokens: rest, ...(cost !== undefined ? { cost } : {}) };
+  const unpriced = list.some((r) => r.usage.cost === undefined && totalTokens(r.usage) > 0);
+  return { responses: list.length, tokens: rest, ...(cost !== undefined ? { cost } : {}), ...(cost !== undefined && unpriced ? { costPartial: true } : {}) };
 }
 
 /** Tokens in the prompt for a response: what the context window held. */

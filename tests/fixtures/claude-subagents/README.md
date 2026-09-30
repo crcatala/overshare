@@ -1,6 +1,6 @@
 # Claude Code subagent sessions
 
-Seven real Claude Code 2.1.285 sessions from a throwaway sandbox repo (a few tiny JS files), trimmed and
+Ten real Claude Code sessions (2.1.285, and 2.1.286 for the last three) from a throwaway sandbox repo (a few tiny JS files), trimmed and
 scrubbed so they can be committed. The directory mirrors `~/.claude/projects`:
 
 ```
@@ -18,13 +18,18 @@ scrubbed so they can be committed. The directory mirrors `~/.claude/projects`:
 | `9a69feab` | Sonnet 5.5 main with a custom `reviewer` agent on Haiku 4.5 (9 calls, 18 tool uses): mixed models |
 | `bf3c7500` | three parallel foreground subagents (one assistant message, three launches) |
 | `2a10ef7b` / `edf2048e` | the same prompt on Opus 5.5 in fast and in standard mode (`usage.speed`) |
+| `113ee2dc` | a foreground agent resumed with `SendMessage`: the agent's file keeps growing (one file, one agent id), the second hand-back arrives in the `SendMessage` result |
+| `1c1bb33a` | nested: a subagent launches a subagent. Both files sit side by side in `subagents/`; the inner one has `parentAgentId` and `spawnDepth: 2`, and its `toolUseId` names a launch inside the parent's file, not in main |
+| `1ccce9c5` | a forked skill (`context: fork`) run with `-p`: main holds no model call and no `Agent` launch, the skill's spend exists only in the subagent file, whose meta has no `toolUseId` |
 
-In every session the main transcript wrote 1h cache entries and the subagents wrote 5m ones.
+In every session the main transcript (where it has model calls at all) wrote 1h cache entries and the subagents wrote 5m ones.
+
+Not a fixture: `/btw` side questions write no sidechain lines and no subagent files (checked on 2.1.286); their spend shows up only in `cost-state`, which is one likely source of the `9150e1c1` residual below.
 
 ## The invariant
 
 Summing `usage` over unique `message.id`s across the main file and every subagent file reproduces
-`cost-state.modelUsage` exactly (input, output, cache read, cache write, per model) in six of the seven
+`cost-state.modelUsage` exactly (input, output, cache read, cache write, per model) in nine of the ten
 sessions, with no message id shared between main and subagent files. `tests/subagent-fixtures.ts` computes both
 sides straight from the raw JSON; `tests/claude-subagent-fixtures.vitest.ts` asserts it.
 

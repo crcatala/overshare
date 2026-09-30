@@ -1,0 +1,1 @@
+{"agentType":"general-purpose","description":"Launch nested subagent to read README.md","toolUseId":"toolu_01TVs4Q2GXdg1pa1nMCLFCCu","spawnDepth":1,"requestShape":"foreground","requestNonInteractive":true}

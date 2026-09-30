@@ -1,4 +1,5 @@
-import { totalsOf, type ResponseUsage, type Usage } from "../schema.js";
+import { totalsOf, type ResponseUsage } from "../schema.js";
+import { linkSubagentRuns, mapClaudeUsage, readSubagentRuns, responseKey, subagentCountsFrom } from "./claude-usage.js";
 import {
   TurnBuilder,
   baseSession,
@@ -43,13 +44,14 @@ const originLabel = (origin: unknown): string => {
 };
 
 /** Background subagent completion: `<task-notification>` with the agent's final answer in `<result>`. */
-function parseTaskNotification(text: string): { toolUseId?: string; result: string } {
+function parseTaskNotification(text: string): { toolUseId?: string; agentId?: string; result: string } {
   const at = text.indexOf("<result>");
   // Read ids only from the header so text inside the answer cannot redirect it to another step.
   const header = at === -1 ? text : text.slice(0, at);
   const toolUseId = /<tool-use-id>\s*([^<\s]+)\s*<\/tool-use-id>/.exec(header)?.[1];
+  const agentId = /<task-id>\s*([^<\s]+)\s*<\/task-id>/.exec(header)?.[1];
   const result = at === -1 ? "" : (/^<result>([\s\S]*)<\/result>/.exec(text.slice(at))?.[1] ?? "");
-  return { toolUseId, result: stripInjectedContext(result) };
+  return { toolUseId, agentId, result: stripInjectedContext(result) };
 }
 
 const CONVERSATION_TYPES = new Set(["user", "assistant", "system"]);
@@ -84,7 +86,9 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   }
 
   const ordered = branchEntries(entries, options.leafId);
-  const b = new TurnBuilder();
+  // The tool result of an Agent call reports the subagent's last model call, not a total, so its token
+  // figures are not shown as one; the totals come from the subagent transcripts (see claude-usage.ts).
+  const b = new TurnBuilder({ subagentUsage: subagentCountsFrom });
   const models: string[] = [];
   let pendingCommand: { name: string; args?: string; timestamp?: string } | undefined;
   let startedAt: string | undefined;
@@ -197,7 +201,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
       if (!isHumanOrigin(e.origin)) {
         const kind = originLabel(e.origin);
         const notification = kind === "task-notification" ? parseTaskNotification(rawText) : undefined;
-        if (notification?.toolUseId && b.completeSubagent(notification.toolUseId, notification.result)) bump(dropped, "task-notification");
+        if (notification && b.completeSubagent(notification, notification.result)) bump(dropped, "task-notification");
         else bump(dropped, notification ? "task-notification:unmatched" : `origin:${kind}`);
         continue;
       }
@@ -242,11 +246,27 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
         b.addToolCall(block.id, block.name, block.input, { timestamp, responseId });
       }
     }
-    if (msg.usage) b.setResponseUsage(responseId, mapUsage(msg.usage), { model, timestamp });
+    if (msg.usage) b.setResponseUsage(responseId, mapClaudeUsage(msg.usage), { model, timestamp });
   }
   if (pendingCommand) b.addEvent("command", pendingCommand.name, pendingCommand.timestamp);
   b.finalizeThinking();
   estimateCosts(b.responses);
+  // A call the main transcript also holds is counted there, not again from a subagent file.
+  const mainKeys = new Set<string>();
+  for (const e of entries) {
+    const key = e.type === "assistant" && !e.isSidechain ? responseKey(e) : undefined;
+    if (key) mainKeys.add(key);
+  }
+  // A subagent file spans the whole session, so it can hold work from after the exported point or from a
+  // discarded branch. With an explicit leaf nothing timestamped after the branch end is read; and the file's
+  // last message is offered as a step's summary only for a plain export, never when the branch was cut.
+  const otherBranches = totalsOf(offBranchResponses(entries, ordered));
+  const endMs = endedAt ? Date.parse(endedAt) : Number.NaN;
+  const cut = options.leafId !== undefined || otherBranches !== undefined;
+  const subagentRuns = readSubagentRuns(options.subagentFiles ?? [], mainKeys, options.leafId !== undefined ? (Number.isFinite(endMs) ? endMs : -Infinity) : undefined);
+  const subagentUsage = linkSubagentRuns(b, subagentRuns, { summaryUntil: cut || !Number.isFinite(endMs) ? undefined : endMs });
+  // Subagent transcripts are never shared: only their numbers and each agent's last message are read.
+  if (subagentRuns.length) bump(dropped, "subagent-transcript", subagentRuns.length);
 
   const session = baseSession("claude-code", sessionId);
   session.title = title ?? summaryTitle;
@@ -262,23 +282,9 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   // say so in the header), so unlike pi nothing is ever marked `inherited` here.
   // Claude Code records tokens, not dollars: costs are estimated at list price.
   session.stats.costSource = "estimated";
-  const otherBranches = totalsOf(offBranchResponses(entries, ordered));
   if (otherBranches) session.stats.otherBranches = otherBranches;
+  if (subagentUsage) session.stats.subagentUsage = subagentUsage;
   return { session, dropped };
-}
-
-function mapUsage(u: Entry): Usage {
-  const cacheWrite: number = u.cache_creation_input_tokens ?? 0;
-  const write1h: unknown = u.cache_creation?.ephemeral_1h_input_tokens;
-  return {
-    input: u.input_tokens ?? 0,
-    output: u.output_tokens ?? 0,
-    cacheRead: u.cache_read_input_tokens ?? 0,
-    cacheWrite,
-    reasoning: u.output_tokens_details?.thinking_tokens ?? 0,
-    // The 1h rate is 2x the 5m rate, so keep the split when the API reports it.
-    ...(typeof write1h === "number" && write1h > 0 ? { cacheWrite1h: Math.min(write1h, cacheWrite) } : {}),
-  };
 }
 
 /**
@@ -296,7 +302,7 @@ function offBranchResponses(entries: Entry[], onBranch: Entry[]): ResponseUsage[
     if (!msg.usage || msg.model === "<synthetic>") continue;
     const id: string = msg.id ?? e.uuid;
     if (onBranchIds.has(id)) continue;
-    const usage = mapUsage(msg.usage);
+    const usage = mapClaudeUsage(msg.usage);
     const existing = found.get(id);
     if (existing) {
       if (usageTokens(usage) >= usageTokens(existing.usage)) existing.usage = usage;

@@ -1,11 +1,11 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
 import type { AgentShareConfig } from "../config.js";
 import { prepareShare } from "../pipeline.js";
 import { readSecretsFile } from "../redact/known-values.js";
 import { projectDirName } from "../resolve.js";
-import { SCHEMA_VERSION, SHARE_MODES } from "../schema.js";
+import { SHARE_MODES } from "../schema.js";
 import { emitClaudeCode } from "./claude-code.js";
 import { emitPi } from "./pi.js";
 import { Rng } from "./random.js";
@@ -79,23 +79,6 @@ function safeUsername(): string {
   } catch {
     return process.env.USER ?? "developer";
   }
-}
-
-/**
- * True when `sharesDir` holds at least one share and every one is in the current schema. Generated
- * shares are not migrated, so a directory that fails this is regenerated rather than served.
- */
-export function fixtureSharesCurrent(sharesDir: string): boolean {
-  if (!existsSync(sharesDir)) return false;
-  const files = readdirSync(sharesDir).filter((f) => f.endsWith(".json"));
-  if (files.length === 0) return false;
-  return files.every((f) => {
-    try {
-      return (JSON.parse(readFileSync(join(sharesDir, f), "utf8")) as { schema?: unknown }).schema === SCHEMA_VERSION;
-    } catch {
-      return false;
-    }
-  });
 }
 
 export interface ExportedShare {

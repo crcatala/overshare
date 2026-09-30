@@ -99,6 +99,22 @@ export interface UsageTotals {
   costPartial?: boolean;
 }
 
+/**
+ * Usage of the subagents a session launched (Claude Code: read from their own transcript files). Numbers and
+ * model ids only, no text, so share modes cannot leak anything through it. `responses` counts their model calls.
+ */
+export interface SubagentTotals extends UsageTotals {
+  /** Subagent files counted; a nested or resumed agent is one file. */
+  agents: number;
+  byModel: Record<string, UsageTotals>;
+}
+
+/** Subagent usage; everything in it is outside `SessionStats.tokens` and `cost`, which cover the main conversation. */
+export interface SubagentUsageStats extends SubagentTotals {
+  /** Subagents that no step on the exported branch launched (a rewound branch, a forked skill, an unknown layout): real spend, kept apart and not in the figures above. */
+  unlinked?: SubagentTotals;
+}
+
 export interface SessionStats {
   turns: number;
   userPrompts: number;
@@ -126,6 +142,12 @@ export interface SessionStats {
   otherBranches?: UsageTotals;
   /** Usage inherited from a parent session (forks); not included above. */
   inherited?: UsageTotals;
+  /**
+   * Usage of the subagents launched on the exported branch, read from the subagent transcripts (Claude Code);
+   * not included in `tokens` or `cost`. Absent when the transcripts were not available or there were none.
+   * Computed on the full session, so share modes do not change it. (`subagents` above is the launch count.)
+   */
+  subagentUsage?: SubagentUsageStats;
   /**
    * Prompt cache summary; absent when no call reports caching.
    * Computed on the full session, so share modes do not change it.
@@ -245,6 +267,25 @@ export interface ToolGroupStep extends StepBase {
   thinking?: { blocks: number; chars: number; tokens: number };
 }
 
+export interface SubagentUsage {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  /** Part of `cacheWrite` billed at the 1-hour rate. */
+  cacheWrite1h?: number;
+  cost?: number;
+  /** Model calls. */
+  turns?: number;
+  toolUses?: number;
+  durationMs?: number;
+  totalTokens?: number;
+  /** Models the subagent's calls ran on. */
+  models?: string[];
+  /** Agents folded into these figures beyond the launched one (nested subagents). */
+  nested?: number;
+}
+
 export interface SubagentStep extends StepBase {
   kind: "subagent";
   tool: string;
@@ -253,7 +294,7 @@ export interface SubagentStep extends StepBase {
   mode?: string;
   async?: boolean;
   isError?: boolean;
-  usage?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; cost?: number; turns?: number; toolUses?: number; durationMs?: number; totalTokens?: number };
+  usage?: SubagentUsage;
   result?: ToolResult;
 }
 

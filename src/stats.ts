@@ -1,11 +1,19 @@
-import { addUsage, contextTokens, emptyUsage, type NormalizedSession, type SessionStats } from "./schema.js";
+import { addUsage, contextTokens, emptyUsage, totalsOf, totalTokens, type NormalizedSession, type SessionStats } from "./schema.js";
 
-/** Compute session statistics from a full (unprojected) session. */
+/**
+ * Compute session statistics from a full (unprojected) session.
+ *
+ * `tokens`, `cost` and `responses` are this session's own spend: calls inherited from a
+ * parent session (forks) are reported under `inherited` instead. Adapters pass two facts
+ * through `session.stats`: `costSource` and `otherBranches` (usage that is in the file but
+ * not on the exported branch).
+ */
 export function computeStats(session: NormalizedSession): SessionStats {
+  const own = session.responses.filter((r) => !r.inherited);
   const stats: SessionStats = {
     turns: session.turns.filter((t) => t.user).length,
     userPrompts: session.turns.filter((t) => t.user).length,
-    responses: session.responses.length,
+    responses: own.length,
     toolCalls: 0,
     tools: {},
     toolErrors: 0,
@@ -42,20 +50,26 @@ export function computeStats(session: NormalizedSession): SessionStats {
     }
   }
   stats.files = { read: files.read.size, edited: files.edited.size, written: files.written.size };
-  let perResponseCost = false;
   for (const r of session.responses) {
-    stats.tokens = addUsage(stats.tokens, r.usage);
+    // Thinking and peak context describe the conversation shown, inherited or not.
     stats.thinking.tokens += r.usage.reasoning;
     stats.peakContext = Math.max(stats.peakContext, contextTokens(r.usage));
-    if (r.usage.cost !== undefined) perResponseCost = true;
   }
-  if (perResponseCost) {
+  let costed = 0;
+  let unpriced = 0;
+  for (const r of own) {
+    stats.tokens = addUsage(stats.tokens, r.usage);
+    if (r.usage.cost !== undefined) costed += 1;
+    else if (totalTokens(r.usage) > 0) unpriced += 1;
+  }
+  if (costed > 0) {
     stats.cost = stats.tokens.cost;
-    stats.costSource = "per-response";
-  } else if (session.stats.cost !== undefined) {
-    stats.cost = session.stats.cost;
-    stats.costSource = session.stats.costSource ?? "session-total";
+    stats.costSource = session.stats.costSource ?? "per-response";
+    if (unpriced > 0) stats.costPartial = true;
   }
   delete stats.tokens.cost;
+  const inherited = totalsOf(session.responses.filter((r) => r.inherited));
+  if (inherited) stats.inherited = inherited;
+  if (session.stats.otherBranches) stats.otherBranches = session.stats.otherBranches;
   return stats;
 }

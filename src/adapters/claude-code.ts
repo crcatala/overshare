@@ -1,9 +1,11 @@
-import type { Usage } from "../schema.js";
+import { totalsOf, type ResponseUsage, type Usage } from "../schema.js";
 import {
   TurnBuilder,
   baseSession,
   bump,
+  estimateCosts,
   projectNameFromCwd,
+  usageTokens,
   stripInjectedContext,
   type AdapterOptions,
   type AdapterResult,
@@ -45,7 +47,6 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   let branch: string | undefined;
   let title: string | undefined;
   let summaryTitle: string | undefined;
-  let sessionCost: number | undefined;
   for (const e of entries) {
     if (!sessionId && typeof e.sessionId === "string") sessionId = e.sessionId;
     if (typeof e.version === "string") version = e.version;
@@ -53,7 +54,8 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
     if (typeof e.gitBranch === "string" && e.gitBranch && e.gitBranch !== "HEAD") branch = e.gitBranch;
     if (e.type === "ai-title" && typeof e.aiTitle === "string") title = e.aiTitle;
     if (e.type === "summary" && typeof e.summary === "string") summaryTitle = e.summary;
-    if (e.type === "cost-state" && typeof e.totalCostUSD === "number") sessionCost = e.totalCostUSD;
+    // `cost-state` (Claude Code's own cost total) is deliberately not read: it is per process, so a
+    // resumed session only reports its last segment, and it includes calls the transcript never shows.
   }
 
   const ordered = branchEntries(entries, options.leafId);
@@ -207,6 +209,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   }
   if (pendingCommand) b.addEvent("command", pendingCommand.name, pendingCommand.timestamp);
   b.finalizeThinking();
+  estimateCosts(b.responses);
 
   const session = baseSession("claude-code", sessionId);
   session.title = title ?? summaryTitle;
@@ -218,21 +221,53 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   session.models = models;
   session.turns = b.turns;
   session.responses = b.responses;
-  if (sessionCost !== undefined) {
-    session.stats.cost = sessionCost;
-    session.stats.costSource = "session-total";
-  }
+  // Claude Code records tokens, not dollars: costs are estimated at list price.
+  session.stats.costSource = "estimated";
+  const otherBranches = totalsOf(offBranchResponses(entries, ordered));
+  if (otherBranches) session.stats.otherBranches = otherBranches;
   return { session, dropped };
 }
 
 function mapUsage(u: Entry): Usage {
+  const cacheWrite: number = u.cache_creation_input_tokens ?? 0;
+  const write1h: unknown = u.cache_creation?.ephemeral_1h_input_tokens;
   return {
     input: u.input_tokens ?? 0,
     output: u.output_tokens ?? 0,
     cacheRead: u.cache_read_input_tokens ?? 0,
-    cacheWrite: u.cache_creation_input_tokens ?? 0,
+    cacheWrite,
     reasoning: u.output_tokens_details?.thinking_tokens ?? 0,
+    // The 1h rate is 2x the 5m rate, so keep the split when the API reports it.
+    ...(typeof write1h === "number" && write1h > 0 ? { cacheWrite1h: Math.min(write1h, cacheWrite) } : {}),
   };
+}
+
+/**
+ * Model calls in the file that are not on the exported branch (rewound or abandoned
+ * branches): real spend the branch view leaves out. Subagent (sidechain) lines are not
+ * branches and stay out of every total.
+ */
+function offBranchResponses(entries: Entry[], onBranch: Entry[]): ResponseUsage[] {
+  const branch = new Set(onBranch);
+  const onBranchIds = new Set(onBranch.filter((e) => e.type === "assistant").map((e) => e.message?.id ?? e.uuid));
+  const found = new Map<string, ResponseUsage>();
+  for (const e of entries) {
+    if (e.type !== "assistant" || e.isSidechain || branch.has(e) || typeof e.uuid !== "string") continue;
+    const msg = e.message ?? {};
+    if (!msg.usage || msg.model === "<synthetic>") continue;
+    const id: string = msg.id ?? e.uuid;
+    if (onBranchIds.has(id)) continue;
+    const usage = mapUsage(msg.usage);
+    const existing = found.get(id);
+    if (existing) {
+      if (usageTokens(usage) >= usageTokens(existing.usage)) existing.usage = usage;
+    } else {
+      found.set(id, { id, turn: 0, model: msg.model, timestamp: typeof e.timestamp === "string" ? e.timestamp : undefined, usage });
+    }
+  }
+  const list = [...found.values()];
+  estimateCosts(list);
+  return list;
 }
 
 function flattenContent(content: unknown): { text: string; images: number } {

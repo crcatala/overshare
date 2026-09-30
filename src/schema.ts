@@ -24,9 +24,14 @@ export interface Usage {
   cacheWrite: number;
   /** Reasoning/thinking tokens; a subset of `output` for the harnesses we support. */
   reasoning: number;
-  /** USD, when the harness records it per response. */
+  /** Part of `cacheWrite` billed at the 1-hour rate (Anthropic); the rest is the 5-minute rate. */
+  cacheWrite1h?: number;
+  /** USD: recorded by the harness per response, or estimated at list price (see `SessionStats.costSource`). */
   cost?: number;
 }
+
+/** Why a model call happened, when it was not an ordinary assistant turn. */
+export type ResponsePurpose = "compaction" | "summary" | "tool" | "cache-warm" | "background";
 
 /** Token usage for one model API response (one assistant message). */
 export interface ResponseUsage {
@@ -35,6 +40,17 @@ export interface ResponseUsage {
   model?: string;
   timestamp?: string;
   usage: Usage;
+  /** Set for calls made by the harness itself (compaction, cache keep-alive, ...) rather than by the conversation. */
+  purpose?: ResponsePurpose;
+  /** Inherited from a parent session's history (pi forks copy it); not spend of this session. */
+  inherited?: true;
+}
+
+/** Usage summed over a set of model calls. */
+export interface UsageTotals {
+  responses: number;
+  tokens: Usage;
+  cost?: number;
 }
 
 export interface SessionStats {
@@ -52,8 +68,19 @@ export interface SessionStats {
   tokens: Usage;
   /** Largest single-response prompt (input + cacheRead + cacheWrite). */
   peakContext: number;
+  /** Session cost in USD, covering the model calls on the exported branch. Lower bound when `costPartial`. */
   cost?: number;
-  costSource?: "per-response" | "session-total";
+  /**
+   * `per-response`: recorded by the harness (pi). `estimated`: computed from tokens at list price (Claude Code).
+   * `session-total` only appears in shares made before costs were estimated (Claude Code's per-process total).
+   */
+  costSource?: "per-response" | "estimated" | "session-total";
+  /** Some calls had no recorded or estimable cost (unknown model), so `cost` undercounts. */
+  costPartial?: boolean;
+  /** Usage in the file that is not on the exported branch (abandoned branches); not included above. */
+  otherBranches?: UsageTotals;
+  /** Usage inherited from a parent session (forks); not included above. */
+  inherited?: UsageTotals;
 }
 
 export interface RedactionSummary {
@@ -206,8 +233,18 @@ export function addUsage(a: Usage, b: Usage): Usage {
     cacheWrite: a.cacheWrite + b.cacheWrite,
     reasoning: a.reasoning + b.reasoning,
   };
+  if (a.cacheWrite1h !== undefined || b.cacheWrite1h !== undefined) out.cacheWrite1h = (a.cacheWrite1h ?? 0) + (b.cacheWrite1h ?? 0);
   if (a.cost !== undefined || b.cost !== undefined) out.cost = (a.cost ?? 0) + (b.cost ?? 0);
   return out;
+}
+
+/** Sum a set of model calls; undefined when there are none. `cost` is present only if some call has one. */
+export function totalsOf(list: ResponseUsage[]): UsageTotals | undefined {
+  if (list.length === 0) return undefined;
+  let tokens = emptyUsage();
+  for (const r of list) tokens = addUsage(tokens, r.usage);
+  const { cost, ...rest } = tokens;
+  return { responses: list.length, tokens: rest, ...(cost !== undefined ? { cost } : {}) };
 }
 
 /** Tokens in the prompt for a response: what the context window held. */

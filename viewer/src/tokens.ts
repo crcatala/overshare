@@ -7,24 +7,45 @@
  * can be compared with each other and with the rest of the session (growth and
  * compaction show). Output has its own row and scale: it is orders of magnitude smaller.
  */
-import { formatCost, formatTokens, plural } from "../../src/format.ts";
-import { contextTokens, totalTokens, type NormalizedSession, type ResponsePurpose, type ResponseUsage, type Usage } from "../../src/schema.ts";
+import { cacheEventDetail, cacheEventLabel, formatCacheSummary, formatCost, formatDuration, formatTokens, plural } from "../../src/format.ts";
+import { contextTokens, totalTokens, type CacheEvent, type CacheEventKind, type NormalizedSession, type ResponsePurpose, type ResponseUsage, type Usage } from "../../src/schema.ts";
 import { groupShell, isExecTool, tallyCommands } from "./commands.ts";
 import { h, hideTooltip, withTooltip } from "./dom.ts";
 import { svg } from "./el.ts";
 import { closeHoverCard, hoverCard } from "./popover.ts";
 import type { ToolCall, TurnInfo } from "./transcript.ts";
-import { INHERITED_WHY, OTHER_BRANCHES_WHY, costNode, excludedNode } from "./usageinfo.ts";
+import { CACHE_HELP, INHERITED_WHY, OTHER_BRANCHES_WHY, cacheEventOf, cacheMark, costNode, excludedNode, tokensNode } from "./usageinfo.ts";
 
 const SEGMENTS: [keyof Usage, string, string][] = [
   ["cacheRead", "seg-cache-read", "cache read"],
   ["cacheWrite", "seg-cache-write", "cache write"],
-  ["input", "seg-input", "new input"],
+  ["input", "seg-input", "uncached input"],
 ];
+
+/** The cache events in a column: the most serious kind, and how many. */
+interface CacheMark {
+  kind: CacheEventKind;
+  count: number;
+}
+
+const SEVERITY: Record<CacheEventKind, number> = { miss: 3, "model-switch": 2, rebuild: 1 };
+
+function mergeMarks(marks: (CacheMark | undefined)[]): CacheMark | undefined {
+  let out: CacheMark | undefined;
+  for (const m of marks) {
+    if (!m) continue;
+    out = out ? { kind: SEVERITY[m.kind] > SEVERITY[out.kind] ? m.kind : out.kind, count: out.count + m.count } : { ...m };
+  }
+  return out;
+}
+
+const markOf = (list: ResponseUsage[]): CacheMark | undefined => mergeMarks(list.map((r) => { const e = cacheEventOf(r); return e ? { kind: e.kind, count: 1 } : undefined; }));
 
 interface Column {
   /** Turn indexes this column covers (several when bucketed). */
   turns: number[];
+  /** Cache events among its calls; a bucket keeps the marker if any member has one. */
+  cache?: CacheMark;
   context: Usage;
   output: number;
   tip: () => string[];
@@ -57,7 +78,15 @@ function bucket(cols: Column[], max: number): Column[] {
     const peak = group.reduce((a, b) => (contextTokens(b.context) > contextTokens(a.context) ? b : a));
     const output = group.reduce((n, c) => n + c.output, 0);
     const turns = group.flatMap((c) => c.turns);
-    out.push({ turns, context: peak.context, output, ...(group.every((c) => c.inherited) ? { inherited: true } : {}), tip: () => [`${plural(turns.length, "turn")} (${group[0]!.tip()[0]} – ${group[group.length - 1]!.tip()[0]})`, `peak context ${formatTokens(contextTokens(peak.context))} · output ${formatTokens(output)}`] });
+    const cache = mergeMarks(group.map((c) => c.cache));
+    out.push({
+      turns,
+      context: peak.context,
+      output,
+      ...(cache ? { cache } : {}),
+      ...(group.every((c) => c.inherited) ? { inherited: true } : {}),
+      tip: () => [`${plural(turns.length, "turn")} (${group[0]!.tip()[0]} – ${group[group.length - 1]!.tip()[0]})`, `peak context ${formatTokens(contextTokens(peak.context))} · output ${formatTokens(output)}`, ...(cache ? [`${plural(cache.count, "cache event")} in these turns`] : [])],
+    });
   }
   return out;
 }
@@ -75,7 +104,14 @@ function chart(cols: Column[], scale: Scale, opts: { onPick?: (c: Column) => voi
   ctxRow.style.height = `${ctxH}px`;
   const outRow = h("div", { class: "cols cols-out" });
   outRow.style.height = `${outH}px`;
+  // A row of markers above the bars, only when the chart has cache events (so other charts keep their height).
+  const markRow = cols.some((c) => c.cache) ? h("div", { class: "marks", "aria-hidden": "true" }) : null;
   for (const c of cols) {
+    if (markRow) {
+      const cell = h(opts.onPick ? "button" : "div", { class: "colmark", type: opts.onPick ? "button" : undefined, tabindex: opts.onPick ? "-1" : undefined, onclick: opts.onPick ? () => opts.onPick!(c) : undefined }, c.cache ? cacheMark(c.cache.kind) : null);
+      if (c.cache) withTooltip(cell, c.tip);
+      markRow.append(cell);
+    }
     const ctx = contextTokens(c.context);
     const col = h(opts.onPick ? "button" : "div", { class: `col${c.inherited ? " inh" : ""}`, type: opts.onPick ? "button" : undefined, onclick: opts.onPick ? () => opts.onPick!(c) : undefined, "aria-label": c.tip()[0] });
     const total = Math.max(ctx ? 2 : 0, Math.round((Math.min(ctx, scale.context) / scale.context) * ctxH));
@@ -99,6 +135,7 @@ function chart(cols: Column[], scale: Scale, opts: { onPick?: (c: Column) => voi
   const el = h(
     "div",
     { class: "chart", role: "img", "aria-label": opts.label },
+    markRow ? h("div", { class: "chart-row" }, markRow, h("span", { class: "chart-axis" })) : null,
     h("div", { class: "chart-row" }, ctxRow, h("span", { class: "chart-axis" }, formatTokens(scale.context))),
     h("div", { class: "chart-row" }, outRow, h("span", { class: "chart-axis" }, formatTokens(scale.output))),
   );
@@ -114,8 +151,9 @@ function chart(cols: Column[], scale: Scale, opts: { onPick?: (c: Column) => voi
 }
 
 const CONTEXT_BY_TURN_HELP = [
-  "Top: the largest prompt sent to the model in each turn (cache read, cache write, new input).",
+  "Top: the largest prompt sent to the model in each turn (cache read, cache write, uncached input).",
   "Bottom: the output the turn produced. Click a bar to jump to its turn.",
+  "A marker above a bar means a model call in that turn had a cache miss, an expected rebuild or a model switch (see Cache).",
 ];
 const TURN_HELP = ["One bar per model call in this turn: the prompt it was sent (top) and its output (bottom).", "Every turn uses the same scale, so turns can be compared."];
 
@@ -140,16 +178,31 @@ function helpHeading(label: string, help: string[], ...extra: (Node | null)[]): 
   return h("h3", {}, target, h("span", { class: "sr-only", id }, help.join(" ")), ...extra);
 }
 
+/** "99% · 1 miss": the share of prompt tokens read from cache, next to the misses it can hide. */
+function cacheHitNode(pct: number, misses: number): HTMLElement {
+  const el = h("span", { class: "has-tip", tabindex: "0" }, `${pct}%${misses ? ` · ${plural(misses, "miss", "misses")}` : ""}`);
+  withTooltip(el, () => [
+    "Cache hit (tokens)",
+    "The share of all prompt tokens that were read from cache. It says nothing about when the cache failed: one miss on a large prompt can cost more than the rest of the session.",
+    misses ? "See Cache for where the misses happened." : "No cache misses were found.",
+  ]);
+  return el;
+}
+
 function dl(rows: [string, string | Node | undefined][]): HTMLElement {
   return h("dl", { class: "kv" }, ...rows.filter(([, v]) => v !== undefined && v !== "").flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v!)]));
 }
 
-function legend(): HTMLElement {
+function legend(kinds: Set<CacheEventKind>): HTMLElement {
+  const misses = kinds.has("miss");
+  const expected = kinds.has("rebuild") || kinds.has("model-switch");
   return h(
     "div",
     { class: "legend", "aria-label": "Chart legend" },
     ...SEGMENTS.map(([, cls, label]) => h("span", { class: "legend-i" }, h("span", { class: `sw ${cls}` }), label)),
     h("span", { class: "legend-i" }, h("span", { class: "sw seg-output" }), "output"),
+    misses ? h("span", { class: "legend-i" }, cacheMark("miss"), "cache miss") : null,
+    expected ? h("span", { class: "legend-i" }, cacheMark("rebuild"), "expected rebuild") : null,
   );
 }
 
@@ -165,8 +218,9 @@ function responseTip(r: ResponseUsage, i: number, n: number): string[] {
   const u = r.usage;
   return [
     `Model call ${i + 1} of ${n}${r.model ? ` · ${r.model}` : ""}${r.purpose ? ` · ${PURPOSE_LABEL[r.purpose]}` : ""}${r.inherited ? " · inherited" : ""}`,
-    `context ${formatTokens(contextTokens(u))}: cache read ${formatTokens(u.cacheRead)} · write ${formatTokens(u.cacheWrite)} · new ${formatTokens(u.input)}`,
+    `context ${formatTokens(contextTokens(u))}: cache read ${formatTokens(u.cacheRead)} · write ${formatTokens(u.cacheWrite)} · uncached input ${formatTokens(u.input)}`,
     `output ${formatTokens(u.output)}${u.reasoning ? ` (thinking ${formatTokens(u.reasoning)})` : ""}${u.cost !== undefined ? ` · ${formatCost(u.cost)}` : ""}`,
+    ...[cacheEventOf(r)].flatMap((e) => (e ? [`${cacheEventLabel(e)}: ${cacheEventDetail(e)}`] : [])),
   ];
 }
 
@@ -226,9 +280,14 @@ function shellBreakdown(session: NormalizedSession): Map<string, [program: strin
  */
 export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], onJump: (turn: number) => void, onJumpTo?: (id: string) => void) {
   const st = session.stats;
-  const total = totalTokens(st.tokens);
   const ctxAll = contextTokens(st.tokens);
-  const cachedPct = ctxAll ? Math.round((st.tokens.cacheRead / ctxAll) * 100) : 0;
+  const cachedPct = st.cache?.cachedPct ?? (ctxAll ? Math.round((st.tokens.cacheRead / ctxAll) * 100) : 0);
+  // A provider that reports no cache tokens at all has no cache figures to show (rather than "0%").
+  const cacheReported = Boolean(st.cache) || st.tokens.cacheRead + st.tokens.cacheWrite > 0;
+  const cacheEvents = turns
+    .flatMap((t) => t.responses.filter((r) => !r.inherited).flatMap((r) => { const e = cacheEventOf(r); return e ? [{ e, t, target: t.responseSteps.get(r.id) ?? t.id }] : []; }))
+    // Largest first: the few that cost something lead, and a long list can be capped.
+    .sort((a, b) => (b.e.cost ?? -1) - (a.e.cost ?? -1) || b.e.recached - a.e.recached);
 
   // Running session totals after each turn.
   const running = new Map<number, { tokens: number; cost?: number }>();
@@ -249,12 +308,24 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     const out = t.responses.reduce((n, r) => n + r.usage.output, 0);
     const name = t.ordinal ? `Turn ${t.ordinal}` : "Start";
     const inherited = t.responses.every((r) => r.inherited);
+    const cache = markOf(t.responses);
     return {
       turns: [t.index],
       context: peak.usage,
       output: out,
       ...(inherited ? { inherited: true } : {}),
-      tip: () => [name, ...(inherited ? ["inherited from the parent session"] : []), `context up to ${formatTokens(contextTokens(peak.usage))} · output ${formatTokens(out)}`, `${plural(t.responses.length, "response")}${t.label ? ` · ${t.label.slice(0, 60)}` : ""}`],
+      ...(cache ? { cache } : {}),
+      tip: () => {
+        const found = t.responses.flatMap((r) => cacheEventOf(r) ?? []);
+        return [
+          name,
+          ...(inherited ? ["inherited from the parent session"] : []),
+          `context up to ${formatTokens(contextTokens(peak.usage))} · output ${formatTokens(out)}`,
+          `${plural(t.responses.length, "model call")}${t.label ? ` · ${t.label.slice(0, 60)}` : ""}`,
+          ...found.slice(0, 3).map((e) => `${cacheEventLabel(e)}: ${cacheEventDetail(e)}`),
+          ...(found.length > 3 ? [`+${found.length - 3} more cache events`] : []),
+        ];
+      },
     };
   });
   const turnScale: Scale = { context: Math.max(1, ...turnCols.map((c) => contextTokens(c.context))), output: Math.max(1, ...turnCols.map((c) => c.output)) };
@@ -332,6 +403,50 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
   const toolList = tools.length ? toolBox : null;
   const files = st.files.read + st.files.edited + st.files.written;
 
+  const CACHE_ROWS = 6;
+  let cacheOpen = false;
+  const cacheBox = h("div", { class: "cache-list" });
+  const fillCache = () => {
+    const shown = cacheOpen ? cacheEvents : cacheEvents.slice(0, CACHE_ROWS);
+    const hidden = cacheEvents.length - CACHE_ROWS;
+    cacheBox.replaceChildren(
+      h("div", { class: "cache-row cache-head", "aria-hidden": "true" }, h("span", {}, "#"), h("span", {}, "kind"), h("span", {}, "gap"), h("span", {}, "tokens"), h("span", {}, "extra")),
+      ...shown.map(({ e, t, target }) =>
+        h(
+          "button",
+          { type: "button", class: `cache-row cache-${e.kind}`, title: `${cacheEventLabel(e)}: ${cacheEventDetail(e)}`, "aria-label": `${t.ordinal ? `Turn ${t.ordinal}` : "Start"}: ${cacheEventLabel(e)}, ${cacheEventDetail(e)}. Go to it`, onclick: () => onJumpTo?.(target) },
+          h("span", { class: "cr-turn" }, t.ordinal ? String(t.ordinal) : "·"),
+          h("span", { class: "cr-kind" }, cacheMark(e.kind), e.kind === "model-switch" ? "switch" : e.kind),
+          h("span", { class: "cr-n" }, e.gapMs !== undefined ? formatDuration(e.gapMs) : "–"),
+          h("span", { class: "cr-n" }, formatTokens(e.recached)),
+          h("span", { class: "cr-n" }, e.cost !== undefined ? formatCost(e.cost) : "–"),
+        ),
+      ),
+      ...(hidden > 0
+        ? [h(
+            "button",
+            {
+              type: "button",
+              class: "bars-more bars-toggle",
+              "aria-expanded": String(cacheOpen),
+              onclick: () => {
+                cacheOpen = !cacheOpen;
+                fillCache();
+                cacheBox.querySelector<HTMLElement>(".bars-toggle")?.focus({ preventScroll: true });
+              },
+            },
+            cacheOpen ? "show fewer" : `+${hidden} more`,
+          )]
+        : []),
+    );
+  };
+  fillCache();
+  const cacheSection =
+    st.cache && cacheEvents.length
+      ? h("section", { class: "rail-sec" }, helpHeading("Cache", CACHE_HELP, h("span", { class: "h3-meta" }, "largest first")), h("p", { class: "cache-sum" }, formatCacheSummary(st.cache)), cacheBox)
+      : null;
+  const cacheHit = cacheReported ? cacheHitNode(cachedPct, st.cache?.misses ?? 0) : undefined;
+
   const el = h(
     "div",
     { class: "tokens" },
@@ -340,29 +455,38 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
       { class: "rail-sec" },
       h("h3", {}, "Session"),
       dl([
-        ["tokens", formatTokens(total)],
-        ["output", `${formatTokens(st.tokens.output)}${st.tokens.reasoning ? ` (${formatTokens(st.tokens.reasoning)} think)` : ""}`],
-        ["peak ctx", formatTokens(st.peakContext)],
-        ["cached", `${cachedPct}%`],
+        ["tokens processed", tokensNode(st)],
+        ["output", `${formatTokens(st.tokens.output)}${st.tokens.reasoning ? ` (${formatTokens(st.tokens.reasoning)} thinking)` : ""}`],
+        ["peak context", formatTokens(st.peakContext)],
+        ["cache hit (tokens)", cacheHit],
         ["est. cost", costNode(st)],
-        ["responses", String(st.responses)],
+        ["model calls", String(st.responses)],
         ["other branches", excludedNode(st.otherBranches, OTHER_BRANCHES_WHY)],
         ["inherited", excludedNode(st.inherited, INHERITED_WHY)],
       ]),
     ),
+    cacheSection,
     withResponses.length
       ? h(
           "section",
           { class: "rail-sec" },
           helpHeading("Context by turn", CONTEXT_BY_TURN_HELP),
           sessionChart.el,
-          legend(),
+          legend(new Set(cacheEvents.map((x) => x.e.kind))),
         )
       : null,
     withResponses.length ? h("section", { class: "rail-sec" }, turnBox) : null,
     toolList ? h("section", { class: "rail-sec" }, h("h3", {}, `Tools · ${st.toolCalls}`), toolList) : null,
     files ? h("section", { class: "rail-sec" }, h("h3", {}, "Files"), dl([["read", String(st.files.read)], ["edited", String(st.files.edited)], ["written", String(st.files.written)]])) : null,
   );
+
+  /** The turn's cache events, one line each ("cache miss after 4h 31m idle: 385k re-cached, ~$3.01"). */
+  const cacheLines = (list: ResponseUsage[]): HTMLElement | null => {
+    const found = list.flatMap((r) => cacheEventOf(r) ?? []);
+    if (!found.length) return null;
+    const line = (e: CacheEvent) => h("p", { class: `turn-cache turn-cache-${e.kind}` }, cacheMark(e.kind), h("span", {}, `${cacheEventLabel(e)}: ${cacheEventDetail(e)}`));
+    return h("div", { class: "turn-caches" }, ...found.slice(0, 3).map(line), ...(found.length > 3 ? [h("p", { class: "turn-cache-more" }, `+${found.length - 3} more cache events`)] : []));
+  };
 
   let current = -1;
   const setActive = (turnIndex: number) => {
@@ -373,7 +497,7 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     if (turnBox.matches(":hover")) hideTooltip();
     const t = turns.find((x) => x.index === turnIndex);
     if (!t || !t.responses.length) {
-      turnBox.replaceChildren(h("h3", {}, t ? (t.ordinal ? `Turn ${t.ordinal}` : "Start") : "Turn"), h("p", { class: "rail-empty" }, "No model responses in this turn."));
+      turnBox.replaceChildren(h("h3", {}, t ? (t.ordinal ? `Turn ${t.ordinal}` : "Start") : "Turn"), h("p", { class: "rail-empty" }, "No model calls in this turn."));
       return;
     }
     const n = t.responses.length;
@@ -384,7 +508,7 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     const peak = Math.max(...t.responses.map((r) => contextTokens(r.usage)));
     const ctxSum = contextTokens(u);
     const run = running.get(t.index);
-    const respCols: Column[] = t.responses.map((r, i) => ({ turns: [t.index], context: r.usage, output: r.usage.output, ...(r.inherited ? { inherited: true } : {}), tip: () => responseTip(r, i, n) }));
+    const respCols: Column[] = t.responses.map((r, i) => ({ turns: [t.index], context: r.usage, output: r.usage.output, ...(r.inherited ? { inherited: true } : {}), ...(markOf([r]) ? { cache: markOf([r])! } : {}), tip: () => responseTip(r, i, n) }));
     const inherited = own.length === 0;
     const respChart = chart(bucket(respCols, 60), callScale, { label: `Context per model call for ${plural(n, "call")}`, ctxH: 36, outH: 12 });
     turnBox.replaceChildren(
@@ -392,12 +516,13 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
       respChart.el,
       dl([
         ["context", `up to ${formatTokens(peak)}`],
-        ["cached", ctxSum ? `${Math.round((u.cacheRead / ctxSum) * 100)}%` : undefined],
-        ["output", `${formatTokens(u.output)}${u.reasoning ? ` (${formatTokens(u.reasoning)} think)` : ""}`],
+        ["cache hit (tokens)", ctxSum && cacheReported ? `${Math.round((u.cacheRead / ctxSum) * 100)}%` : undefined],
+        ["output", `${formatTokens(u.output)}${u.reasoning ? ` (${formatTokens(u.reasoning)} thinking)` : ""}`],
         ["est. cost", inherited ? undefined : u.cost !== undefined ? formatCost(u.cost) : undefined],
         ["so far", inherited ? undefined : run ? `${formatTokens(run.tokens)}${run.cost !== undefined ? ` · ${formatCost(run.cost)}` : ""}` : undefined],
         ["from", inherited ? "parent session (not counted)" : inheritedCalls ? `${plural(inheritedCalls, "call")} from parent (not counted)` : undefined],
       ]),
+      ...[cacheLines(t.responses)].flatMap((x) => (x ? [x] : [])),
     );
   };
   return { el, setActive };

@@ -6,6 +6,9 @@ export type { ModelPrice } from "./pricing-data.js";
 /** Anthropic bills 1-hour cache writes at twice the base input rate (5-minute writes have their own rate). */
 const CACHE_WRITE_1H_INPUT_MULTIPLIER = 2;
 
+/** USD per million tokens for a 1-hour cache write of this model. */
+export const cacheWrite1hRate = (p: ModelPrice): number => p.input * CACHE_WRITE_1H_INPUT_MULTIPLIER;
+
 /**
  * Older models pi's catalog does not list (so the generated table lacks them), kept by hand
  * from Anthropic's published list prices. Keyed by family, without date stamps. Kept apart
@@ -47,5 +50,5 @@ export function estimateCost(model: string | undefined, u: Usage): number | unde
   if (!p) return undefined;
   const long = Math.min(u.cacheWrite1h ?? 0, u.cacheWrite);
   const short = u.cacheWrite - long;
-  return (u.input * p.input + u.output * p.output + u.cacheRead * p.cacheRead + short * p.cacheWrite + long * p.input * CACHE_WRITE_1H_INPUT_MULTIPLIER) / 1_000_000;
+  return (u.input * p.input + u.output * p.output + u.cacheRead * p.cacheRead + short * p.cacheWrite + long * cacheWrite1hRate(p)) / 1_000_000;
 }

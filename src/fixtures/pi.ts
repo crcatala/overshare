@@ -134,9 +134,14 @@ export function emitPi(script: SessionScript, rng: Rng, opts: { sessionId: strin
           entry("compaction", { summary: item.summary, firstKeptEntryId: last, tokensBefore: tokens.contextTokens });
           tokens.compact();
           break;
+        case "idle":
+          now += item.minutes * 60_000;
+          tokens.expireCache();
+          break;
         case "modelChange":
           provider = "anthropic";
           model = item.model;
+          tokens.expireCache(); // The cache is per model.
           entry("model_change", { provider, modelId: model });
           break;
         case "thinkingLevel":

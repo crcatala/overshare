@@ -13,16 +13,94 @@
  *   against the raw sum over every usage-bearing entry in the file. They must agree, except
  *   that a fork's file may hold parent-branch entries we deliberately skip. Separately, the
  *   provider's own `totalTokens` is checked against its parts (a check on the data itself).
+ * - Cache misses: how many calls each harness flags (by kind and model), how many a uniform
+ *   Claude-Code rule (5% and 2,000 tokens) would flag instead, and the ten largest by extra
+ *   cost to spot-check. Session ids are the first 8 characters; no transcript text is printed.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parseClaudeCode } from "../src/adapters/claude-code.ts";
 import { parsePi } from "../src/adapters/pi.ts";
+import { formatCost, formatDuration, formatTokens } from "../src/format.ts";
 import { defaultRoots } from "../src/resolve.ts";
-import { totalTokens } from "../src/schema.ts";
+import { contextTokens, totalTokens, type NormalizedSession } from "../src/schema.ts";
 import { computeStats } from "../src/stats.ts";
 
 const roots = defaultRoots();
+
+/** Flagged calls per harness, and the largest ten by extra cost. */
+interface Flag {
+  harness: string;
+  session: string;
+  turn: number;
+  model: string;
+  kind: string;
+  gapMs?: number;
+  idle: boolean;
+  recached: number;
+  context: number;
+  cacheRead: number;
+  cost?: number;
+}
+const flags: Flag[] = [];
+const totals: Record<string, { sessions: number; calls: number; flagged: number; uniform: number; kinds: Record<string, number>; models: Record<string, [calls: number, flagged: number]> }> = {};
+
+/** What the plain Claude Code rule (5% and 2,000 tokens, any provider) would flag, for comparison. */
+function uniformFlags(session: NormalizedSession): number {
+  let n = 0;
+  let prev: NormalizedSession["responses"][number] | undefined;
+  for (const r of session.responses) {
+    if (r.purpose || r.inherited || totalTokens(r.usage) === 0) continue;
+    if (prev && prev.model === r.model) {
+      const readable = Math.min(contextTokens(prev.usage), contextTokens(r.usage));
+      const recached = Math.max(0, readable - r.usage.cacheRead);
+      if (recached >= 2_000 && recached > readable * 0.05 && r.usage.cacheRead + r.usage.cacheWrite + prev.usage.cacheRead > 0) n += 1;
+    }
+    prev = r;
+  }
+  return n;
+}
+
+function auditCache(harness: string, id: string, session: NormalizedSession): void {
+  const t = (totals[harness] ??= { sessions: 0, calls: 0, flagged: 0, uniform: 0, kinds: {}, models: {} });
+  t.sessions += 1;
+  t.uniform += uniformFlags(session);
+  for (const r of session.responses) {
+    if (r.purpose || r.inherited) continue;
+    const m = (t.models[r.model ?? "?"] ??= [0, 0]);
+    t.calls += 1;
+    m[0] += 1;
+    const e = r.cacheEvent;
+    if (!e) continue;
+    t.flagged += 1;
+    m[1] += 1;
+    t.kinds[e.kind] = (t.kinds[e.kind] ?? 0) + 1;
+    flags.push({ harness, session: id, turn: r.turn, model: r.model ?? "?", kind: e.kind, ...(e.gapMs !== undefined ? { gapMs: e.gapMs } : {}), idle: Boolean(e.idle), recached: e.recached, context: contextTokens(r.usage), cacheRead: r.usage.cacheRead, ...(e.cost !== undefined ? { cost: e.cost } : {}) });
+  }
+}
+
+function reportCache(): void {
+  console.log("\nCache misses (calls of the conversation; calls the agent made itself are skipped)");
+  for (const [h, t] of Object.entries(totals)) {
+    const models = Object.entries(t.models)
+      .filter(([, [, f]]) => f > 0)
+      .sort((a, b) => b[1][1] - a[1][1])
+      .map(([m, [c, f]]) => `${m.split("/").pop()} ${f}/${c}`)
+      .join(", ");
+    console.log(`  ${h}: ${t.sessions} sessions, ${t.calls} calls -> ${t.flagged} flagged ${JSON.stringify(t.kinds)}; a uniform 5%/2,000-token rule would flag ${t.uniform}`);
+    console.log(`    flagged/calls by model: ${models || "none"}`);
+    const spent = flags.filter((f) => f.harness === h && f.kind === "miss");
+    console.log(`    misses with a known idle explanation: ${spent.filter((f) => f.idle).length} of ${spent.length}; total extra cost of misses ${formatCost(spent.reduce((n, f) => n + (f.cost ?? 0), 0))}`);
+  }
+  for (const h of Object.keys(totals)) {
+    console.log(`  top 10 ${h} by extra cost:`);
+    const top = flags.filter((f) => f.harness === h).sort((a, b) => (b.cost ?? -1) - (a.cost ?? -1)).slice(0, 10);
+    for (const f of top) {
+      const gap = f.gapMs === undefined ? "no gap" : `gap ${formatDuration(f.gapMs)}${f.idle ? " (idle)" : ""}`;
+      console.log(`    ${f.session} turn ${f.turn} ${f.kind.padEnd(12)} ${f.model.split("/").pop()} ${formatTokens(f.recached)} re-cached of ${formatTokens(f.context)} (read ${formatTokens(f.cacheRead)}) ${gap} ${f.cost !== undefined ? formatCost(f.cost) : "unpriced"}`);
+    }
+  }
+}
 
 function* jsonl(root: string): Generator<string> {
   let dirs: string[];
@@ -53,6 +131,7 @@ for (const file of jsonl(roots["claude-code"])) {
     .map((l) => JSON.parse(l) as { totalCostUSD: number; startTime: number })
     .at(-1);
   const stats = computeStats(session);
+  auditCache("claude", basename(file, ".jsonl").slice(0, 8), session);
   if (!state || stats.cost === undefined || state.totalCostUSD < 0.05) continue;
   const first = Date.parse(session.startedAt ?? "");
   if (state.startTime - first > 120_000) {
@@ -105,7 +184,9 @@ for (const file of jsonl(roots.pi)) {
       if ((u.input ?? 0) + (u.output ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0) !== u.totalTokens) providerOff += 1;
     }
   }
-  const st = computeStats(parsePi(text).session);
+  const parsed = parsePi(text).session;
+  const st = computeStats(parsed);
+  auditCache("pi", basename(file, ".jsonl").split("_").pop()!.slice(0, 8), parsed);
   const ours = totalTokens(st.tokens) + (st.otherBranches ? totalTokens(st.otherBranches.tokens) : 0) + (st.inherited ? totalTokens(st.inherited.tokens) : 0);
   sessions += 1;
   if (ours === raw) continue;
@@ -115,3 +196,5 @@ for (const file of jsonl(roots.pi)) {
 console.log(`pi: ${sessions} sessions; adapter totals match the raw file in ${sessions - forkGaps - bad.length} (${forkGaps} forks skip parent-branch entries on purpose)${bad.length ? `; ${bad.length} DIFFER:` : ""}`);
 for (const b of bad.slice(0, 10)) console.log(`    ${b}`);
 console.log(`pi provider data: ${provider} calls, ${providerOff} where input+output+cache differs from the provider's totalTokens`);
+
+reportCache();

@@ -10,6 +10,7 @@ import { contextTokens, type EventStep, type NormalizedSession, type ResponseUsa
 import { commandName, groupCalls, groupShell, isExecTool, type CallCount } from "./commands.ts";
 import { h, markdown } from "./dom.ts";
 import { firstLine, lineDiff, preview, splitLines, trimContext, type DiffLine } from "./text.ts";
+import { cacheEventOf } from "./usageinfo.ts";
 
 export type OutlineKind = "reply" | "tools" | "subagent" | "event" | "error";
 
@@ -50,6 +51,8 @@ export interface TurnInfo {
   /** Every tool call in the turn, in order. */
   calls: ToolCall[];
   responses: ResponseUsage[];
+  /** The DOM id of the first step each model call produced, to jump to it (empty where steps are not shown). */
+  responseSteps: Map<string, string>;
 }
 
 const EVENT_LABEL: Record<string, string> = {
@@ -298,7 +301,7 @@ function renderGroup(g: ToolGroupStep, id: string, ctx: Ctx): HTMLElement {
 }
 
 function renderThinking(t: ThinkingStep, id: string, ctx: Ctx): HTMLElement {
-  const el = entry("think", id, "think", t.timestamp);
+  const el = entry("think", id, "thinking", t.timestamp);
   const meta = [t.blocks > 1 ? `${t.blocks} blocks` : "", t.tokens ? `${formatTokens(t.tokens)} tok` : t.chars ? `${formatTokens(t.chars)} chars` : ""].filter(Boolean).join(" · ");
   if (ctx.inlineThinking && t.text) {
     el.classList.add("inline");
@@ -413,15 +416,25 @@ function turnFoot(list: ResponseUsage[] | undefined): HTMLElement | null {
     ctxSum += contextTokens(r.usage);
     if (r.usage.cost !== undefined) cost = (cost ?? 0) + r.usage.cost;
   }
+  // Providers that report no cache tokens have no cache figures to show.
+  const cacheReported = list.some((r) => r.usage.cacheRead + r.usage.cacheWrite > 0);
   const parts = [
-    plural(list.length, "response"),
-    `ctx ${formatTokens(peak)}`,
-    `out ${formatTokens(out)}`,
-    ctxSum ? `${Math.round((cached / ctxSum) * 100)}% cached` : "",
+    plural(list.length, "model call"),
+    `peak context ${formatTokens(peak)}`,
+    `output ${formatTokens(out)}`,
+    ctxSum && cacheReported ? `${Math.round((cached / ctxSum) * 100)}% cache hit` : "",
     cost !== undefined && !inherited ? formatCost(cost) : "",
     inherited ? "inherited from parent session" : inheritedCalls ? `${inheritedCalls} inherited` : "",
   ].filter(Boolean);
-  return h("div", { class: "turn-foot", "aria-label": "Token usage for this turn" }, h("span", {}, parts.join(" · ")));
+  // Text as well as colour: a turn with a miss says so.
+  const events = [...new Set(list.flatMap((r) => cacheEventOf(r)?.kind ?? []))];
+  const kinds = events.map((k) => (k === "miss" ? "cache miss" : k === "rebuild" ? "cache rebuild" : "model switch"));
+  return h(
+    "div",
+    { class: "turn-foot", "aria-label": "Token usage for this turn" },
+    h("span", {}, parts.join(" · ")),
+    ...kinds.flatMap((k, i) => [" · ", h("span", { class: `foot-cache foot-cache-${events[i]}` }, k)]),
+  );
 }
 
 /** A reply's first line without markdown syntax, for the outline. */
@@ -518,6 +531,15 @@ function toolCalls(turn: Turn, stepIds: string[], ctx: Ctx): ToolCall[] {
   return out;
 }
 
+/** The first step of each model call in a turn, by call id (a call's steps come together, so the first is where it starts). */
+function responseSteps(turn: Turn, stepIds: string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  turn.steps.forEach((s, i) => {
+    for (const id of s.kind === "toolGroup" ? s.responseIds : s.responseId ? [s.responseId] : []) if (!out.has(id)) out.set(id, stepIds[i]!);
+  });
+  return out;
+}
+
 export function responsesByTurn(session: NormalizedSession): Map<number, ResponseUsage[]> {
   const byTurn = new Map<number, ResponseUsage[]>();
   for (const r of session.responses) {
@@ -562,6 +584,7 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
         items: o.items,
         calls: toolCalls(turn, stepIds, ctx),
         responses: ctx.byTurn.get(turn.index) ?? [],
+        responseSteps: session.mode === "prompts" ? new Map() : responseSteps(turn, stepIds),
       });
       return section;
     });

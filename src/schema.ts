@@ -33,6 +33,25 @@ export interface Usage {
 /** Why a model call happened, when it was not an ordinary assistant turn. */
 export type ResponsePurpose = "compaction" | "summary" | "tool" | "cache-warm" | "background";
 
+/**
+ * A call that re-processed context the previous call could have read from cache (see `src/cache.ts`).
+ * `miss`: unexplained, or after an idle gap. `rebuild`: first call after a compaction (expected).
+ * `model-switch`: first call on another model, whose cache starts empty (expected).
+ */
+export type CacheEventKind = "miss" | "rebuild" | "model-switch";
+
+export interface CacheEvent {
+  kind: CacheEventKind;
+  /** Tokens this call had to re-process (write or read uncached) that the previous call's context could have read from cache. */
+  recached: number;
+  /** Time since the previous model call, when both have timestamps. */
+  gapMs?: number;
+  /** The gap is longer than the cache lifetime this session's writes use (1 hour or 5 minutes): the likely cause. */
+  idle?: true;
+  /** Estimated USD over what reading those tokens from cache would have cost; absent when the rate is unknown. */
+  cost?: number;
+}
+
 /** Token usage for one model API response (one assistant message). */
 export interface ResponseUsage {
   id: string;
@@ -44,6 +63,31 @@ export interface ResponseUsage {
   purpose?: ResponsePurpose;
   /** Inherited from a parent session's history (pi forks copy it); not spend of this session. */
   inherited?: true;
+  /** Set when this call re-processed context it could have read from cache. Absent in shares made before cache events. */
+  cacheEvent?: CacheEvent;
+}
+
+/** USD per million tokens, as recorded by the harness for a model. */
+export interface TokenRates {
+  input: number;
+  cacheRead: number;
+  cacheWrite?: number;
+}
+
+/** Prompt cache behaviour over a session's own model calls (Claude Code's `/usage` "Prompt cache (main)" line). */
+export interface CacheSummary {
+  /** Model calls whose provider reports prompt caching (calls made by the harness itself are left out). */
+  requests: number;
+  /** Share of those calls' prompt tokens read from cache, 0-100. */
+  cachedPct: number;
+  misses: number;
+  rebuilds: number;
+  modelSwitches: number;
+  /** Tokens re-processed by the flagged calls. */
+  recached: number;
+  /** Estimated extra USD of the unexpected misses (not rebuilds or model switches); a lower bound when `extraCostPartial`. */
+  extraCost?: number;
+  extraCostPartial?: true;
 }
 
 /** Usage summed over a set of model calls. */
@@ -83,6 +127,16 @@ export interface SessionStats {
   otherBranches?: UsageTotals;
   /** Usage inherited from a parent session (forks); not included above. */
   inherited?: UsageTotals;
+  /**
+   * Prompt cache summary; absent when no call reports caching and in shares made before it existed.
+   * Computed on the full session, so share modes do not change it.
+   */
+  cache?: CacheSummary;
+  /**
+   * Per-model prices recorded by the harness (pi records cost per call), so a cache miss can be
+   * priced. Adapter input to `computeStats`; Claude Code has none and uses the price table.
+   */
+  rates?: Record<string, TokenRates>;
 }
 
 export interface RedactionSummary {

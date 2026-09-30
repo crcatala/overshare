@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { PI_INPUT_PROVENANCE_TYPE, totalsOf, type ResponsePurpose, type ResponseUsage, type Usage } from "../schema.js";
+import { PI_INPUT_PROVENANCE_TYPE, totalsOf, type ResponsePurpose, type ResponseUsage, type TokenRates, type Usage } from "../schema.js";
 import {
   TurnBuilder,
   baseSession,
@@ -116,7 +116,28 @@ export function parsePi(raw: string, options: AdapterOptions = {}): AdapterResul
   session.stats.costSource = "per-response";
   const otherBranches = totalsOf(offBranchResponses(entries, branch, inherited));
   if (otherBranches) session.stats.otherBranches = otherBranches;
+  // The prices behind those recorded costs, so a cache miss can be priced without a price table.
+  const rates = recordedRates(entries);
+  if (Object.keys(rates).length) session.stats.rates = rates;
   return { session, dropped };
+}
+
+/**
+ * Per-model token prices (USD per million) implied by the cost breakdowns pi records on each call:
+ * cost of a component divided by its tokens. The last call with tokens in a component wins.
+ */
+function recordedRates(entries: Entry[]): Record<string, TokenRates> {
+  const rates: Record<string, Partial<TokenRates>> = {};
+  for (const e of entries) {
+    const m = e.type === "message" ? e.message : undefined;
+    if (m?.role !== "assistant" || typeof m.model !== "string" || !m.usage?.cost) continue;
+    const u = m.usage;
+    const rate = (tokens: unknown, cost: unknown) => (typeof tokens === "number" && tokens > 0 && typeof cost === "number" && cost > 0 ? (cost / tokens) * 1_000_000 : undefined);
+    const found = { input: rate(u.input, u.cost.input), cacheRead: rate(u.cacheRead, u.cost.cacheRead), cacheWrite: rate(u.cacheWrite, u.cost.cacheWrite) };
+    const into = (rates[m.model] ??= {});
+    for (const [k, v] of Object.entries(found)) if (v !== undefined) into[k as keyof TokenRates] = v;
+  }
+  return Object.fromEntries(Object.entries(rates).filter((kv): kv is [string, TokenRates] => kv[1].input !== undefined && kv[1].cacheRead !== undefined));
 }
 
 /**

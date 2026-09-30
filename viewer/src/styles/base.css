@@ -1227,7 +1227,8 @@ pre.diff > span {
   gap: 6px;
   min-width: 0;
 }
-.chart-row .cols {
+.chart-row .cols,
+.chart-row .marks {
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -1318,6 +1319,125 @@ button.col {
 }
 .seg-output {
   background: var(--seg-output);
+}
+/* cache events: a shape above the bar (never colour alone), and a list in the rail */
+.marks {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 10px;
+}
+.colmark {
+  flex: 1 1 0;
+  min-width: 1px;
+  max-width: 14px;
+  height: 100%;
+  position: relative;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: default;
+}
+button.colmark {
+  cursor: pointer;
+}
+.colmark .mark {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+}
+.mark {
+  flex: none;
+  display: inline-block;
+}
+.mark-miss {
+  color: var(--err);
+}
+.mark-expected {
+  color: var(--dim);
+}
+.cache-sum {
+  margin: 0 0 6px;
+  color: var(--ink-2);
+}
+.cache-list {
+  display: grid;
+  gap: 1px;
+}
+.cache-row {
+  display: grid;
+  grid-template-columns: 2ch 8.5ch minmax(0, 1fr) 5.5ch 6.5ch;
+  gap: 5px;
+  font-size: 11px;
+  align-items: baseline;
+  min-width: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.cache-head {
+  color: var(--faint);
+  font-size: 10px;
+  padding: 0 2px;
+}
+.cache-head span:first-child,
+.cache-head span:nth-child(n + 3),
+.cr-n {
+  text-align: right;
+}
+button.cache-row {
+  appearance: none;
+  border: 0;
+  border-radius: 5px;
+  padding: 3px 2px;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+button.cache-row:hover,
+button.cache-row:focus-visible {
+  background: var(--bg-2);
+  color: var(--ink);
+  outline: none;
+}
+.cr-turn {
+  text-align: right;
+  color: var(--faint);
+}
+.cr-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.turn-caches {
+  display: grid;
+  gap: 3px;
+  margin-top: 6px;
+}
+.turn-cache,
+.turn-cache-more {
+  margin: 0;
+  color: var(--ink-2);
+}
+.turn-cache {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.turn-cache .mark {
+  align-self: center;
+}
+.foot-cache {
+  color: var(--err);
+}
+.foot-cache-rebuild,
+.foot-cache-model-switch {
+  color: var(--dim);
 }
 .legend {
   display: flex;

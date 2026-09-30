@@ -1,6 +1,6 @@
 ---
 id: ass-lq0c
-status: open
+status: closed
 deps: [ass-jx4l]
 links: [ass-jx4l, ass-rc52, ass-zr02]
 created: 2026-09-30T02:18:33Z
@@ -59,3 +59,9 @@ Standardize on "model call" (drop "response" in rail, turn foot, header, CLI rep
 
 Predicting misses or advising the user; cross-session cache analysis; subagent cache behavior (Claude Code's own "Prompt cache (main)" line also excludes subagents).
 
+
+## Notes
+
+**2026-09-30T03:35:59Z**
+
+Implemented on feat/cache-misses. Detection is src/cache.ts (pure, browser-safe; run in computeStats on the full session): Claude Code's rule (>5% and >=2,000 tokens of the prefix the previous call could have read, capped at this call's prompt), kinds miss/rebuild/model-switch, idle gap, extra cost (price table for Claude with the 5m/1h split; per-model rates recorded from pi's cost breakdown for pi, chosen over per-response rates: smaller shares, and it survives calls with no cache read). Two deviations from the ticket, both driven by the corpus: (1) the miss test uses the capped prefix, so a rewind that reads its whole prompt from cache is not a miss; (2) providers that never report cache writes (OpenAI, xAI, GLM, DeepSeek) need >50% and >=10,000 tokens for an unexplained miss (uniform rule flagged 1,298 of 14,791 pi calls, mostly GLM block-granular lag; tuned rule flags 438). Rebuilds and model switches keep the 5%/2,000 rule. Corpus: Claude 11 flagged of 5,034 calls; 68bb822e 4h31m miss, 385k re-cached, ~$3.01. 791bc054: only the rebuild is visible; the idle miss was the compaction request, which is never written to the transcript. See PR for the top-10 spot check.

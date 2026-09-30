@@ -52,6 +52,8 @@ export type Item =
   | { t: "interrupt" }
   | { t: "apiError"; text: string }
   | { t: "compaction"; summary: string }
+  /** The user steps away for this long; the prompt cache expires, so the next call re-processes the whole prompt. */
+  | { t: "idle"; minutes: number }
   | { t: "modelChange"; model: string }
   | { t: "thinkingLevel"; level: string }
   | { t: "queuedPrompt"; text: string }
@@ -281,6 +283,8 @@ export function buildScript(rng: Rng, opts: { home: string; username: string; se
         ),
       ],
     },
+    // --- Back after a long break (the cache is cold) ---
+    { t: "idle", minutes: 271 },
     // --- Image + web + MCP ---
     { t: "prompt", image: true, text: "Here's a screenshot of the dashboard after the fix — totals for the JPY customer still look wrong. Check Stripe's docs on zero-decimal currencies and the linked ticket." },
     {

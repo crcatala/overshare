@@ -1,5 +1,5 @@
 /** Number/duration formatting shared by the CLI report and the viewer (browser-safe). */
-import { totalTokens, type SessionStats, type UsageTotals } from "./schema.js";
+import { totalTokens, type CacheEvent, type CacheSummary, type SessionStats, type UsageTotals } from "./schema.js";
 
 export function formatTokens(n: number): string {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(n >= 10_000_000_000 ? 0 : 1)}B`;
@@ -56,4 +56,39 @@ export function describeCost(stats: SessionStats): string[] {
   if (stats.otherBranches) lines.push(`Not included: ${formatUsageTotals(stats.otherBranches)} on other branches.`);
   if (stats.inherited) lines.push(`Not included: ${formatUsageTotals(stats.inherited)} inherited from the parent session.`);
   return lines;
+}
+
+/** "~$3.01", with a trailing "+" for a lower bound. */
+const approxCost = (usd: number, partial?: boolean): string => `~${formatCost(usd)}${partial ? "+" : ""}`;
+
+/**
+ * What a flagged call was, in Claude Code's vocabulary: a miss (with the idle gap when that is the likely
+ * cause), or an expected rebuild after compaction / re-cache after a model switch.
+ */
+export function cacheEventLabel(e: CacheEvent): string {
+  if (e.kind === "rebuild") return "expected rebuild after compaction";
+  if (e.kind === "model-switch") return "expected re-cache after model switch";
+  return e.idle && e.gapMs !== undefined ? `cache miss after ${formatDuration(e.gapMs)} idle` : "cache miss";
+}
+
+/** "385k re-cached, ~$3.01": the size of a flagged call, and what it cost over reading from cache. */
+export function cacheEventDetail(e: CacheEvent): string {
+  return `${formatTokens(e.recached)} re-cached${e.cost !== undefined ? `, ${approxCost(e.cost)}` : ""}`;
+}
+
+/** Claude Code's `/usage` wording: "1 miss · 2 expected rebuilds · ~$3.01 extra". Empty when nothing was flagged. */
+export function formatCacheSummary(c: CacheSummary): string {
+  return [
+    c.misses ? plural(c.misses, "miss", "misses") : "",
+    c.rebuilds ? plural(c.rebuilds, "expected rebuild") : "",
+    c.modelSwitches ? plural(c.modelSwitches, "model switch", "model switches") : "",
+    c.extraCost !== undefined ? `${approxCost(c.extraCost, c.extraCostPartial)} extra` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** The short header figure: "3 (~$3.01)". */
+export function formatCacheMisses(c: CacheSummary): string {
+  return `${c.misses}${c.extraCost !== undefined ? ` (${approxCost(c.extraCost, c.extraCostPartial)})` : ""}`;
 }

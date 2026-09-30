@@ -133,6 +133,10 @@ export function emitClaudeCode(script: SessionScript, rng: Rng, opts: { sessionI
           tokens.compact();
           break;
         }
+        case "idle":
+          now += item.minutes * 60_000;
+          tokens.expireCache();
+          break;
         case "queuedPrompt":
           entry("attachment", { attachment: { type: "queued_command", commandMode: "prompt", prompt: item.text } });
           tokens.add(item.text.length);

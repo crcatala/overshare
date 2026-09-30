@@ -410,7 +410,7 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     const shown = cacheOpen ? cacheEvents : cacheEvents.slice(0, CACHE_ROWS);
     const hidden = cacheEvents.length - CACHE_ROWS;
     cacheBox.replaceChildren(
-      h("div", { class: "cache-row cache-head", "aria-hidden": "true" }, h("span", {}, "turn"), h("span", {}, "kind"), h("span", {}, "gap"), h("span", {}, "re-cached"), h("span", {}, "extra")),
+      h("div", { class: "cache-row cache-head", "aria-hidden": "true" }, h("span", {}, "#"), h("span", {}, "kind"), h("span", {}, "gap"), h("span", {}, "tokens"), h("span", {}, "extra")),
       ...shown.map(({ e, t, target }) =>
         h(
           "button",

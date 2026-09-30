@@ -1227,7 +1227,8 @@ pre.diff > span {
   gap: 6px;
   min-width: 0;
 }
-.chart-row .cols {
+.chart-row .cols,
+.chart-row .marks {
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -1367,18 +1368,21 @@ button.colmark {
 }
 .cache-row {
   display: grid;
-  grid-template-columns: 3ch minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.9fr);
-  gap: 6px;
+  grid-template-columns: 2ch 8.5ch minmax(0, 1fr) 5.5ch 6.5ch;
+  gap: 5px;
+  font-size: 11px;
   align-items: baseline;
   min-width: 0;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .cache-head {
   color: var(--faint);
   font-size: 10px;
-  padding: 0 4px;
+  padding: 0 2px;
 }
-.cache-head span:not(:first-child):not(:nth-child(2)),
+.cache-head span:first-child,
+.cache-head span:nth-child(n + 3),
 .cr-n {
   text-align: right;
 }
@@ -1386,9 +1390,10 @@ button.cache-row {
   appearance: none;
   border: 0;
   border-radius: 5px;
-  padding: 3px 4px;
+  padding: 3px 2px;
   background: none;
   font: inherit;
+  font-size: 11px;
   text-align: left;
   color: var(--ink-2);
   cursor: pointer;

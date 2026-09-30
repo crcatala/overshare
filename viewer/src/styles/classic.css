@@ -50,7 +50,7 @@
 }
 [data-variant="classic"] .hdr .facts {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(30ch, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(34ch, 1fr));
   margin: 10px 0 0;
   clip-path: none;
 }
@@ -59,7 +59,7 @@
 }
 [data-variant="classic"] .hdr .facts > div {
   display: grid;
-  grid-template-columns: 11ch minmax(0, 1fr);
+  grid-template-columns: 18ch minmax(0, 1fr);
   gap: 0;
 }
 [data-variant="classic"] .hdr .facts dt {
@@ -316,6 +316,6 @@
     --pad: 12px;
   }
   [data-variant="classic"] .hdr .facts > div {
-    grid-template-columns: 11ch minmax(0, 1fr);
+    grid-template-columns: 18ch minmax(0, 1fr);
   }
 }

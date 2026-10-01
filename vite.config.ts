@@ -4,9 +4,8 @@
  *   npm run dev          Vite dev server at /session/ with HMR (CSS hot-swaps; TS edits
  *                        reload the page, which keeps the session since it lives in the
  *                        URL hash). Local shares are served at /session/local/ — the
- *                        fixture sessions by default (generated on first run and
- *                        whenever the saved ones are from an older schema), or the
- *                        files in $AGENT_SHARE_DEV_SHARES.
+ *                        fixture sessions by default (regenerated on every start),
+ *                        or the files in $AGENT_SHARE_DEV_SHARES.
  *   npm run build:viewer viewer/dist/session/ (relative asset URLs, so any base path
  *                        works) plus _headers, _redirects and robots.txt in viewer/dist/.
  *
@@ -17,7 +16,7 @@ import { readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import { loadConfig } from "./src/config.ts";
-import { exportFixtureShares, fixtureSharesCurrent, generateFixtures } from "./src/fixtures/index.ts";
+import { exportFixtureShares, generateFixtures } from "./src/fixtures/index.ts";
 import { localShares } from "./src/serve.ts";
 // @ts-expect-error — plain ESM helper without type declarations (shared with tests)
 import { contentSecurityPolicy, deployFiles, loadViewerConfig } from "./viewer/config.mjs";
@@ -110,10 +109,9 @@ function devShareFiles(log: (msg: string) => void): string[] {
   if (fromEnv?.length) return fromEnv.map((f) => resolve(f));
   const outDir = join(repo, "fixtures-out");
   const sharesDir = join(outDir, "shares");
-  if (!fixtureSharesCurrent(sharesDir)) {
-    log("  agent-share: generating fixture sessions in fixtures-out/ (missing or from an older schema) …");
-    exportFixtureShares(generateFixtures({ outDir }), outDir, loadConfig());
-  }
+  // Generated from code and deterministic, so regenerate every time rather than keep shares that may predate a schema change.
+  log("  agent-share: generating fixture sessions in fixtures-out/ …");
+  exportFixtureShares(generateFixtures({ outDir }), outDir, loadConfig());
   return readdirSync(sharesDir)
     .filter((f) => f.endsWith(".json"))
     .sort()

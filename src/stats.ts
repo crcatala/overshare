@@ -5,9 +5,10 @@ import { addUsage, contextTokens, emptyUsage, totalsOf, totalTokens, type Normal
  * Compute session statistics from a full (unprojected) session.
  *
  * `tokens`, `cost` and `responses` are this session's own spend: calls inherited from a
- * parent session (forks) are reported under `inherited` instead. Adapters pass two facts
- * through `session.stats`: `costSource`, `otherBranches` (usage that is in the file but
- * not on the exported branch) and `rates` (prices the harness recorded, for pricing cache misses).
+ * parent session (forks) are reported under `inherited` instead. Adapters pass facts through
+ * `session.stats`: `costSource`, `otherBranches` (usage that is in the file but not on the exported
+ * branch), `subagentUsage` (usage read from subagent transcripts) and `rates` (prices the harness
+ * recorded, for pricing cache misses).
  *
  * Also flags cache misses: sets `cacheEvent` on the calls of `session.responses` it finds them in,
  * so this must run on the full session, before any share-mode projection.
@@ -75,6 +76,7 @@ export function computeStats(session: NormalizedSession): SessionStats {
   const inherited = totalsOf(session.responses.filter((r) => r.inherited));
   if (inherited) stats.inherited = inherited;
   if (session.stats.otherBranches) stats.otherBranches = session.stats.otherBranches;
+  if (session.stats.subagentUsage) stats.subagentUsage = session.stats.subagentUsage;
   if (session.stats.rates) stats.rates = session.stats.rates;
   const cache = markCacheEvents(session);
   if (cache) stats.cache = cache;

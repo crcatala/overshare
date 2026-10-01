@@ -1,6 +1,6 @@
 ---
 id: ass-5r99
-status: open
+status: closed
 deps: [ass-75mx]
 links: [ass-75mx, ass-xz9u, ass-z5og, ass-zc54, ass-rc52, ass-cjrn]
 created: 2026-09-30T14:55:28Z
@@ -26,3 +26,13 @@ Viewer side of the subagent usage work. Depends on the adapter ticket for the da
 - Viewer unit tests for the new pieces; browser QA (agent-browser, own named session, tmux server, fixture sessions only): light and dark at 1440px and 390px, Claude fixture with async + foreground + parallel subagents, pi fixture unchanged. Screenshots attached to the PR via the github-pr-screenshots skill; open each before uploading.
 - `npm test`, `npm run typecheck`, `npm run build` pass.
 
+
+## Notes
+
+**2026-09-30T20:06:59Z**
+
+Heads-up from ass-75mx/ass-cjrn (2026-09-30): no old-share compatibility code. Do not add fallbacks for shares without SessionStats.subagentUsage or SubagentStep.usage beyond the fields being optional; bump SCHEMA_VERSION if a change needs it. SubagentStep.usage has no 'source' field any more (removed); a transcript-derived usage is recognisable by models/turns.
+
+**2026-09-30T22:02:39Z**
+
+Shipped on feat/subagent-viewer. Rail: Session labelled 'main conversation' when subagent usage exists; new Subagents section (subagents, tokens processed, est. cost with per-model hover, model calls) and a 'not launched here' row for unlinked spend; Context-by-turn help says subagents are not drawn (no chart marker: decided against it, the turn box and footer carry the attribution). Header fact 'subagents: N (~$X)' (linked + unlinked; plain launch count where there is no usage, i.e. pi). Turn attribution: sum of the turn's subagent steps (launching turn, async included) in the rail turn box and a footer line; longest run, not summed durations. Step line: 'N tokens · model calls · tool calls · time · cost', cache writes now counted in the fallback sum, wraps on phones, expands to class split/models/nested plus result note. describeCost: caveat dropped where subagentUsage exists or none launched, kept for pi launches. Modes: brief/minimal keep numbers and drop result, prompts has no per-agent rows (turn attribution needs steps; session figures still show since stats are pre-projection). No schema change. Not done: per-turn subagent aggregates in prompts mode (would need TurnActivity fields).

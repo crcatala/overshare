@@ -1,6 +1,6 @@
 ---
 id: ass-75mx
-status: open
+status: closed
 deps: [ass-xz9u, ass-zc54]
 links: [ass-xz9u, ass-z5og, ass-5r99, ass-zc54, ass-rc52, ass-cjrn, ass-zr02]
 created: 2026-09-30T14:55:28Z
@@ -43,3 +43,15 @@ Viewer changes (separate ticket), subagent transcripts, pi subagent support, pre
 **2026-09-30T18:09:40Z**
 
 From the ass-zc54 review: in the fixtures the only unreconciled session (9150e1c1, cost-state exceeds the files by +1648 in / +890 out / +71616 cacheRead / +372 cacheWrite) is also the only interactive one (entrypoint: cli; the other six are sdk-cli, i.e. -p). n=1, so treat as a lead, not a rule: the cross-check may need equality for -p sessions and <= for interactive ones. The cause of the residual is not established (the size of the cache-read part does not look like a title-generation call). tests/subagent-fixtures.ts uniqueUsage prefers the earlier file across files (pass main first) and the largest copy within a file, matching the main-copy-wins rule.
+
+**2026-09-30T19:52:36Z**
+
+Shipped on feat/subagent-usage. Adapter reads <session>/subagents/agent-*.jsonl via a pure options.subagentFiles (src/subagent-files.ts loads them for the CLI; missing dir, bad meta and malformed lines tolerated). Dedupe: main copy, then earlier file, then largest repeat; per-call 5m/1h split; shared cost estimate (no fast-mode multiplier until ass-zr02 part 3). Linking: meta.toolUseId, else tool_result agentId; nested agents follow parentAgentId to the launched one. SubagentStep.usage = file total (source: transcript), result = final message when the step has none or only a launch ack (cap = existing SUBAGENT_RESULT_CHARS 4000, not the suggested 2000, so notification and file paths share one cap). DEVIATION: the new stats field is SessionStats.subagentUsage, not SessionStats.subagents, because subagents is already the launch-count number used by header, report and tests; unlinked bucket inside it. Untested cases generated on 2.1.286: resumed (same file grows, reconciles), nested (sibling file, parentAgentId, reconciles), forked skill (no launch in main, no toolUseId: unlinked, reconciles), /btw (writes nothing; spend only in cost-state). Fixtures added for resumed, nested, forked. Corpus: 94 Claude sessions parse, 1 has subagent files (5faff187, forked skill, lands in unlinked). It does NOT match cost-state (interactive; cost-state exceeds files by +10026 in/+234 out/+107662 cacheRead/+1289 cacheWrite), contrary to the acceptance line; see ass-jn1t. Also found ass-8svj (parallel tool results dropped by branch following). Viewer line/attribution is ass-5r99.
+
+**2026-09-30T20:06:59Z**
+
+DECISION (2026-09-30, with the user): no compatibility or migration code for our own old output. The repo is a private personal tool and not public yet, so breaking changes are fine; the way to make one is to bump SCHEMA_VERSION (the viewer already rejects a mismatched schema). Removed on feat/subagent-usage: the viewer's '(last call)' label and SubagentUsage.source (both existed only for shares made before subagent transcripts were read), and fixtureSharesCurrent (vite dev server now regenerates fixtures-out on every start). KEPT on purpose: tolerance for formats other tools write (Claude Code/pi transcripts on disk, which cannot be regenerated): origin absent = human, growing streamed usage snapshots (still present in 2.1.285), subagent meta/layout tolerance, LEGACY_PRICES, and pi's fail-closed prompts check (a privacy guard, not a migration). Rule of thumb: code that converts or special-cases our own old output is removed; code that parses someone else's files or refuses unsafe input stays. Consequence: shares made before this change show Claude subagent last-call tokens as a plain total; accepted.
+
+**2026-09-30T21:06:40Z**
+
+Review fix (2026-09-30) on feat/subagent-usage. (1) Export scope: a subagent file spans the whole session, so with an explicit --leaf the adapter now ignores subagent lines after the branch end (no later calls in usage, no later answer), and the file-derived summary is only offered on a plain export whose final message precedes the session end and when the branch was not cut by a rewind (otherBranches empty); a resume on a discarded branch can no longer publish its answer. Numbers on a plain export are not time-cut (an agent may legitimately outlive the last main entry). Residual: a resume on a discarded branch still counts toward the step's numbers. (2) Linking: a task-notification now links by its task-id (agent id) as well as tool-use-id, so a file with no toolUseId in meta still links when the launch's tool_result is not on the branch.

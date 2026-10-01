@@ -35,6 +35,9 @@ const SHAPES: Record<string, { agents: number; results: string[]; notifications:
   "bf3c7500": { agents: 3, results: ["completed", "completed", "completed"], notifications: 0, requestShapes: ["foreground", "foreground", "foreground"], note: "three parallel launches" },
   "2a10ef7b": { agents: 1, results: ["completed"], notifications: 0, requestShapes: ["foreground"], note: "Opus 5.5 fast mode" },
   "edf2048e": { agents: 1, results: ["completed"], notifications: 0, requestShapes: ["foreground"], note: "Opus 5.5 standard mode" },
+  "113ee2dc": { agents: 1, results: ["completed"], notifications: 0, requestShapes: ["foreground"], note: "resumed with SendMessage: the same agent file grows" },
+  "1c1bb33a": { agents: 1, results: ["completed"], notifications: 0, requestShapes: ["foreground", "foreground"], note: "nested: a subagent launches a subagent, both files sit side by side" },
+  "1ccce9c5": { agents: 0, results: [], notifications: 0, requestShapes: ["foreground"], note: "forked skill: no Agent call in main, the skill's spend is only in the subagent file" },
 };
 
 const agentLaunches = (lines: Line[]) =>
@@ -49,13 +52,17 @@ describe("subagent fixture layout", () => {
     expect(readdirSync(SUBAGENT_FIXTURES_ROOT).filter((f) => f !== "README.md")).toEqual([SUBAGENT_FIXTURES_PROJECT]);
   });
 
-  it("gives every subagent a .jsonl and a .meta.json, and links it to the launching tool_use", () => {
+  it("gives every subagent a .jsonl and a .meta.json, and links it to its launch", () => {
     for (const f of fixtures.values()) {
       const dir = join(SUBAGENT_FIXTURES_DIR, f.id, "subagents");
       const files = readdirSync(dir).sort();
       expect(files, f.id).toEqual(f.subagents.flatMap((s) => [`agent-${s.agentId}.jsonl`, `agent-${s.agentId}.meta.json`]).sort());
       const launches = agentLaunches(f.main).map((b: Line) => b.id);
-      expect(f.subagents.map((s) => s.meta.toolUseId).sort(), f.id).toEqual([...launches].sort());
+      // Every launch in main has its file. A nested agent points at a launch inside its parent's file instead, and a
+      // forked skill has no launching call at all.
+      const direct = f.subagents.filter((s) => s.meta.toolUseId && !s.meta.parentAgentId).map((s) => s.meta.toolUseId);
+      expect(direct.sort(), f.id).toEqual([...launches].sort());
+      for (const s of f.subagents.filter((s) => s.meta.parentAgentId)) expect(f.subagents.map((o) => o.agentId), s.agentId).toContain(s.meta.parentAgentId);
     }
   });
 
@@ -162,7 +169,8 @@ describe("usage details the adapter ticket relies on", () => {
   it("subagents wrote 5m cache while the main session wrote 1h, in every session", () => {
     for (const f of fixtures.values()) {
       const main = writes(f.main);
-      expect(main.length, f.id).toBeGreaterThan(0);
+      // A forked skill's session has no model call of its own in main.
+      expect(main.length > 0 || f.id.startsWith("1ccce9c5"), f.id).toBe(true);
       expect(main.every((w) => w.ephemeral_1h_input_tokens > 0 && w.ephemeral_5m_input_tokens === 0), `${f.id} main`).toBe(true);
       for (const s of f.subagents) {
         const sub = writes(s.lines);
@@ -224,7 +232,7 @@ describe("fixture hygiene", () => {
   const all = files(SUBAGENT_FIXTURES_ROOT).filter((f) => /\.(jsonl|json)$/.test(f));
 
   it("has no personal paths, emails, account ids or temp directories", () => {
-    // 7 main files, plus a transcript and a meta file per subagent.
+    // One main file per session, plus a transcript and a meta file per subagent.
     expect(all.length).toBe(ids.length + 2 * [...fixtures.values()].reduce((n, f) => n + f.subagents.length, 0));
     for (const path of all) {
       const text = readFileSync(path, "utf8");

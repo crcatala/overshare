@@ -13,6 +13,7 @@ import { readSecretsFile } from "./redact/known-values.js";
 import { formatReport } from "./report.js";
 import { defaultRoots, listSessions, resolveSession, type SessionRef } from "./resolve.js";
 import { SHARE_MODES, type HarnessName, type ShareMode } from "./schema.js";
+import { loadSubagentFiles } from "./subagent-files.js";
 import { DEFAULT_HOST, startViewerServer } from "./serve.js";
 import { TOOL_VERSION } from "./version.js";
 
@@ -47,7 +48,8 @@ function prepare(arg: string | undefined, opts: SessionOptions): { ref: SessionR
   const config = loadConfig();
   const raw = readFileSync(ref.path, "utf8");
   const extraKnownSecrets = (opts.secretsFile ?? []).flatMap((f) => readSecretsFile(f, (msg) => console.error(`warning: ${msg}`)));
-  const prepared = prepareShare(raw, { mode: opts.mode, config, harness: ref.harness, leafId: opts.leaf, extraKnownSecrets });
+  const subagentFiles = ref.harness === "claude-code" ? loadSubagentFiles(ref.path) : undefined;
+  const prepared = prepareShare(raw, { mode: opts.mode, config, harness: ref.harness, leafId: opts.leaf, subagentFiles, extraKnownSecrets });
   return { ref, prepared };
 }
 

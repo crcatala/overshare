@@ -98,7 +98,7 @@ describe("claude-code adapter", () => {
     expect(session.turns.map((x) => x.user?.text)).toEqual(["start", "also do this"]);
   });
 
-  it("detects subagent launches and keeps only metadata-level stats", () => {
+  it("detects subagent launches and does not present the tool result's last-call tokens as a total", () => {
     const t = new ClaudeTranscript()
       .user("research this")
       .assistant(
@@ -106,7 +106,9 @@ describe("claude-code adapter", () => {
         [{ type: "tool_use", id: "tu_a", name: "Agent", input: { subagent_type: "Explore", description: "Find config loaders", prompt: "long prompt" } }],
         ccUsage(1, 1),
       )
-      .toolResult("tu_a", [{ type: "text", text: "Found 3 loaders" }], { toolUseResult: { totalTokens: 12345, totalToolUseCount: 7, totalDurationMs: 9000 } });
+      .toolResult("tu_a", [{ type: "text", text: "Found 3 loaders" }], {
+        toolUseResult: { status: "completed", totalTokens: 12345, totalToolUseCount: 7, totalDurationMs: 9000, usage: { input_tokens: 10, output_tokens: 398, cache_read_input_tokens: 12000, cache_creation_input_tokens: 1937 } },
+      });
     const { session } = parseClaudeCode(t.toJsonl());
     const step = session.turns[0]!.steps[0]!;
     expect(step).toMatchObject({
@@ -114,8 +116,10 @@ describe("claude-code adapter", () => {
       tool: "Agent",
       agents: ["Explore"],
       description: "Find config loaders",
-      usage: { totalTokens: 12345, toolUses: 7, durationMs: 9000 },
+      usage: { toolUses: 7, durationMs: 9000 },
     });
+    // Claude Code's tool_result carries `totalTokens` and `usage` for the subagent's LAST model call only.
+    expect((step as { usage?: unknown }).usage).toEqual({ toolUses: 7, durationMs: 9000 });
     expect(computeStats(session).subagents).toBe(1);
   });
 

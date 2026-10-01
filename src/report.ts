@@ -23,6 +23,9 @@ export function formatReport(r: ShareReport, opts: { maxFindings?: number; color
   const cacheLine = s.cache ? formatCacheSummary(s.cache) : "";
   if (cacheLine) lines.push(dim(`  prompt cache: ${s.cache!.cachedPct}% of prompt tokens read from cache · ${cacheLine}`));
 
+  const sub = s.subagentUsage;
+  if (sub?.agents) lines.push(dim(`  not counted: ${formatUsageTotals(sub)} by ${plural(sub.agents, "subagent")} (read from their transcripts)`));
+  if (sub?.unlinked) lines.push(dim(`  not counted: ${formatUsageTotals(sub.unlinked)} by ${plural(sub.unlinked.agents, "subagent")} that no step on this branch launched`));
   if (s.otherBranches) lines.push(dim(`  not counted: ${formatUsageTotals(s.otherBranches)} on other branches`));
   if (s.inherited) lines.push(dim(`  not counted: ${formatUsageTotals(s.inherited)} inherited from the parent session`));
 

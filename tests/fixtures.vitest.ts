@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { exportFixtureShares, fixtureSharesCurrent, generateFixtures } from "../src/fixtures/index.js";
+import { exportFixtureShares, generateFixtures } from "../src/fixtures/index.js";
 import { prepareShare } from "../src/pipeline.js";
 import { readSecretsFile } from "../src/redact/known-values.js";
 import { listSessions } from "../src/resolve.js";
@@ -134,23 +134,5 @@ describe("fixture generator", () => {
     const big = generateFixtures({ outDir: mkdtempSync(join(tmpdir(), "as-fx-")), seed: 5, extraTurns: 20, home, username: "fixture-user" });
     const { session } = prepareShare(readFileSync(big.claudeFile, "utf8"), { mode: "brief", config: DEFAULT_CONFIG, harness: "claude-code", machine, knownSecrets: [] });
     expect(session.stats.turns).toBe(28);
-  });
-});
-
-describe("fixtureSharesCurrent", () => {
-  it("is true only for a directory of shares in the current schema", () => {
-    const out = mkdtempSync(join(tmpdir(), "as-fx-current-"));
-    const shares = join(out, "shares");
-    expect(fixtureSharesCurrent(shares)).toBe(false); // missing
-    const [first] = exportFixtureShares(generateFixtures({ outDir: out, seed: 3, home, username: "fixture-user" }), out, DEFAULT_CONFIG);
-    expect(fixtureSharesCurrent(shares)).toBe(true);
-    // One share from an older schema, or one that does not parse, makes the set stale.
-    const good = readFileSync(first!.file, "utf8");
-    writeFileSync(first!.file, good.replace(/"schema":\s*"[^"]*"/, '"schema":"agentshare/0"'));
-    expect(fixtureSharesCurrent(shares)).toBe(false);
-    writeFileSync(first!.file, "{not json");
-    expect(fixtureSharesCurrent(shares)).toBe(false);
-    writeFileSync(first!.file, good);
-    expect(fixtureSharesCurrent(shares)).toBe(true);
   });
 });

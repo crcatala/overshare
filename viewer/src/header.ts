@@ -10,6 +10,7 @@ import { menuButton, menuItem } from "./menu.ts";
 import { settingsButton, type SettingsOptions } from "./settings.ts";
 import { shareButton, type ShareOptions } from "./share.ts";
 import type { Provenance } from "./source.ts";
+import { subagentsHeaderNode } from "./subagents.ts";
 import type { TurnInfo } from "./transcript.ts";
 import { INHERITED_WHY, OTHER_BRANCHES_WHY, cacheMissesNode, costNode, excludedNode, tokensNode } from "./usageinfo.ts";
 
@@ -104,7 +105,7 @@ export function renderHeader(s: NormalizedSession, provenance: Provenance | unde
       ["peak context", formatTokens(st.peakContext)],
       ["est. cost", costNode(st)],
       ["cache misses", st.cache && st.cache.misses > 0 ? cacheMissesNode(st.cache) : undefined],
-      ["subagents", st.subagents ? String(st.subagents) : undefined],
+      ["subagents", subagentsHeaderNode(st)],
       ["other branches", excludedNode(st.otherBranches, OTHER_BRANCHES_WHY)],
       ["inherited", excludedNode(st.inherited, INHERITED_WHY)],
     ]),

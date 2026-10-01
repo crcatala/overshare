@@ -41,6 +41,9 @@ export function formatUsageTotals(t: UsageTotals): string {
   return [plural(t.responses, "call"), `${formatTokens(totalTokens(t.tokens))} tokens`, formatSessionCost(t) ?? ""].filter(Boolean).join(" · ");
 }
 
+/** The caveat on every cost computed from token counts (Claude Code's main conversation and its subagents). */
+export const COST_UNDERCOUNT_NOTE = "Can undercount: long-context, fast-mode and regional price surcharges are not modelled.";
+
 /** What the cost figure means, and what it leaves out. The first line is a title. */
 export function describeCost(stats: SessionStats): string[] {
   const how =
@@ -49,8 +52,11 @@ export function describeCost(stats: SessionStats): string[] {
       : "Recorded by the agent for each model call, at list price.";
   const lines = ["Estimated cost", how, "Not a bill: subscription plans are not charged per token."];
   if (stats.costPartial) lines.push("Some calls have no cost (a model with no known price, or none recorded), so this is a lower bound.");
-  if (stats.costSource === "estimated") lines.push("Can undercount: long-context, fast-mode and regional price surcharges are not modelled.");
-  lines.push("Covers the main conversation on the branch shown. Subagent usage is not included.");
+  if (stats.costSource === "estimated") lines.push(COST_UNDERCOUNT_NOTE);
+  lines.push("Covers the main conversation on the branch shown.");
+  // Claude Code subagents are read from their transcripts and shown on their own lines; a launch with no usage (pi) is not counted anywhere.
+  if (stats.subagentUsage) lines.push("Subagent usage is not included; it is shown separately.");
+  else if (stats.subagents > 0) lines.push("Subagent usage is not included.");
   if (stats.otherBranches) lines.push(`Not included: ${formatUsageTotals(stats.otherBranches)} on other branches.`);
   if (stats.inherited) lines.push(`Not included: ${formatUsageTotals(stats.inherited)} inherited from the parent session.`);
   return lines;

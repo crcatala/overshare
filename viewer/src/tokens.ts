@@ -13,6 +13,7 @@ import { groupShell, isExecTool, tallyCommands } from "./commands.ts";
 import { h, hideTooltip, withTooltip } from "./dom.ts";
 import { svg } from "./el.ts";
 import { closeHoverCard, hoverCard } from "./popover.ts";
+import { SUBAGENT_HELP, subagentCostNode, turnSubagentsDuration, turnSubagentsLine, unlinkedSubagentsNode } from "./subagents.ts";
 import type { ToolCall, TurnInfo } from "./transcript.ts";
 import { CACHE_HELP, INHERITED_WHY, OTHER_BRANCHES_WHY, cacheEventOf, cacheMark, costNode, excludedNode, tokensNode } from "./usageinfo.ts";
 
@@ -154,6 +155,7 @@ const CONTEXT_BY_TURN_HELP = [
   "Top: the largest prompt sent to the model in each turn (cache read, cache write, uncached input).",
   "Bottom: the output the turn produced. Click a bar to jump to its turn.",
   "A marker above a bar means a model call in that turn had a cache miss, an expected rebuild or a model switch (see Cache).",
+  "Subagents are not drawn: each has its own context window. See Subagents.",
 ];
 const TURN_HELP = ["One bar per model call in this turn: the prompt it was sent (top) and its output (bottom).", "Every turn uses the same scale, so turns can be compared."];
 
@@ -324,6 +326,7 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
           `${plural(t.responses.length, "model call")}${t.label ? ` · ${t.label.slice(0, 60)}` : ""}`,
           ...found.slice(0, 3).map((e) => `${cacheEventLabel(e)}: ${cacheEventDetail(e)}`),
           ...(found.length > 3 ? [`+${found.length - 3} more cache events`] : []),
+          ...(t.subagents ? [`launched ${turnSubagentsLine(t.subagents)} (not in the figures above)`] : []),
         ];
       },
     };
@@ -445,6 +448,21 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     st.cache && cacheEvents.length
       ? h("section", { class: "rail-sec" }, helpHeading("Cache", CACHE_HELP, h("span", { class: "h3-meta" }, "largest first")), h("p", { class: "cache-sum" }, formatCacheSummary(st.cache)), cacheBox)
       : null;
+  const sub = st.subagentUsage;
+  const subagentSection = sub
+    ? h(
+        "section",
+        { class: "rail-sec" },
+        helpHeading("Subagents", SUBAGENT_HELP, h("span", { class: "h3-meta" }, "not in totals")),
+        dl([
+          ["subagents", sub.agents ? String(sub.agents) : undefined],
+          ["tokens processed", sub.agents ? tokensNode(sub) : undefined],
+          ["est. cost", sub.agents ? subagentCostNode(sub) : undefined],
+          ["model calls", sub.agents ? String(sub.responses) : undefined],
+          ["not launched here", unlinkedSubagentsNode(sub.unlinked)],
+        ]),
+      )
+    : null;
   const cacheHit = cacheReported ? cacheHitNode(cachedPct, st.cache?.misses ?? 0) : undefined;
 
   const el = h(
@@ -453,7 +471,7 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     h(
       "section",
       { class: "rail-sec" },
-      h("h3", {}, "Session"),
+      h("h3", {}, "Session", st.subagentUsage ? h("span", { class: "h3-meta" }, "main conversation") : null),
       dl([
         ["tokens processed", tokensNode(st)],
         ["output", `${formatTokens(st.tokens.output)}${st.tokens.reasoning ? ` (${formatTokens(st.tokens.reasoning)} thinking)` : ""}`],
@@ -465,6 +483,7 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
         ["inherited", excludedNode(st.inherited, INHERITED_WHY)],
       ]),
     ),
+    subagentSection,
     cacheSection,
     withResponses.length
       ? h(
@@ -487,6 +506,24 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     const line = (e: CacheEvent) => h("p", { class: `turn-cache turn-cache-${e.kind}` }, cacheMark(e.kind), h("span", {}, `${cacheEventLabel(e)}: ${cacheEventDetail(e)}`));
     return h("div", { class: "turn-caches" }, ...found.slice(0, 3).map(line), ...(found.length > 3 ? [h("p", { class: "turn-cache-more" }, `+${found.length - 3} more cache events`)] : []));
   };
+
+  /** What the subagents this turn launched added up to; apart from the turn's own figures above. */
+  const subagentLines = (sub: TurnInfo["subagents"]): HTMLElement | null =>
+    sub
+      ? h(
+          "div",
+          { class: "turn-sub" },
+          h("h4", { title: "Launched in this turn, even if they finished later. Not in the turn figures above or the session totals." }, "Subagents launched"),
+          dl([
+            ["subagents", String(sub.agents)],
+            ["tokens processed", formatTokens(sub.tokens)],
+            ["model calls", sub.calls ? String(sub.calls) : undefined],
+            ["tool calls", sub.toolUses ? String(sub.toolUses) : undefined],
+            ["est. cost", sub.cost !== undefined ? `${formatCost(sub.cost)}${sub.costPartial ? "+" : ""}` : undefined],
+            [sub.agents > 1 ? "longest run" : "duration", turnSubagentsDuration(sub)],
+          ]),
+        )
+      : null;
 
   let current = -1;
   const setActive = (turnIndex: number) => {
@@ -522,7 +559,7 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
         ["so far", inherited ? undefined : run ? `${formatTokens(run.tokens)}${run.cost !== undefined ? ` · ${formatCost(run.cost)}` : ""}` : undefined],
         ["from", inherited ? "parent session (not counted)" : inheritedCalls ? `${plural(inheritedCalls, "call")} from parent (not counted)` : undefined],
       ]),
-      ...[cacheLines(t.responses)].flatMap((x) => (x ? [x] : [])),
+      ...[cacheLines(t.responses), subagentLines(t.subagents)].flatMap((x) => (x ? [x] : [])),
     );
   };
   return { el, setActive };

@@ -248,7 +248,7 @@ describe("publishPrepared", () => {
 describe("subagent transcripts (parity with the CLI)", () => {
   const sessionWithSubagents = () => {
     const sessions = buildIndex({ roots: { "claude-code": SUBAGENT_FIXTURES_ROOT, pi: join(dir, "pi") }, cachePath: join(dir, "fixtures-index.json") });
-    // Three parallel foreground subagents: the one fixture whose message list changes when the files are read.
+    // Three parallel foreground subagents, whose usage only the subagent files supply.
     const session = sessions.find((s) => s.id.startsWith("bf3c7500"));
     expect(session, "the parallel-subagents fixture session").toBeDefined();
     return { sessions, session: session! };
@@ -257,10 +257,13 @@ describe("subagent transcripts (parity with the CLI)", () => {
   it("the viewer shows what the subagent files add, like the CLI", () => {
     const { sessions, session } = sessionWithSubagents();
     const raw = readFileSync(session.path, "utf8");
-    const withFiles = viewFromSession(parseSession(raw, "claude-code", { subagentFiles: loadSubagentFiles(session.path) }).session);
-    const without = viewFromSession(parseSession(raw, "claude-code").session);
-    expect(JSON.stringify(withFiles.items)).not.toBe(JSON.stringify(without.items)); // the fixture really exercises the loader
-    expect(createSource({ config: DEFAULT_CONFIG, sessions }).view(session).items).toEqual(withFiles.items);
+    const withFiles = parseSession(raw, "claude-code", { subagentFiles: loadSubagentFiles(session.path) }).session;
+    const without = parseSession(raw, "claude-code").session;
+    // The subagent files only add usage to the subagent steps, which the viewer does not show (it used to also
+    // fill the parallel results that the main transcript's sibling chain hid, which is now read from the main file).
+    expect(JSON.stringify(withFiles.turns)).not.toBe(JSON.stringify(without.turns)); // the fixture really exercises the loader
+    expect(viewFromSession(withFiles)).toEqual(viewFromSession(without));
+    expect(createSource({ config: DEFAULT_CONFIG, sessions }).view(session)).toEqual(viewFromSession(withFiles));
   });
 
   it("the reviewed payload is byte-for-byte what `agent-share publish` would prepare", () => {

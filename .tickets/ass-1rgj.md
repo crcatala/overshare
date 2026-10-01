@@ -1,6 +1,6 @@
 ---
 id: ass-1rgj
-status: open
+status: closed
 deps: []
 links: [ass-azwt, ass-oayq, ass-mpbn, ass-pifw]
 created: 2026-10-01T01:15:13Z
@@ -35,3 +35,9 @@ The mark is only useful if it is true. Deleting is the one operation that invali
 - Tests: unit tests for `removeShare` (single/multiple records, unknown id, unwritable path) in `tests/sessions-index.vitest.ts` or a new file, plus a CLI-level or publisher-fake test covering `delete` updating the file (use `AGENT_SHARE_SHARES` pointing at a temp file; see `tests/cli.vitest.ts` and the existing delete tests for fakes).
 - `npm test`, `npm run typecheck`, `npm run build` pass.
 
+
+## Notes
+
+**2026-10-01T22:11:22Z**
+
+Fixed: agent-share delete now removes the deleted share's records from shares.json (removeShares in src/sessions/shares.ts, forgetShare in src/publish/index.ts), after the remote delete succeeds. Warns only if shares.json is corrupt or unwritable.

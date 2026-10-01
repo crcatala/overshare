@@ -1,10 +1,11 @@
-import { chmodSync, mkdirSync, mkdtempSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildIndex } from "../src/sessions/index.js";
 import { matches, parseQuery, parseSince, searchSessions } from "../src/sessions/query.js";
-import { loadShares, recordShare, sharesFor } from "../src/sessions/shares.js";
+import { forgetShare, parseShareRef } from "../src/publish/index.js";
+import { loadShares, recordShare, removeShares, sharesFor, type ShareRecord } from "../src/sessions/shares.js";
 import { summarizeRaw, type SessionSummary } from "../src/sessions/summary.js";
 import { ccUsage, ClaudeTranscript, PiTranscript } from "./helpers.js";
 
@@ -149,6 +150,78 @@ describe("shares", () => {
     expect(sharesFor(loadShares(path), "pi", "s1").map((r) => r.url)).toEqual(["u1", "u2"]);
     writeFileSync(path, "{nope");
     expect(loadShares(path)).toEqual({});
+  });
+});
+
+describe("forgetting deleted shares", () => {
+  const GIST = "5260b8cf9b1baae31a40717ac1ab5f08";
+  const gist = (id = GIST): ShareRecord => ({ url: `https://agent.nub.sh/session/#octo/${id}`, mode: "brief", target: "gist", sharedAt: "t1" });
+  const r2 = (id = "AbCdEfGhIjKlMnOpQrStUv"): ShareRecord => ({ url: `https://agent.nub.sh/session/#r2:${id}`, mode: "full", target: "r2", sharedAt: "t2" });
+  const fresh = () => join(mkdtempSync(join(tmpdir(), "shares-rm-")), "shares.json");
+
+  it("removeShares drops matching records, keeps the rest, and removes emptied keys", () => {
+    const path = fresh();
+    recordShare("pi", "s1", gist(), path);
+    recordShare("pi", "s1", r2(), path);
+    recordShare("claude-code", "s2", gist(), path); // the same share recorded under another session
+    recordShare("pi", "s3", r2("ZyXwVuTsRqPoNmLkJiHgFe"), path);
+    expect(removeShares((r) => r.target === "gist", path)).toBe(true);
+    const all = loadShares(path);
+    expect(sharesFor(all, "pi", "s1").map((r) => r.target)).toEqual(["r2"]);
+    expect(Object.keys(all).sort()).toEqual(["pi:s1", "pi:s3"]);
+  });
+
+  it("removeShares is a quiet no-op for a missing file or an unknown share", () => {
+    const path = fresh();
+    expect(removeShares(() => true, path)).toBe(true);
+    recordShare("pi", "s1", gist(), path);
+    const before = readFileSync(path, "utf8");
+    expect(removeShares(() => false, path)).toBe(true);
+    expect(readFileSync(path, "utf8")).toBe(before);
+  });
+
+  it("removeShares reports a corrupt or unwritable file instead of throwing", () => {
+    const path = fresh();
+    writeFileSync(path, "{nope");
+    expect(removeShares(() => true, path)).toBe(false);
+    expect(readFileSync(path, "utf8")).toBe("{nope");
+    const blocked = join(path, "..", "dir-as-file");
+    mkdirSync(blocked);
+    expect(removeShares(() => true, blocked)).toBe(false);
+  });
+
+  it.each([
+    ["viewer link", `https://agent.nub.sh/session/#octo/${GIST}`],
+    ["gist url", `https://gist.github.com/octo/${GIST}`],
+    ["bare gist id", GIST],
+    ["gist: prefix", `gist:${GIST}`],
+  ])("forgetShare matches a gist share given as %s", (_name, input) => {
+    const path = fresh();
+    recordShare("pi", "s1", gist(), path);
+    recordShare("pi", "s1", r2(), path);
+    recordShare("pi", "other", gist("0123456789abcdef0123456789abcdef"), path);
+    expect(forgetShare(parseShareRef(input), path)).toBe(true);
+    expect(sharesFor(loadShares(path), "pi", "s1").map((r) => r.target)).toEqual(["r2"]);
+    expect(sharesFor(loadShares(path), "pi", "other")).toHaveLength(1);
+  });
+
+  it.each([
+    ["viewer link", "https://agent.nub.sh/session/#r2:AbCdEfGhIjKlMnOpQrStUv", "gist"],
+    ["r2: prefix", "r2:AbCdEfGhIjKlMnOpQrStUv", "gist"],
+    ["bare id with --target r2", "AbCdEfGhIjKlMnOpQrStUv", "r2"],
+  ] as const)("forgetShare matches an r2 share given as %s", (_name, input, fallback) => {
+    const path = fresh();
+    recordShare("pi", "s1", r2(), path);
+    recordShare("pi", "s1", gist(), path);
+    expect(forgetShare(parseShareRef(input, fallback), path)).toBe(true);
+    expect(sharesFor(loadShares(path), "pi", "s1").map((r) => r.target)).toEqual(["gist"]);
+  });
+
+  it("forgetShare leaves records with an unparseable url alone", () => {
+    const path = fresh();
+    recordShare("pi", "s1", { url: "not a link", mode: "brief", target: "gist", sharedAt: "t" }, path);
+    expect(forgetShare({ target: "gist", id: GIST }, path)).toBe(true);
+    expect(sharesFor(loadShares(path), "pi", "s1")).toHaveLength(1);
   });
 });
 

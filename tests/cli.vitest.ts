@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -95,6 +95,77 @@ describe("cli", { timeout: 30_000 }, () => {
     const r = cli(["delete", "https://agent.nub.sh/session/#octo/5260b8cf9b1baae31a40717ac1ab5f08"], { PATH: "/nonexistent" });
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("Refusing to delete without confirmation");
+  });
+
+  describe("delete updates shares.json", () => {
+    const GIST = "5260b8cf9b1baae31a40717ac1ab5f08";
+    const viewer = `https://agent.nub.sh/session/#octo/${GIST}`;
+    const record = (url: string, target: "gist" | "r2") => ({ url, mode: "brief", target, sharedAt: "2026-01-01T00:00:00Z" });
+
+    /** A fake `gh` that succeeds (or fails) and logs its arguments. */
+    function fakeGh(exit: number) {
+      const bin = mkdtempSync(join(tmpdir(), "as-cli-bin-"));
+      writeFileSync(join(bin, "gh"), `#!/bin/sh\necho "$@" >> "${join(bin, "calls")}"\n[ ${exit} = 0 ] || echo "gist not found" >&2\nexit ${exit}\n`);
+      chmodSync(join(bin, "gh"), 0o755);
+      return { bin, called: () => existsSync(join(bin, "calls")) };
+    }
+    function sharesFile(content: unknown) {
+      const path = join(mkdtempSync(join(tmpdir(), "as-cli-shares-")), "shares.json");
+      writeFileSync(path, typeof content === "string" ? content : JSON.stringify(content));
+      return path;
+    }
+    const seed = () => ({
+      "pi:s1": [record(viewer, "gist"), record("https://agent.nub.sh/session/#r2:AbCdEfGhIjKlMnOpQrStUv", "r2")],
+      "claude-code:s2": [record(viewer, "gist")],
+      "pi:s3": [record(`https://agent.nub.sh/session/#octo/0123456789abcdef0123456789abcdef`, "gist")],
+    });
+
+    it("removes only the deleted share's records, whichever form was given", () => {
+      for (const input of [viewer, `https://gist.github.com/octo/${GIST}`, GIST]) {
+        const gh = fakeGh(0);
+        const path = sharesFile(seed());
+        const r = cli(["delete", input, "--yes"], { PATH: gh.bin, AGENT_SHARE_SHARES: path });
+        expect(r.status).toBe(0);
+        expect(r.stdout).toContain(`Deleted gist share ${GIST}.`);
+        expect(r.stderr).not.toContain("warning");
+        const after = JSON.parse(readFileSync(path, "utf8"));
+        expect(Object.keys(after).sort()).toEqual(["pi:s1", "pi:s3"]);
+        expect(after["pi:s1"]).toHaveLength(1);
+        expect(after["pi:s1"][0].target).toBe("r2");
+      }
+    });
+
+    it("leaves shares.json untouched when the remote delete fails or is declined", () => {
+      const path = sharesFile(seed());
+      const before = readFileSync(path, "utf8");
+      const failing = cli(["delete", viewer, "--yes"], { PATH: fakeGh(1).bin, AGENT_SHARE_SHARES: path });
+      expect(failing.status).toBe(1);
+      expect(failing.stdout).not.toContain("Deleted");
+      const declined = cli(["delete", viewer], { PATH: fakeGh(0).bin, AGENT_SHARE_SHARES: path });
+      expect(declined.status).toBe(1); // no TTY: refuses before touching anything
+      expect(readFileSync(path, "utf8")).toBe(before);
+    });
+
+    it("deleting an unrecorded share succeeds silently, even with no shares.json", () => {
+      const gh = fakeGh(0);
+      const missing = join(mkdtempSync(join(tmpdir(), "as-cli-none-")), "shares.json");
+      const r = cli(["delete", GIST, "--yes"], { PATH: gh.bin, AGENT_SHARE_SHARES: missing });
+      expect(r.status).toBe(0);
+      expect(r.stderr).toBe("");
+      expect(existsSync(missing)).toBe(false);
+      const path = sharesFile(seed());
+      const before = readFileSync(path, "utf8");
+      expect(cli(["delete", "fedcba9876543210fedcba9876543210", "--yes"], { PATH: gh.bin, AGENT_SHARE_SHARES: path }).stderr).toBe("");
+      expect(readFileSync(path, "utf8")).toBe(before);
+    });
+
+    it("warns but still succeeds when shares.json is corrupt", () => {
+      const path = sharesFile("{nope");
+      const r = cli(["delete", GIST, "--yes"], { PATH: fakeGh(0).bin, AGENT_SHARE_SHARES: path });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain(`Deleted gist share ${GIST}.`);
+      expect(r.stderr).toContain("could not update shares.json");
+    });
   });
 
   it("publish refuses --yes when the report is not clean (and never reaches gh)", () => {

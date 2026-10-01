@@ -5,14 +5,14 @@ import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError, Option } from "commander";
 import { SHARE_TARGETS, loadConfig, type ShareTarget } from "./config.js";
 import { exportFixtureShares, generateFixtures } from "./fixtures/index.js";
-import { formatBytes, formatTokens } from "./format.js";
+import { formatBytes } from "./format.js";
 import { prepareShare, type PreparedShare } from "./pipeline.js";
 import { PromptsUnavailableError } from "./modes.js";
-import { accessWarnings, createPublisher, parseShareRef, preflightWarnings } from "./publish/index.js";
+import { createPublisher, parseShareRef, preflightWarnings, publishPrepared } from "./publish/index.js";
 import { readSecretsFile } from "./redact/known-values.js";
 import { formatReport } from "./report.js";
 import { defaultRoots, listSessions, resolveSession, type SessionRef } from "./resolve.js";
-import { SHARE_MODES, totalTokens, type HarnessName, type ShareMode } from "./schema.js";
+import { SHARE_MODES, type HarnessName, type ShareMode } from "./schema.js";
 import { loadSubagentFiles } from "./subagent-files.js";
 import { DEFAULT_HOST, startViewerServer } from "./serve.js";
 import { TOOL_VERSION } from "./version.js";
@@ -85,6 +85,17 @@ program
     }
   });
 
+program
+  .command("browse")
+  .description("browse, search and share local sessions interactively (press ? for keys)")
+  .addOption(new Option("--harness <name>", "start filtered to one harness").choices(["claude-code", "pi"]))
+  .option("-q, --query <text>", "start with this search (e.g. 'harness:pi since:7d refactor')")
+  .action(async (opts: { harness?: HarnessName; query?: string }) => {
+    // Loaded on demand: the TUI stack is not needed by any other command.
+    const { runBrowse } = await import("./browse/index.js");
+    runBrowse({ config: loadConfig(), harness: opts.harness, query: opts.query });
+  });
+
 withSessionOptions(program.command("report"), "brief")
   .description("show what would be shared and redacted (writes nothing)")
   .option("--json", "machine-readable report")
@@ -150,13 +161,7 @@ withSessionOptions(program.command("publish"), "brief")
           return;
         }
       }
-      const s = prepared.session;
-      const result = await publisher.publish({
-        filename: "session.json",
-        content: prepared.json,
-        description: `agent-share: ${s.title ?? s.source.sessionId} (${s.harness.name}, ${s.mode}, ${formatTokens(totalTokens(s.stats.tokens))} tokens)`,
-      });
-      const postWarnings = await accessWarnings(config, target, result);
+      const { result, warnings: postWarnings } = await publishPrepared(publisher, config, target, prepared);
       // Always on stderr (also in --json mode) so wrappers and humans both see them.
       for (const w of postWarnings) console.error(`warning: ${w}`);
       warnings.push(...postWarnings);

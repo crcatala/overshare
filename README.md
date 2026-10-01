@@ -24,6 +24,7 @@ npm install
 npm run build
 npm link                       # puts `agent-share` on PATH
 
+agent-share browse                                # interactive: find an old session, preview it, share it
 agent-share list                                  # recent sessions (both harnesses)
 agent-share report --current                      # what would be shared/redacted (writes nothing)
 agent-share export <id> --mode full -o out.json   # redacted share JSON, locally
@@ -42,6 +43,54 @@ files you pass it — only redacted exports — to anyone who can reach the port
 `$CLAUDE_CODE_SESSION_ID` inside Claude Code, otherwise the newest session for the
 current directory. `--harness claude-code|pi` narrows the search; `--leaf <id>`
 exports a specific branch of a tree-shaped (pi) session.
+
+## Browsing sessions (`agent-share browse`)
+
+An interactive browser for finding an older session and sharing it. It lists every local Claude Code and pi session
+with a preview, filters and search, a two-pane session viewer, and a publish dialog that runs the same redaction
+and final re-scan as `publish`. Needs a terminal (Node ≥ 22.19).
+
+```
+agent-share  7/7
+ harness: all   repo: all   time: any   shared: any   group: date   sort: default ↓
+/ search  ·  harness:pi  since:7d  shared:no  tool:Bash  model:opus
+── Today ─────────────────────────────────────────────── │ Fix invoice currency bug
+▌1h ago     CC billing    Fix invoice currency bug     ✓  │ Claude Code · opus-5-5 · feat/money · 32m 0s
+ 3h ago     π  billing    Refactor money helpers          │ 9 prompts · 41 model calls · 878.9 KB
+── Yesterday ─────────────────────────────────────────── │ Bash ×12 · Read ×7 · Edit ×3
+ yesterday  CC web        Onboarding empty state          │
+```
+
+| Key | Does | With Shift |
+| --- | --- | --- |
+| `j` `k` / arrows | move (`ctrl-d`/`ctrl-u` page, `home`/`end`) | |
+| `/` | search: free words plus `harness:pi repo:x branch:y model:opus tool:Bash since:7d before:2026-09-01 shared:no workers:yes` | |
+| `h` `r` `t` `s` | cycle harness · repo · time · shared | `H` `R` `T` `S`: pick from a dialog (`/` filters the repo list) |
+| `g` | cycle grouping: none → date → repo → harness | `G`: dialog |
+| `o` | cycle sort field (size, title, repo, prompts, calls, duration, updated) | `O`: dialog with field and direction |
+| `x` | clear search and filters (grouping and sort stay) | |
+| `enter` | open the session viewer | |
+| `p` | publish: mode → review → confirm (`enter` continues; only `y` publishes) | |
+| `y` | copy the share link (terminal clipboard, OSC 52) | |
+| `?` / `q` | help / clear filters, then quit | |
+
+In the viewer the left pane lists messages and the right pane shows the selected one in full; the header has the
+tool-call breakdown and whether a `brief` share would be clean. `v` cycles the list between your prompts, the
+conversation, and everything (tool calls, thinking, subagents, skills); `J`/`K` jump between prompts.
+
+- **Index.** Session summaries (title, repo, models, first/last prompts, tool counts) are cached in
+  `~/.cache/agent-share-session/index.json` (`AGENT_SHARE_INDEX` overrides), keyed by path, mtime and size. The first run reads
+  every transcript (about 5 s for ~500 sessions); later runs only `stat` the files. The cache and `shares.json` are written
+  readable by you only (0600), since they hold prompt text and unlisted share links.
+- **Shared marks.** Every successful `publish` (CLI or browser) is recorded in `~/.local/state/agent-share-session/shares.json`
+  (`AGENT_SHARE_SHARES` overrides). The browser shows a ✓ on those sessions and can filter by them.
+- **What gets published.** The publish dialog reviews the chosen mode with the real pipeline and uploads exactly the payload you
+  reviewed. Modes the pipeline refuses (for example `prompts` on a legacy pi session) say why and cannot be selected; a blocked
+  re-scan cannot be published. The viewer itself shows your local transcript unredacted, because it never leaves your machine.
+- **Terminal safety.** Errors inside the UI show in the footer instead of crashing; on any exit the terminal modes are restored.
+  Transcript text is untrusted, so terminal control sequences in it (clipboard writes, title changes, screen clears) are stripped
+  before anything is drawn.
+- **Subagents.** Like `publish`, the browser reads a Claude session's subagent transcripts, so its viewer and reviewed payload match the CLI's.
 
 ## Share modes
 

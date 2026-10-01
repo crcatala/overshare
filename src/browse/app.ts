@@ -369,7 +369,8 @@ export class BrowserApp extends Screen {
       else if (data >= "1" && data <= String(SHARE_MODES.length)) f.setMode(Number(data) - 1);
       else if (isKey(data, "enter")) f.next();
     } else if (f.step === "confirm") {
-      if (data === "y" || data === "Y" || isKey(data, "enter")) f.next();
+      // Only an explicit y publishes: enter must not, or two quick enters (continue, continue) upload.
+      if (data === "y" || data === "Y") f.next();
       else if (data === "n" || data === "N") f.back();
     } else if (f.step === "done") {
       if (isKey(data, "y") && f.url) {

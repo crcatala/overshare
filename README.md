@@ -70,7 +70,7 @@ agent-share  7/7
 | `o` | cycle sort field (size, title, repo, prompts, calls, duration, updated) | `O`: dialog with field and direction |
 | `x` | clear search and filters (grouping and sort stay) | |
 | `enter` | open the session viewer | |
-| `p` | publish: mode → review → confirm | | |
+| `p` | publish: mode → review → confirm (`enter` continues; only `y` publishes) | |
 | `y` | copy the share link (terminal clipboard, OSC 52) | |
 | `?` / `q` | help / clear filters, then quit | |
 
@@ -81,12 +81,16 @@ conversation, and everything (tool calls, thinking, subagents, skills); `J`/`K` 
 - **Index.** Session summaries (title, repo, models, first/last prompts, tool counts) are cached in
   `~/.cache/agent-share-session/index.json` (`AGENT_SHARE_INDEX` overrides), keyed by path, mtime and size. The first run reads
   every transcript (about 5 s for ~500 sessions); later runs only `stat` the files. The cache and `shares.json` are written
+  readable by you only (0600), since they hold prompt text and unlisted share links.
 - **Shared marks.** Every successful `publish` (CLI or browser) is recorded in `~/.local/state/agent-share-session/shares.json`
   (`AGENT_SHARE_SHARES` overrides). The browser shows a ✓ on those sessions and can filter by them.
 - **What gets published.** The publish dialog reviews the chosen mode with the real pipeline and uploads exactly the payload you
   reviewed. Modes the pipeline refuses (for example `prompts` on a legacy pi session) say why and cannot be selected; a blocked
   re-scan cannot be published. The viewer itself shows your local transcript unredacted, because it never leaves your machine.
 - **Terminal safety.** Errors inside the UI show in the footer instead of crashing; on any exit the terminal modes are restored.
+  Transcript text is untrusted, so terminal control sequences in it (clipboard writes, title changes, screen clears) are stripped
+  before anything is drawn.
+- **Subagents.** Like `publish`, the browser reads a Claude session's subagent transcripts, so its viewer and reviewed payload match the CLI's.
 
 ## Share modes
 

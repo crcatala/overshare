@@ -5,6 +5,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { PRIVATE_DIR_MODE, PRIVATE_FILE_MODE } from "./private-files.js";
 import type { ShareTarget } from "../config.js";
 import type { HarnessName, ShareMode } from "../schema.js";
 
@@ -38,9 +39,9 @@ export function recordShare(harness: HarnessName, id: string, record: ShareRecor
     const all = loadShares(path);
     const key = shareKey(harness, id);
     all[key] = [...(all[key] ?? []), record];
-    mkdirSync(dirname(path), { recursive: true });
+    mkdirSync(dirname(path), { recursive: true, mode: PRIVATE_DIR_MODE });
     const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(all, null, 2)}\n`);
+    writeFileSync(tmp, `${JSON.stringify(all, null, 2)}\n`, { mode: PRIVATE_FILE_MODE });
     renameSync(tmp, path);
     return true;
   } catch {

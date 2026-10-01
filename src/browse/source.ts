@@ -11,12 +11,14 @@ import { parseSession } from "../adapters/index.js";
 import type { AgentShareConfig, ShareTarget } from "../config.js";
 import { formatDuration, formatSessionCost, formatTokens, plural } from "../format.js";
 import { prepareShare, type PreparedShare } from "../pipeline.js";
+import { stripControls } from "../sanitize.js";
 import { createPublisher, preflightWarnings, publishPrepared } from "../publish/index.js";
 import type { Publisher } from "../publish/types.js";
 import { totalTokens, type NormalizedSession, type ShareMode } from "../schema.js";
 import { shareKey, type SharesFile, loadShares } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import { computeStats } from "../stats.js";
+import { loadSubagentFiles } from "../subagent-files.js";
 
 export type ViewKind = "user" | "assistant" | "tool" | "thinking" | "subagent" | "event";
 
@@ -125,11 +127,17 @@ export function viewFromSession(session: NormalizedSession): SessionView {
       }
     }
   });
+  // Transcript text is untrusted: no terminal control sequences may reach the screen.
+  for (const it of items) {
+    it.label = stripControls(it.label);
+    it.body = stripControls(it.body);
+    if (it.meta) it.meta = stripControls(it.meta);
+  }
   const duration = session.startedAt && session.endedAt ? Math.max(0, Date.parse(session.endedAt) - Date.parse(session.startedAt)) : session.durationMs;
   return {
     items,
     turns: session.turns.length,
-    tools: stats.tools,
+    tools: Object.fromEntries(Object.entries(stats.tools).map(([name, n]) => [stripControls(name), n])),
     stats: {
       cost: formatSessionCost(stats),
       tokens: formatTokens(totalTokens(stats.tokens)),
@@ -141,8 +149,11 @@ export function viewFromSession(session: NormalizedSession): SessionView {
   };
 }
 
+/** Claude Code keeps subagent transcripts beside the session; the CLI reads them too, so the browser must. */
+const subagentFilesFor = (s: Pick<SessionSummary, "path" | "harness">) => (s.harness === "claude-code" ? loadSubagentFiles(s.path) : undefined);
+
 export function loadView(s: Pick<SessionSummary, "path" | "harness">): SessionView {
-  return viewFromSession(parseSession(readFileSync(s.path, "utf8"), s.harness).session);
+  return viewFromSession(parseSession(readFileSync(s.path, "utf8"), s.harness, { subagentFiles: subagentFilesFor(s) }).session);
 }
 
 // ── review / publish ───────────────────────────────────────────────────────────────────
@@ -153,7 +164,7 @@ export function summarizeShare(prepared: PreparedShare): ShareSummary {
     mode: report.mode,
     clean: report.clean,
     blocked: report.blocked,
-    findings: report.findings.map((f) => ({ rule: f.rule, where: f.where, context: f.context })),
+    findings: report.findings.map((f) => ({ rule: stripControls(f.rule), where: stripControls(f.where), context: stripControls(f.context) })),
     redactions: Object.values(report.counts).reduce((a, b) => a + b, 0),
     bytes: report.bytes,
   };
@@ -184,7 +195,7 @@ export function createSource(opts: SourceOptions): Source {
     const k = key(s, mode);
     const hit = prepared.get(k);
     if (hit) return hit;
-    const fresh = prepareShare(readFileSync(s.path, "utf8"), { mode, config, harness: s.harness });
+    const fresh = prepareShare(readFileSync(s.path, "utf8"), { mode, config, harness: s.harness, subagentFiles: subagentFilesFor(s) });
     prepared.set(k, fresh);
     while (prepared.size > keep) prepared.delete(prepared.keys().next().value!);
     return fresh;
@@ -206,7 +217,10 @@ export function createSource(opts: SourceOptions): Source {
       }
     },
     async publish(s, mode) {
-      const share = prepare(s, mode);
+      // Only ever upload a payload that `review` produced. If it has been evicted, re-preparing here would
+      // upload content nobody looked at, so make the user review again.
+      const share = prepared.get(key(s, mode));
+      if (!share) throw new Error("The reviewed payload is no longer available; go back and review it again before publishing.");
       if (share.report.blocked) throw new Error("Refusing to publish: the final re-scan found unredacted secrets.");
       const publisher = makePublisher(config, target);
       const { result, warnings } = await publishPrepared(publisher, config, target, share);

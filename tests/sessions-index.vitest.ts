@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -42,6 +42,33 @@ describe("summarizeRaw (claude-code)", () => {
   it("makes prompts searchable", () => {
     expect(s.searchText).toContain("gist uploader");
     expect(s.searchText).not.toContain("hidden");
+  });
+});
+
+describe("summarizeRaw strips terminal control sequences", () => {
+  const evil = "\x1b]52;c;ZXZpbA==\x07\x1b]0;pwned\x07\x1b[2J";
+  const everyString = (s: SessionSummary): string[] => [s.title, s.cwd, s.project, s.branch, s.firstPrompt, s.lastPrompt, s.searchText, ...s.models, ...s.promptHead, ...s.promptTail, ...Object.keys(s.tools)].filter((x): x is string => typeof x === "string");
+  const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/;
+
+  it("claude-code: titles, prompts, paths, models and tool names", () => {
+    const t = new ClaudeTranscript("sess-evil", `/home/tester/${evil}proj`);
+    t.meta("ai-title", { aiTitle: `Title ${evil}` });
+    t.user(`ask ${evil} please`);
+    t.assistant("m1", [{ type: "tool_use", id: "t1", name: `Bash${evil}`, input: {} }], ccUsage(1, 1));
+    const s = summarizeRaw(ref("claude-code"), t.toJsonl());
+    expect(s.title).toBe("Title ");
+    expect(s.firstPrompt).toBe("ask  please");
+    for (const text of everyString(s)) expect(text).not.toMatch(CONTROLS);
+  });
+
+  it("pi: titles, prompts and tool names", () => {
+    const t = new PiTranscript("pi-evil", `/home/tester/${evil}proj`);
+    t.user(`ask ${evil} please`);
+    t.assistant([{ type: "toolCall", id: "c1", name: `read${evil}`, arguments: {} }]);
+    t.entry("session_info", { name: `Name ${evil}` });
+    const s = summarizeRaw(ref("pi"), t.toJsonl());
+    expect(s.title).toBe("Name ");
+    for (const text of everyString(s)) expect(text).not.toMatch(CONTROLS);
   });
 });
 
@@ -122,6 +149,33 @@ describe("shares", () => {
     expect(sharesFor(loadShares(path), "pi", "s1").map((r) => r.url)).toEqual(["u1", "u2"]);
     writeFileSync(path, "{nope");
     expect(loadShares(path)).toEqual({});
+  });
+});
+
+describe.skipIf(process.platform === "win32")("private state files", () => {
+  const mode = (path: string) => statSync(path).mode & 0o777;
+
+  it("shares.json and its directory are not readable by other users", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "shares-mode-")), "state", "shares.json");
+    recordShare("pi", "s1", { url: "u1", mode: "brief", target: "gist", sharedAt: "t1" }, path);
+    expect(mode(path)).toBe(0o600);
+    expect(mode(join(path, ".."))).toBe(0o700);
+  });
+
+  it("the index cache is written 0600, and a world-readable file from an older version is replaced", () => {
+    const dir = mkdtempSync(join(tmpdir(), "idx-mode-"));
+    const claude = join(dir, "claude");
+    mkdirSync(join(claude, "-home-x"), { recursive: true });
+    writeFileSync(join(claude, "-home-x", "sess-1.jsonl"), claudeSession());
+    const cachePath = join(dir, "cache", "index.json");
+    const roots = { "claude-code": claude, pi: join(dir, "pi") };
+    buildIndex({ roots, cachePath });
+    expect(mode(cachePath)).toBe(0o600);
+    expect(mode(join(cachePath, ".."))).toBe(0o700);
+    chmodSync(cachePath, 0o644); // what v0.x wrote
+    writeFileSync(join(claude, "-home-x", "sess-2.jsonl"), claudeSession()); // forces a save
+    buildIndex({ roots, cachePath });
+    expect(mode(cachePath)).toBe(0o600);
   });
 });
 

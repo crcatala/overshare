@@ -23,6 +23,17 @@ describe("publish dialog", () => {
     expect(d.text()).toContain("https://viewer.example/#s1");
   });
 
+  it("enter never publishes: only an explicit y does", async () => {
+    const d = drive();
+    await d.press("p", KEY.enter, KEY.enter, KEY.enter); // continue, then enter at the confirm step, repeatedly
+    expect(d.text()).toContain("Publish brief to");
+    expect(d.source.published).toEqual([]);
+    await d.press(KEY.space, "x", "N"); // other keys do nothing; N goes back
+    expect(d.source.published).toEqual([]);
+    await d.press(KEY.enter, "Y"); // continue again, then capital Y
+    expect(d.source.published).toEqual([{ id: "s1", mode: "brief" }]);
+  });
+
   it("marks the session as shared once publishing is done", async () => {
     const d = drive();
     await d.press("p", KEY.enter, "y", KEY.enter); // … and close

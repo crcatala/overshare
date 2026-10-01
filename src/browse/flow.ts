@@ -5,6 +5,7 @@
  * `Source.publish` reuses the reviewed payload. A mode the pipeline refuses (e.g. prompts mode on a legacy pi
  * session) is reported on that mode only; it never crashes the flow.
  */
+import { stripControls } from "../sanitize.js";
 import type { ShareMode } from "../schema.js";
 import { SHARE_MODES } from "../schema.js";
 import type { Preflight, ShareSummary, Source } from "./source.js";
@@ -78,7 +79,7 @@ export class PublishFlow {
       try {
         this.reviews.set(mode, this.source.review(this.session, mode));
       } catch (err) {
-        this.refused.set(mode, err instanceof Error ? err.message : String(err));
+        this.refused.set(mode, stripControls(err instanceof Error ? err.message : String(err)));
       }
       this.loading = false;
       this.redraw();
@@ -95,7 +96,7 @@ export class PublishFlow {
     this.setMode(Math.max(0, Math.min(SHARE_MODES.length - 1, this.modeIdx + delta)));
   }
 
-  /** Enter / y: advance. */
+  /** Enter advances the mode step; at the confirm step only `y` calls this (see `BrowserApp.flowKey`). */
   next(): void {
     if (this.step === "mode") {
       if (this.canContinue) this.step = "confirm";
@@ -110,7 +111,7 @@ export class PublishFlow {
           this.redraw();
         },
         (err: unknown) => {
-          this.failure = err instanceof Error ? err.message : String(err);
+          this.failure = stripControls(err instanceof Error ? err.message : String(err));
           this.step = "error";
           this.redraw();
         },

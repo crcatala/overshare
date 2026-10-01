@@ -10,12 +10,13 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { defaultRoots, listSessions, type SessionRoots } from "../resolve.js";
 import type { HarnessName } from "../schema.js";
+import { PRIVATE_DIR_MODE, PRIVATE_FILE_MODE } from "./private-files.js";
 import { summarizeFile, type SessionSummary } from "./summary.js";
 
 export type { SessionSummary } from "./summary.js";
 
 /** Bump when `SessionSummary` changes shape or extraction improves, so stale entries are rebuilt. */
-const INDEX_VERSION = 3;
+const INDEX_VERSION = 4;
 
 export function indexPath(env: NodeJS.ProcessEnv = process.env): string {
   return env.AGENT_SHARE_INDEX ?? join(env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "agent-share-session", "index.json");
@@ -37,9 +38,9 @@ function load(path: string): Record<string, SessionSummary> {
 
 function save(path: string, sessions: Record<string, SessionSummary>): void {
   try {
-    mkdirSync(dirname(path), { recursive: true });
+    mkdirSync(dirname(path), { recursive: true, mode: PRIVATE_DIR_MODE });
     const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ version: INDEX_VERSION, sessions } satisfies IndexFile));
+    writeFileSync(tmp, JSON.stringify({ version: INDEX_VERSION, sessions } satisfies IndexFile), { mode: PRIVATE_FILE_MODE });
     renameSync(tmp, path);
   } catch {
     // The cache is an optimisation; an unwritable cache dir must not break browsing.

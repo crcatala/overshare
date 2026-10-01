@@ -32,3 +32,9 @@ The browser's whole job is "find an older session and share it". Titles are the 
 - The browser UI (`tests/browse-app.vitest.ts` style) shows the hidden default and the token via search; help text and README updated; layout-invariant tests (`tests/browse-layout.vitest.ts`) still pass.
 - `npm test`, `npm run typecheck`, `npm run build` pass.
 
+
+## Notes
+
+**2026-10-01T03:16:31Z**
+
+From the review of PR #21 (2026-10-01): the pi summarizer (`summarizePi` in src/sessions/summary.ts) takes stored user-message text verbatim and ignores the verified authored-input provenance entries that the pi adapter validates (`authoredInput` in src/adapters/pi.ts, PI_INPUT_PROVENANCE_TYPE). Sessions run through a pi prompt template therefore get the expanded template text as title, preview and search text, while the viewer (which uses the adapter) shows what the user typed. Local display/search only: shares are unaffected (the adapter and the prompts-mode refusal in src/modes.ts guard them). Fold into this ticket: for pi, use the authored input when the preceding custom entry binds to the message (same checks as the adapter: parentId, timestamp, sha256 of the stored content), else fall back to the stored text; reuse the adapter's validation rather than writing a second heuristic. Needs an INDEX_VERSION bump (shared with the title work).

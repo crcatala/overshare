@@ -10,7 +10,10 @@ import { publishPrepared } from "../src/publish/index.js";
 import type { Publisher, PublishPayload } from "../src/publish/types.js";
 import { buildIndex } from "../src/sessions/index.js";
 import { loadShares, sharesFor } from "../src/sessions/shares.js";
+import { prepareShare } from "../src/pipeline.js";
+import { loadSubagentFiles } from "../src/subagent-files.js";
 import { ccUsage, ClaudeTranscript, fake, PiTranscript } from "./helpers.js";
+import { SUBAGENT_FIXTURES_ROOT } from "./subagent-fixtures.js";
 
 let dir: string;
 const saved = { ...process.env };
@@ -50,6 +53,9 @@ function indexed(secret?: string) {
   return { file, sessions, session: sessions[0]! };
 }
 
+/** Anything but tab and newline: the terminal must never be handed these. */
+const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/;
+
 describe("viewFromSession", () => {
   const transcript = () =>
     new ClaudeTranscript()
@@ -80,6 +86,20 @@ describe("viewFromSession", () => {
     expect(view.tools).toEqual({ Bash: 1 });
     expect(view.turns).toBe(2);
     expect(view.stats.toolCalls).toBe(1);
+  });
+
+  it("strips terminal control sequences from every transcript string it returns", () => {
+    const evil = "\x1b]52;c;ZXZpbA==\x07\x1b]0;pwned\x07\x1b[2J\x1b[31m\x9b31m\rtext";
+    const t = new ClaudeTranscript()
+      .user(`prompt ${evil}`)
+      .assistant("m1", [{ type: "text", text: `reply ${evil}` }, { type: "tool_use", id: "t1", name: `Bash${evil}`, input: { command: `echo ${evil}` } }], ccUsage(1, 1))
+      .toolResult("t1", `out ${evil}`)
+      .toJsonl();
+    const view = viewFromSession(parseSession(t, "claude-code").session);
+    const strings = [...view.items.flatMap((it) => [it.label, it.body, it.meta ?? ""]), ...Object.keys(view.tools)];
+    for (const text of strings) expect(text).not.toMatch(CONTROLS);
+    expect(view.items[0]!.body).toBe("prompt 31mtext");
+    expect(view.items.find((i) => i.kind === "tool")!.body).toContain("out 31mtext");
   });
 
   it("truncates huge tool output instead of carrying it all", () => {
@@ -116,9 +136,32 @@ describe("createSource", () => {
     await source.publish(session, "brief");
     expect(publisher.payloads).toHaveLength(1);
     expect(publisher.payloads[0]!.content).not.toContain("a late prompt nobody reviewed");
-    // A second publish re-scans from disk, so it does include the new content.
+    // The reviewed payload is spent. A second publish must not quietly re-scan the (changed) file and upload
+    // content nobody looked at: it has to be reviewed again first.
+    await expect(source.publish(session, "brief")).rejects.toThrow(/review it again/);
+    expect(publisher.payloads).toHaveLength(1);
+    source.review(session, "brief");
     await source.publish(session, "brief");
     expect(publisher.payloads[1]!.content).toContain("a late prompt nobody reviewed");
+  });
+
+  it("never uploads a payload that was evicted from the review cache", async () => {
+    const { file, sessions, session } = indexed();
+    const publisher = recordingPublisher();
+    const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher, keepPrepared: 1 });
+    source.review(session, "brief");
+    source.review(session, "full"); // evicts the brief review
+    writeFileSync(file, `${readFileSync(file, "utf8")}${JSON.stringify({ type: "user", uuid: "late", parentUuid: null, sessionId: "sess-1", timestamp: "2026-01-02T00:00:00Z", message: { role: "user", content: "unreviewed late prompt" } })}\n`);
+    await expect(source.publish(session, "brief")).rejects.toThrow(/review it again/);
+    expect(publisher.payloads).toEqual([]);
+  });
+
+  it("publishing without any review uploads nothing", async () => {
+    const { sessions, session } = indexed();
+    const publisher = recordingPublisher();
+    const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher });
+    await expect(source.publish(session, "brief")).rejects.toThrow(/review it again/);
+    expect(publisher.payloads).toEqual([]);
   });
 
   it("uploads the redacted payload, never the raw secret", async () => {
@@ -126,6 +169,7 @@ describe("createSource", () => {
     const { sessions, session } = indexed(secret);
     const publisher = recordingPublisher();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher });
+    source.review(session, "full");
     await source.publish(session, "full");
     expect(publisher.payloads[0]!.content).not.toContain(secret);
     expect(publisher.payloads[0]!.description).toContain("agent-share:");
@@ -135,6 +179,7 @@ describe("createSource", () => {
     const { sessions, session } = indexed();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => recordingPublisher() });
     expect(sharesFor(source.shares, "claude-code", "sess-1")).toHaveLength(0);
+    source.review(session, "brief");
     const out = await source.publish(session, "brief");
     expect(out.url).toBe("https://viewer.example/#abc123");
     expect(sharesFor(source.shares, "claude-code", "sess-1").map((r) => r.url)).toEqual(["https://viewer.example/#abc123"]);
@@ -148,6 +193,7 @@ describe("createSource", () => {
     writeFileSync(join(dir, "blocker"), "a file, not a directory");
     process.env.AGENT_SHARE_SHARES = join(dir, "blocker", "shares.json");
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => recordingPublisher() });
+    source.review(session, "brief");
     const out = await source.publish(session, "brief");
     expect(out.url).toBe("https://viewer.example/#abc123");
     expect(out.warnings.join(" ")).toContain("could not record this share");
@@ -196,5 +242,34 @@ describe("publishPrepared", () => {
     expect(warnings).toEqual([]);
     expect(publisher.payloads[0]!.filename).toBe("session.json");
     expect(loadShares()["claude-code:sess-1"]![0]).toMatchObject({ url: "https://viewer.example/#abc123", mode: "minimal" });
+  });
+});
+
+describe("subagent transcripts (parity with the CLI)", () => {
+  const sessionWithSubagents = () => {
+    const sessions = buildIndex({ roots: { "claude-code": SUBAGENT_FIXTURES_ROOT, pi: join(dir, "pi") }, cachePath: join(dir, "fixtures-index.json") });
+    // Three parallel foreground subagents: the one fixture whose message list changes when the files are read.
+    const session = sessions.find((s) => s.id.startsWith("bf3c7500"));
+    expect(session, "the parallel-subagents fixture session").toBeDefined();
+    return { sessions, session: session! };
+  };
+
+  it("the viewer shows what the subagent files add, like the CLI", () => {
+    const { sessions, session } = sessionWithSubagents();
+    const raw = readFileSync(session.path, "utf8");
+    const withFiles = viewFromSession(parseSession(raw, "claude-code", { subagentFiles: loadSubagentFiles(session.path) }).session);
+    const without = viewFromSession(parseSession(raw, "claude-code").session);
+    expect(JSON.stringify(withFiles.items)).not.toBe(JSON.stringify(without.items)); // the fixture really exercises the loader
+    expect(createSource({ config: DEFAULT_CONFIG, sessions }).view(session).items).toEqual(withFiles.items);
+  });
+
+  it("the reviewed payload is byte-for-byte what `agent-share publish` would prepare", () => {
+    const { sessions, session } = sessionWithSubagents();
+    const raw = readFileSync(session.path, "utf8");
+    const cli = prepareShare(raw, { mode: "full", config: DEFAULT_CONFIG, harness: "claude-code", subagentFiles: loadSubagentFiles(session.path) });
+    const withoutSubagents = prepareShare(raw, { mode: "full", config: DEFAULT_CONFIG, harness: "claude-code" });
+    expect(Buffer.byteLength(cli.json)).not.toBe(Buffer.byteLength(withoutSubagents.json)); // the fixture really exercises the loader
+    const review = createSource({ config: DEFAULT_CONFIG, sessions }).review(session, "full");
+    expect(review.bytes).toBe(Buffer.byteLength(cli.json));
   });
 });

@@ -9,6 +9,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { projectNameFromCwd, stripInjectedContext } from "../adapters/shared.js";
+import { stripControls } from "../sanitize.js";
 import type { HarnessName } from "../schema.js";
 
 /** Kept per session: enough to recognise it and to search what was asked. */
@@ -264,6 +265,25 @@ export interface SummarizeInput {
   size: number;
 }
 
+/** Strip terminal control sequences from every text field: transcripts are untrusted and these are printed. */
+function sanitized(s: SessionSummary): SessionSummary {
+  const clean = (v: string | undefined): string | undefined => (v === undefined ? v : stripControls(v));
+  return {
+    ...s,
+    cwd: clean(s.cwd),
+    project: clean(s.project),
+    branch: clean(s.branch),
+    title: clean(s.title),
+    models: s.models.map(stripControls),
+    tools: Object.fromEntries(Object.entries(s.tools).map(([name, n]) => [stripControls(name), n])),
+    firstPrompt: clean(s.firstPrompt),
+    lastPrompt: clean(s.lastPrompt),
+    promptHead: s.promptHead.map(stripControls),
+    promptTail: s.promptTail.map(stripControls),
+    searchText: stripControls(s.searchText),
+  };
+}
+
 export function summarizeRaw(ref: SummarizeInput, raw: string): SessionSummary {
   const c = new Collector();
   if (ref.harness === "claude-code") summarizeClaude(raw, c);
@@ -272,7 +292,7 @@ export function summarizeRaw(ref: SummarizeInput, raw: string): SessionSummary {
   // Without a recorded title, name the session after what was asked; a bare slash command ("/model") says little.
   const asked = c.promptHead.find((p) => !p.startsWith("/")) ?? c.first;
   const title = c.title ?? (asked ? oneLine(asked, 80) : undefined);
-  return {
+  return sanitized({
     harness: ref.harness,
     id: ref.id,
     path: ref.path,
@@ -295,7 +315,7 @@ export function summarizeRaw(ref: SummarizeInput, raw: string): SessionSummary {
     promptHead: c.promptHead,
     promptTail: c.promptTail,
     searchText: [title, project, c.branch, c.models.join(" "), ...c.search].filter(Boolean).join("\n").toLowerCase(),
-  };
+  });
 }
 
 export function summarizeFile(ref: SummarizeInput): SessionSummary {

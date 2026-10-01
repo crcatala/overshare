@@ -169,7 +169,9 @@ export function runScreen(screen: Screen): void {
     if (done) return;
     done = true;
     try {
-      tui.stop();
+      // pi-tui's default stop() replays the last frame onto the main screen after leaving the alt screen,
+      // which strands the TUI's final view in the user's scrollback. We want the shell back untouched.
+      tui.stop({ preserveScreen: true });
     } catch {
       // fall through to the hard reset
     }

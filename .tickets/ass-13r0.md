@@ -29,10 +29,10 @@ Today every publish silently harvests exact secret values from the machine (`col
 
 ## Transparency
 - The publish report (CLI and browse dialog) states which known-value sources were consulted and how many values each contributed (counts and labels only, never values), e.g. `Known values: env (4), project .env (2); not read: credential files, gh token (disabled)`.
-- README/docs section "What this tool reads and why": lists every source, which are on by default, what opting in means (values live in process memory during a publish, never written to disk or printed), and the tradeoff (opting out lowers recall for secrets with no recognizable format).
+- README/docs section "What this tool reads and why": lists every source, which are on by default, what opting in means (values live in process memory during a publish, never written to disk or printed), and the tradeoff. State plainly that **secrets with no recognizable format can still leak when sources are off**: the pattern/entropy layers and the confirmation tier (`ass-iugy`) only see what a pattern matched, so an unformatted secret that was not harvested is invisible to every layer. Recommend `--secrets-file` / `redact.denylist` for known sensitive values.
 
 ## Acceptance
-- With default config, no credential file, `~/.npmrc`, `~/.netrc` or `hosts.yml` is opened and `gh` is not spawned (tests inject spies for fs reads and `execFileSync` and assert zero calls). Env + project `.env*` still contribute values.
+- With default config, known-secret collection opens no credential file, `~/.npmrc`, `~/.netrc` or `hosts.yml` and makes no `gh auth token` call (tests inject spies for fs reads and for the collector's `execFileSync`, and assert zero secret-harvesting calls). Scope is the collector only: the `gh` commands the gist publisher legitimately runs (`gh auth status`, `gh gist create`, `gh api`; `src/publish/gist.ts`) are unaffected. Env + project `.env*` still contribute values.
 - Enabling each opt-in source in config makes exactly that source contribute values (test per source with temp-home fixtures and a fake `gh`).
 - The report (human and `--json`) and the browse publish dialog list consulted vs not-consulted sources with counts, with no values.
 - Real-pipeline tests with planted fake secrets still prove: a planted `.env` secret and a planted env var are redacted by default; a planted credential-file secret is redacted only when its source is enabled (otherwise it is caught only if some pattern layer would catch it, and the test documents that gap).
@@ -41,5 +41,5 @@ Today every publish silently harvests exact secret values from the machine (`col
 - `npm test`, `npm run typecheck`, `npm run build` pass.
 
 ## Context
-Decision record (2026-10-02): keep machine-secret harvesting as a deliberate tradeoff, but narrow and make the sensitive sources opt-in. Related: wrapper ticket, mask-fragment ticket, middle-tier ticket (which compensates for the recall lost when sources are off), and ass-azwt, which is blocked on this ticket and must be re-assessed afterwards (a smaller default source set may make the cache unnecessary).
+Decision record (2026-10-02): keep machine-secret harvesting as a deliberate tradeoff, but narrow and make the sensitive sources opt-in. Related: wrapper ticket, mask-fragment ticket, middle-tier ticket (`ass-iugy`; it does NOT compensate for lost recall on unformatted secrets, so there is no ordering dependency between the two; see its note), and ass-azwt, which is blocked on this ticket and must be re-assessed afterwards (a smaller default source set may make the cache unnecessary).
 

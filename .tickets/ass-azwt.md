@@ -1,8 +1,8 @@
 ---
 id: ass-azwt
 status: open
-deps: []
-links: [ass-oayq, ass-mpbn, ass-1rgj, ass-pifw]
+deps: [ass-13r0, ass-8w1o]
+links: [ass-oayq, ass-mpbn, ass-1rgj, ass-pifw, ass-13r0, ass-iugy, ass-5qv5, ass-8w1o]
 created: 2026-10-01T01:15:35Z
 type: task
 priority: 3
@@ -35,3 +35,9 @@ It is the cheapest, safest speed-up for the publish dialog, and it is independen
 - Ticket note records the before/after time for a review on a real session.
 - `npm test`, `npm run typecheck`, `npm run build` pass.
 
+
+## Notes
+
+**2026-10-02T19:40:57Z**
+
+2026-10-02 PRODUCT DECISION NEEDED before implementing: do not build this as written. Review of the redaction design raised that harvesting real machine secret values is a deliberate, risky tradeoff, and we decided to (a) make the sensitive sources (credential files, ~/.npmrc, ~/.netrc, hosts.yml, gh auth token) opt-in and keep only env + project .env* by default (ass-13r0), (b) wrap KnownSecret values so they cannot be printed/serialized (ass-8w1o) - a cache would hold exactly these objects, and (c) tighten reporting (ass-5qv5, ass-iugy). A smaller default source set may make the ~0.4 s collection cost mostly disappear (no gh spawn, no credential-file reads), so this cache may be unnecessary. Blocked on ass-13r0 and ass-8w1o. After they land: re-measure collectKnownSecrets cost with the new defaults, then either close this ticket as not needed or re-scope it (if kept: in-memory only, cache the wrapper type, keep the safety/invalidation rules below).

@@ -3,15 +3,17 @@
  * full. The header shows stats, the tool-call breakdown and the redaction status of a brief share.
  *
  *   j/k ↑/↓  message         J/K  next/previous prompt        g/G  first/last
- *   v        cycle the list: prompts → conversation → everything           V  as a dialog
+ *   v        cycle the list: prompts → conversation → everything           V  as a dialog, plus layout
+ *            settings that persist: indent replies under their prompt, and tool calls one level deeper
  *   space / ctrl-d / ctrl-u  scroll the content pane           p  publish        esc  back
  */
 import { formatBytes } from "../format.js";
 import { sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import { plural, shortModel } from "./display.js";
-import { RadioDialog } from "./dialogs.js";
+import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { columns, cut, fit, hr, isKey, padLines, st, wrap } from "./kit.js";
+import type { SettingsStore } from "./settings.js";
 import type { ShareSummary, SessionView, Source, ViewItem, ViewKind } from "./source.js";
 
 export const LEVELS = [
@@ -29,7 +31,11 @@ const ICON: Record<ViewKind, (s: string) => string> = {
   event: (s) => `${st.blue("⚑")} ${st.dim(s)}`,
 };
 
+/** Columns each tree level moves a row to the right. */
+const INDENT = 2;
+
 export interface ViewerHooks {
+  settings: SettingsStore;
   requestRender(): void;
   openDialog(d: RadioDialog): void;
   closeDialog(): void;
@@ -86,6 +92,14 @@ export class SessionViewer {
     for (const t of this.timers) clearTimeout(t);
   }
 
+  /** Tree depth of a row under the persisted layout settings: prompts at 0, replies at 1, tool calls one deeper. */
+  private depth(kind: ViewKind): number {
+    const { indentReplies, indentTools } = this.hooks.settings.get().viewer;
+    if (kind === "user") return 0;
+    const replies = indentReplies ? 1 : 0;
+    return kind === "assistant" ? replies : replies + (indentTools ? 1 : 0);
+  }
+
   private get items(): ViewItem[] {
     const kinds = LEVELS[this.level]!.kinds as readonly ViewKind[];
     return (this.view?.items ?? []).filter((i) => kinds.includes(i.kind));
@@ -126,17 +140,37 @@ export class SessionViewer {
     else if (isKey(data, "pageDown") || isKey(data, "ctrl+d") || isKey(data, "space")) this.scroll += 8;
     else if (isKey(data, "pageUp") || isKey(data, "ctrl+u")) this.scroll = Math.max(0, this.scroll - 8);
     else if (isKey(data, "v")) this.setLevel((this.level + 1) % LEVELS.length);
-    else if (data === "V" || isKey(data, "shift+v")) {
-      this.hooks.openDialog(
-        new RadioDialog("Message list", [{ items: LEVELS.map((l, i) => ({ label: l.label, value: i, hint: l.hint })), current: () => this.level, apply: (v) => this.setLevel(v as number) }], {
-          onClose: () => this.hooks.closeDialog(),
-        }),
-      );
-    } else if (isKey(data, "p")) this.hooks.publish();
+    else if (data === "V" || isKey(data, "shift+v")) this.hooks.openDialog(this.viewDialog());
+    else if (isKey(data, "p")) this.hooks.publish();
+  }
+
+  /**
+   * `V`: the list level (this session only, same as `v`) plus the layout options, which are saved and apply to every
+   * session from now on, whichever level is showing.
+   */
+  private viewDialog(): RadioDialog {
+    const yesNo = [{ label: "yes", value: true }, { label: "no", value: false }];
+    const layout = (title: string, key: "indentReplies" | "indentTools"): DialogSection => ({
+      title,
+      items: yesNo,
+      current: () => this.hooks.settings.get().viewer[key],
+      apply: (v) => {
+        this.hooks.settings.update({ viewer: { [key]: v as boolean } });
+      },
+    });
+    return new RadioDialog(
+      "View",
+      [
+        { title: "Message list", items: LEVELS.map((l, i) => ({ label: l.label, value: i, hint: l.hint })), current: () => this.level, apply: (v) => this.setLevel(v as number) },
+        layout("Indent assistant replies", "indentReplies"),
+        layout("Indent tool calls further", "indentTools"),
+      ],
+      { onClose: () => this.hooks.closeDialog() },
+    );
   }
 
   footerKeys(): Array<[string, string]> {
-    return [["j/k", "message"], ["J/K", "prompt"], ["v", "list level"], ["V", "level dialog"], ["space", "scroll"], ["p", "publish"], ["esc", "back"]];
+    return [["j/k", "message"], ["J/K", "prompt"], ["v", "list level"], ["V", "view options"], ["space", "scroll"], ["p", "publish"], ["esc", "back"]];
   }
 
   private header(width: number): string[] {
@@ -191,7 +225,7 @@ export class SessionViewer {
     const left = items.slice(this.listTop, this.listTop + bodyH).map((it, k) => {
       const i = this.listTop + k;
       const turn = it.kind === "user" ? st.dim(`#${it.turn} `) : "";
-      const row = `${i === this.cursor ? st.cyan("▌") : " "}${ICON[it.kind](`${turn}${it.error ? st.red(it.label) : it.label}`)}`;
+      const row = `${i === this.cursor ? st.cyan("▌") : " "}${" ".repeat(this.depth(it.kind) * INDENT)}${ICON[it.kind](`${turn}${it.error ? st.red(it.label) : it.label}`)}`;
       return i === this.cursor ? st.sel(fit(row, lw)) : row;
     });
     const right = this.rightPane(items[this.cursor], rw, bodyH);

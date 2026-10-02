@@ -63,20 +63,47 @@ agent-share  7/7
 
 | Key | Does | With Shift |
 | --- | --- | --- |
-| `j` `k` / arrows | move (`ctrl-d`/`ctrl-u` page, `home`/`end`) | |
+| `j` `k` / arrows | move (`home`/`end`) | |
+| `space` `b` | page down / up (also `PgDn`/`PgUp` and `ctrl-f`/`ctrl-b`; `ctrl-d`/`ctrl-u` move half a page) | |
 | `/` | search: free words plus `harness:pi repo:x branch:y model:opus tool:Bash since:7d before:2026-09-01 shared:no workers:yes` | |
 | `h` `r` `t` `s` | cycle harness · repo · time · shared | `H` `R` `T` `S`: pick from a dialog (`/` filters the repo list) |
 | `g` | cycle grouping: none → date → repo → harness | `G`: dialog |
 | `o` | cycle sort field (size, title, repo, prompts, calls, duration, updated) | `O`: dialog with field and direction |
-| `x` | clear search and filters (grouping and sort stay) | |
+| `x` | clear search and filters (grouping and sort stay); shown in the footer while there is something to clear | |
 | `enter` | open the session viewer | |
 | `p` | publish: mode → review → confirm (`enter` continues; only `y` publishes) | |
 | `y` | copy the share link (terminal clipboard, OSC 52) | |
-| `?` / `q` | help / clear filters, then quit | |
+| `,` | settings: confirm before quitting, date format | |
+| `?` / `q` | help / clear filters, then quit (asks first unless you turned that off) | |
+
+The filter chips under the title double as a key legend: the hotkey letter in each (**h**arness, **r**epo, **t**ime,
+**s**hared, **g**roup, s**o**rt) is bold and underlined. Changing a filter or the search selects the first session again
+and scrolls to it; grouping and sorting keep the selection where it is.
 
 In the viewer the left pane lists messages and the right pane shows the selected one in full; the header has the
 tool-call breakdown and whether a `brief` share would be clean. `v` cycles the list between your prompts, the
-conversation, and everything (tool calls, thinking, subagents, skills); `J`/`K` jump between prompts.
+conversation, and everything (tool calls, thinking, subagents, skills); `J`/`K` jump between prompts. `V` opens the same
+choice as a dialog and adds two layout options that are saved and apply at every level: indent assistant replies under
+their prompt, and indent tool calls (with thinking, subagents and events) one level further.
+
+### Browser settings
+
+Preferences live in `~/.config/agent-share/browse.json` (`AGENT_SHARE_BROWSE_SETTINGS` overrides), separate from
+`config.json` because the browser rewrites this file whenever you change one in the UI. A missing or invalid file, or
+field, falls back to its default.
+
+```json
+{ "confirmQuit": true, "dateFormat": "relative", "viewer": { "indentReplies": false, "indentTools": false } }
+```
+
+| Setting | Values | Where |
+| --- | --- | --- |
+| `confirmQuit` | `true` (default) asks "Quit agent-share?" before leaving; `false` quits at once | `,` |
+| `dateFormat` | `relative` (default, `5h ago`) · `smart` (`14:05` today, `Jul 14`, `2025-07-14`) · `short` (`Jul 14 14:05`) · `date` (`2026-07-14`) · `datetime` (`2026-07-14 14:05`); local time except relative | `,` |
+| `viewer.indentReplies` | indent assistant replies one level under their prompt (default `false`) | `V` in a session |
+| `viewer.indentTools` | indent tool calls, thinking, subagents and events one level deeper than replies (default `false`) | `V` in a session |
+
+`ctrl-c` always quits immediately, without asking.
 
 - **Index.** Session summaries (title, repo, models, first/last prompts, tool counts) are cached in
   `~/.cache/agent-share-session/index.json` (`AGENT_SHARE_INDEX` overrides), keyed by path, mtime and size. The first run reads

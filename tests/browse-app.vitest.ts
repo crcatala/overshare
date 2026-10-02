@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { drive, KEY, order, TITLES } from "./browse-helpers.js";
+import { stripTerminalSequences } from "@earendil-works/pi-tui";
+import { drive, KEY, manySessions, order, selectedNumber, summary, TITLES } from "./browse-helpers.js";
+import { memorySettings } from "../src/browse/settings.js";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -54,18 +56,14 @@ describe("session list", () => {
     expect(d.text()).toContain("sort: last updated");
   });
 
-  it("applying a dialog filter keeps the selection on the same session, even when rows above it disappear", async () => {
-    const shared = { url: "https://v/#x", mode: "brief" as const, target: "gist" as const, sharedAt: new Date().toISOString() };
-    const d = drive({ shares: { "claude-code:s1": [shared], "pi:s2": [shared] } }); // the two rows above the selection are shared
-    await d.press(KEY.down, KEY.down); // Onboarding empty state (claude-code, not shared)
-    // The selection marker is on that session's row, and the preview pane (right column) shows the same session.
-    const selected = () => d.lines().some((l) => l.includes("▌") && l.split(" │ ")[0]!.includes("Onboarding empty state")) && d.lines().some((l) => l.includes("│ Onboarding empty state"));
+  it("group and sort dialogs keep the selection on the same session, even when rows above it move", async () => {
+    const d = drive();
+    await d.press(KEY.down, KEY.down, KEY.down); // Auth token refresh race
+    const selected = () => d.lines().some((l) => l.includes("▌") && l.split(" │ ")[0]!.includes("Auth token refresh race")) && d.lines().some((l) => l.includes("│ Auth token refresh race"));
     expect(selected()).toBe(true);
-    await d.press("H", KEY.down, KEY.enter); // harness: Claude Code
-    expect(d.text()).toContain("harness: claude");
+    await d.press("G", KEY.down, KEY.down, KEY.enter); // group: repo
     expect(selected()).toBe(true);
-    await d.press("S", KEY.down, KEY.enter); // shared: not shared yet
-    expect(d.text()).toContain("shared: no");
+    await d.press("O", KEY.down, KEY.down, KEY.enter); // sort: title
     expect(selected()).toBe(true);
   });
 
@@ -197,14 +195,44 @@ describe("robustness", () => {
     expect(d.app.flow).toBeUndefined();
   });
 
-  it("q quits only when there is nothing to clear", async () => {
+  it("q clears filters first, then asks before quitting", async () => {
     const d = drive({ query: "billing" });
     let quit = 0;
     d.app.onQuit = () => quit++;
     await d.press("q"); // clears the query
+    expect(d.text()).not.toContain("Quit agent-share?");
+    await d.press("q"); // nothing left to clear: confirm first
     expect(quit).toBe(0);
+    expect(d.text()).toContain("Quit agent-share?");
+    await d.press("n"); // stay
+    expect(d.text()).not.toContain("Quit agent-share?");
+    await d.press(KEY.esc, KEY.esc); // esc asks as well; esc on the dialog stays
+    expect(quit).toBe(0);
+    await d.press("q", "y");
+    expect(quit).toBe(1);
+  });
+
+  it("the quit prompt takes enter or a second q as yes, and swallows other keys", async () => {
+    for (const yes of [KEY.enter, "q"]) {
+      const d = drive();
+      let quit = 0;
+      d.app.onQuit = () => quit++;
+      await d.press("q", "j", "x", "/"); // stray keys do nothing while asking
+      expect(quit).toBe(0);
+      expect(d.text()).toContain("Quit agent-share?");
+      await d.press(yes);
+      expect(quit).toBe(1);
+    }
+  });
+
+  it("quits straight away when confirmation is switched off in the settings", async () => {
+    const settings = memorySettings({ confirmQuit: false });
+    const d = drive({ settings });
+    let quit = 0;
+    d.app.onQuit = () => quit++;
     await d.press("q");
     expect(quit).toBe(1);
+    expect(d.text()).not.toContain("Quit agent-share?");
   });
 
   it("? shows the key help and any key dismisses it", async () => {
@@ -214,5 +242,227 @@ describe("robustness", () => {
     expect(d.text()).toContain("Shift: pick from a dialog");
     await d.press("j");
     expect(d.text()).not.toContain("Shift: pick from a dialog");
+  });
+
+  it("the help lists the paging keys and the settings key", async () => {
+    const d = drive();
+    await d.press("?");
+    expect(d.text()).toMatch(/space\s+b\s+page down/);
+    expect(d.text()).toMatch(/settings: confirm before quitting/);
+  });
+});
+
+describe("filter chips and the clear-filters hint", () => {
+  const raw = (d: ReturnType<typeof drive>) => d.app.render(130).join("\n");
+
+  it("shows each chip's hotkey letter in bold + underline, on and off chips alike", async () => {
+    const d = drive();
+    const hot = (ch: string) => `\x1b[1;4m${ch}\x1b[22;24m`;
+    for (const [word, key] of [["harness", "h"], ["repo", "r"], ["time", "t"], ["shared", "s"], ["group", "g"], ["sort", "o"]] as const) {
+      const i = word.indexOf(key);
+      expect(raw(d), word).toContain(`${word.slice(0, i)}${hot(key)}${word.slice(i + 1)}:`);
+    }
+    await d.press("h"); // an active chip keeps its hotkey too
+    expect(raw(d)).toContain(`${hot("h")}arness: claude`);
+    expect(d.text()).toContain("harness: claude"); // plain text is unchanged
+  });
+
+  it("offers x in the footer only while something can be cleared", async () => {
+    const d = drive();
+    const footer = () => d.lines().at(-1)!;
+    expect(footer()).not.toContain("clear filters");
+    await d.press("h");
+    expect(footer()).toMatch(/x clear filters/);
+    await d.press("x");
+    expect(footer()).not.toContain("clear filters");
+    await d.press("/");
+    await d.type("billing");
+    await d.press(KEY.enter);
+    expect(footer()).toMatch(/x clear filters/); // a search counts too
+  });
+
+  it("while typing a search with no results, points at esc rather than x", async () => {
+    const d = drive();
+    await d.press("/");
+    await d.type("zzzzqqq");
+    expect(d.text()).toContain("no sessions match — esc clears the search");
+    expect(d.text()).not.toContain("x clears filters");
+    await d.press(KEY.enter); // leave the search box with the text kept: now x works
+    expect(d.text()).toContain("x clears filters");
+  });
+});
+
+describe("selection after filtering", () => {
+  const many = manySessions(120);
+
+  it("jumps back to the first session and scrolls it into view after any filter or search change", async () => {
+    const changes: Array<[string, (d: ReturnType<typeof drive>) => Promise<void>]> = [
+      ["h", (d) => d.press("h")],
+      ["r", (d) => d.press("r")],
+      ["t", (d) => d.press("t")],
+      ["s", (d) => d.press("s")],
+      ["H dialog", (d) => d.press("H", KEY.down, KEY.enter)],
+      ["search", async (d) => { await d.press("/"); await d.type("Session"); }],
+    ];
+    for (const [name, change] of changes) {
+      const d = drive({ sessions: many });
+      await d.press(...Array(70).fill("j"));
+      expect(selectedNumber(d.lines(120, 20)), name).toBe(70);
+      await change(d);
+      const lines = d.lines(120, 20);
+      const first = Number(listColumn0(lines).match(/Session number (\d+)/)![1]);
+      expect(selectedNumber(lines), `${name}: selected`).toBe(first);
+      expect(first, `${name}: top of the list`).toBe(0);
+    }
+  });
+
+  it("also resets when x clears the filters", async () => {
+    const d = drive({ sessions: many, harness: "pi" });
+    await d.press(...Array(30).fill("j"));
+    await d.press("x");
+    expect(selectedNumber(d.lines(120, 20))).toBe(0);
+  });
+
+  it("keeps the selection when only grouping or sorting changes", async () => {
+    const d = drive({ sessions: many });
+    await d.press(...Array(30).fill("j"));
+    await d.press("g");
+    expect(selectedNumber(d.lines(120, 20))).toBe(30);
+    await d.press("o");
+    expect(selectedNumber(d.lines(120, 20))).toBe(30);
+  });
+});
+
+/** First list-column line that holds a session row. */
+function listColumn0(lines: string[]): string {
+  return lines.map((l) => l.split(" │ ")[0]!).find((l) => /Session number/.test(l)) ?? "";
+}
+
+describe("paging", () => {
+  const many = manySessions(120);
+  // At 20 rows the list shows 15 (20 − 3 header lines − rule − footer).
+  const at = (d: ReturnType<typeof drive>) => selectedNumber(d.lines(120, 20));
+
+  it("space, PgDn and ctrl-f page down; b, PgUp and ctrl-b page up", async () => {
+    for (const [down, up] of [[KEY.space, "b"], [KEY.pageDown, KEY.pageUp], [KEY.ctrlF, KEY.ctrlB]] as const) {
+      const d = drive({ sessions: many });
+      d.app.attach(() => 20, () => {});
+      await d.press(down);
+      expect(at(d), `${down} once`).toBe(15);
+      await d.press(down);
+      expect(at(d), `${down} twice`).toBe(30);
+      await d.press(up);
+      expect(at(d), `${up}`).toBe(15);
+      await d.press(up, up);
+      expect(at(d), "clamped at the top").toBe(0);
+    }
+  });
+
+  it("ctrl-d and ctrl-u move half a page", async () => {
+    const d = drive({ sessions: many });
+    d.app.attach(() => 20, () => {});
+    await d.press(KEY.ctrlD);
+    expect(at(d)).toBe(7);
+    await d.press(KEY.ctrlU);
+    expect(at(d)).toBe(0);
+  });
+
+  it("clamps at the end, and never leaves the selection scrolled out of sight", async () => {
+    const d = drive({ sessions: many });
+    d.app.attach(() => 20, () => {});
+    await d.press(...Array(20).fill(KEY.space));
+    expect(at(d)).toBe(119);
+  });
+
+  it("counts group headers as rows and never lands on one", async () => {
+    const d = drive({ sessions: many });
+    d.app.attach(() => 20, () => {});
+    await d.press("g"); // group by date: a header line before every day
+    for (let i = 0; i < 6; i++) {
+      await d.press(KEY.space);
+      expect(at(d), `after ${i + 1} pages`).toBeTypeOf("number");
+    }
+    await d.press(...Array(40).fill(KEY.space));
+    expect(at(d)).toBe(119);
+    await d.press(...Array(40).fill("b"));
+    expect(at(d)).toBe(0);
+  });
+});
+
+describe("settings dialog", () => {
+  it(", opens it; turning confirmation off is saved and skips the quit prompt", async () => {
+    const settings = memorySettings();
+    const d = drive({ settings });
+    let quit = 0;
+    d.app.onQuit = () => quit++;
+    await d.press(",");
+    expect(d.text()).toContain("Settings");
+    expect(d.text()).toContain("Confirm before quitting");
+    expect(d.text()).toContain("Date format");
+    await d.press(KEY.down, KEY.enter); // yes → no
+    expect(settings.get().confirmQuit).toBe(false);
+    await d.press("q");
+    expect(quit).toBe(1);
+  });
+
+  it("changes the updated column's date format immediately", async () => {
+    const settings = memorySettings();
+    const d = drive({ settings });
+    expect(d.text()).toContain("1h ago");
+    await d.press(",", ...Array(2 + 4).fill(KEY.down), KEY.enter); // past yes/no, then relative → … → date + time
+    expect(settings.get().dateFormat).toBe("datetime");
+    expect(d.text()).toContain("2026-09-30 11:00"); // NOW − 1h, in UTC
+    expect(d.text()).not.toContain("1h ago");
+    expect(d.text()).toContain("Fix invoice currency bug"); // the title column still has room
+  });
+
+  it("space applies without closing so formats can be tried", async () => {
+    const settings = memorySettings();
+    const d = drive({ settings });
+    await d.press(",", KEY.down, KEY.down, KEY.down, KEY.space); // smart
+    expect(settings.get().dateFormat).toBe("smart");
+    expect(d.text()).toContain("Settings");
+    expect(d.text()).toContain("11:00"); // today's sessions show the time
+  });
+
+  it("tells you when the settings could not be saved, and keeps working", async () => {
+    const settings = { ...memorySettings(), update: () => false };
+    const d = drive({ settings });
+    await d.press(",", KEY.down, KEY.enter);
+    expect(d.text()).toContain("could not save settings");
+  });
+});
+
+describe("selected row highlight", () => {
+  /** True when every visible character of `raw` is drawn on the selected-row background. */
+  function fullyHighlighted(raw: string): boolean {
+    let bg = "";
+    let ok = true;
+    for (const m of raw.matchAll(/\x1b\[([0-9;]*)m|([^\x1b])/g)) {
+      if (m[2] !== undefined) {
+        if (bg !== "48;5;238") ok = false;
+        continue;
+      }
+      const code = m[1]!;
+      if (code === "" || code === "0" || code === "49") bg = "";
+      else if (code.startsWith("48;")) bg = code;
+    }
+    return ok;
+  }
+
+  it("covers the whole row when the repo name is truncated", async () => {
+    const d = drive({ sessions: [summary({ id: "long", title: "A title after a long repo name", project: "agent-share-session-extra-long-repo-name" })] });
+    const rows = d.app.render(130).filter((l) => stripTerminalSequences(l).includes("A title after"));
+    expect(rows).toHaveLength(1);
+    const list = rows[0]!.split(" │ ")[0]!;
+    expect(stripTerminalSequences(list)).toContain("agent-share-s…");
+    // The separator is gray and not part of the selection; only the list cell is checked.
+    expect(fullyHighlighted(rows[0]!.slice(0, rows[0]!.indexOf("\x1b[49m") + "\x1b[49m".length))).toBe(true);
+  });
+
+  it("covers a truncated title and the shared mark too", async () => {
+    const d = drive({ sessions: [summary({ id: "t", title: "T".repeat(200), project: "short" })], shares: { "claude-code:t": [{ url: "https://v/#t", mode: "brief", target: "gist", sharedAt: new Date().toISOString() }] } });
+    const row = d.app.render(130).find((l) => stripTerminalSequences(l).includes("TTTT"))!;
+    expect(fullyHighlighted(row.slice(0, row.indexOf("\x1b[49m") + "\x1b[49m".length))).toBe(true);
   });
 });

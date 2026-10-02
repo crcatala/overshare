@@ -3,6 +3,7 @@ import type { HarnessName } from "../schema.js";
 import { buildIndex } from "../sessions/index.js";
 import { BrowserApp } from "./app.js";
 import { runScreen } from "./kit.js";
+import { fileSettings } from "./settings.js";
 import { createSource } from "./source.js";
 
 export interface BrowseOptions {
@@ -29,5 +30,5 @@ export function runBrowse(opts: BrowseOptions): void {
   if (sessions.length === 0) {
     throw new Error("no sessions found (looked in the Claude Code and pi session directories; see AGENT_SHARE_CLAUDE_PROJECTS / AGENT_SHARE_PI_SESSIONS)");
   }
-  runScreen(new BrowserApp(createSource({ config: opts.config, sessions }), { query: opts.query, harness: opts.harness }));
+  runScreen(new BrowserApp(createSource({ config: opts.config, sessions }), { query: opts.query, harness: opts.harness, settings: fileSettings() }));
 }

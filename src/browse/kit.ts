@@ -28,8 +28,13 @@ export const st = {
   magenta: sgr("35", "39"),
   cyan: sgr("36", "39"),
   gray: sgr("90", "39"),
-  /** Selected-row background. */
-  sel: (s: string): string => `\x1b[48;5;238m${s}\x1b[49m`,
+  /**
+   * Selected-row background. Truncation (and any inner style) can emit a full reset, `\x1b[0m`, which would also
+   * clear this background for the rest of the row, so the background is re-applied after every reset.
+   */
+  sel: (s: string): string => `\x1b[48;5;238m${s.replace(/\x1b\[(?:0?|49)m/g, (reset) => `${reset}\x1b[48;5;238m`)}\x1b[49m`,
+  /** The hotkey letter inside a label: bold + underline, without touching colours or backgrounds. */
+  hot: (s: string): string => `\x1b[1;4m${s}\x1b[22;24m`,
   chip: (s: string): string => `\x1b[48;5;24m\x1b[38;5;255m ${s} \x1b[0m`,
   chipOff: (s: string): string => `\x1b[48;5;236m\x1b[38;5;245m ${s} \x1b[0m`,
   key: (s: string): string => `\x1b[38;5;110m${s}\x1b[39m`,

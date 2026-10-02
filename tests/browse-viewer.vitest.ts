@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { drive, KEY, sampleView } from "./browse-helpers.js";
+import { drive, KEY, listColumn, sampleView } from "./browse-helpers.js";
+import { memorySettings } from "../src/browse/settings.js";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -112,5 +113,84 @@ describe("session viewer", () => {
     await d.press(KEY.esc);
     expect(d.app.viewer).toBeUndefined();
     expect(d.text()).toContain("agent-share");
+  });
+});
+
+describe("view options (V)", () => {
+  /** Columns between the list's cursor column and a row's icon, for the first row containing `text`. */
+  const indentOf = (d: Awaited<ReturnType<typeof open>>, text: string): number => {
+    const row = listColumn(d.lines()).find((l) => l.includes(text))!;
+    const icon = row.search(/[❯◆⚙…⛭⚑]/u);
+    return icon - 1; // minus the cursor column
+  };
+
+  it("lists the layout options below the list level, all on one dialog", async () => {
+    const d = await open();
+    await d.press("V");
+    const text = d.text();
+    expect(text).toContain("Message list");
+    expect(text).toContain("Indent assistant replies");
+    expect(text).toContain("Indent tool calls further");
+  });
+
+  it("is flat by default", async () => {
+    const d = await open();
+    await d.press("v"); // everything
+    expect(indentOf(d, "fix the bug")).toBe(0);
+    expect(indentOf(d, "Fixed: the default")).toBe(0);
+    expect(indentOf(d, "Bash  npm test")).toBe(0);
+  });
+
+  it("indents replies one level and tool calls (and thinking) another when both are on", async () => {
+    const settings = memorySettings({ viewer: { indentReplies: true, indentTools: true } });
+    const d = await open({ settings });
+    await d.press("v"); // everything
+    expect(indentOf(d, "fix the bug")).toBe(0);
+    expect(indentOf(d, "Fixed: the default")).toBe(2);
+    expect(indentOf(d, "Bash  npm test")).toBe(4);
+    expect(indentOf(d, "thinking (800 chars)")).toBe(4);
+    expect(indentOf(d, "now add a test")).toBe(0); // the next prompt is back at the root
+  });
+
+  it("each option works alone: tool calls alone sit one level in, replies alone leave tools beside them", async () => {
+    const tools = await open({ settings: memorySettings({ viewer: { indentTools: true } }) });
+    await tools.press("v");
+    expect(indentOf(tools, "Fixed: the default")).toBe(0);
+    expect(indentOf(tools, "Bash  npm test")).toBe(2);
+    const replies = await open({ settings: memorySettings({ viewer: { indentReplies: true } }) });
+    await replies.press("v");
+    expect(indentOf(replies, "Fixed: the default")).toBe(2);
+    expect(indentOf(replies, "Bash  npm test")).toBe(2);
+  });
+
+  it("the dialog sets them, they apply at every list level, and v does not cycle them", async () => {
+    const settings = memorySettings();
+    const d = await open({ settings });
+    // The cursor starts on the current level (conversation); two steps down is "yes" under "Indent assistant replies".
+    await d.press("V", KEY.down, KEY.down, KEY.space); // replies: yes (stay open)
+    expect(settings.get().viewer).toEqual({ indentReplies: true, indentTools: false });
+    await d.press(KEY.down, KEY.down, KEY.enter); // past "no", onto "yes" under "Indent tool calls further"; choose and close
+    expect(settings.get().viewer).toEqual({ indentReplies: true, indentTools: true });
+    expect(d.text()).not.toContain("Indent tool calls further"); // closed
+    expect(indentOf(d, "Fixed: the default")).toBe(2); // conversation level
+    await d.press("v", "v", "v"); // around the cycle and back
+    expect(settings.get().viewer).toEqual({ indentReplies: true, indentTools: true });
+    await d.press("v");
+    expect(indentOf(d, "Bash  npm test")).toBe(4);
+  });
+
+  it("choosing a list level in the dialog leaves the layout alone, and vice versa", async () => {
+    const settings = memorySettings({ viewer: { indentReplies: true } });
+    const d = await open({ settings });
+    await d.press("V", KEY.down, KEY.enter); // conversation → everything
+    expect(d.text()).toContain("everything · 8 of 8");
+    expect(settings.get().viewer).toEqual({ indentReplies: true, indentTools: false });
+  });
+
+  it("applies to the next session you open too", async () => {
+    const settings = memorySettings({ viewer: { indentReplies: true } });
+    const d = await open({ settings });
+    await d.press(KEY.esc, KEY.down, KEY.enter); // back to the list, open the second session
+    expect(indentOf(d, "Fixed: the default")).toBe(2);
   });
 });

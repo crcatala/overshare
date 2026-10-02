@@ -2,7 +2,7 @@ import type { AgentShareConfig, ShareTarget } from "../config.js";
 import { formatTokens } from "../format.js";
 import type { PreparedShare } from "../pipeline.js";
 import { totalTokens } from "../schema.js";
-import { recordShare } from "../sessions/shares.js";
+import { recordShare, removeShares } from "../sessions/shares.js";
 import { GistPublisher } from "./gist.js";
 import { R2Publisher, checkPublicAccess, r2CredentialsFromEnv, r2PublicUrl } from "./r2.js";
 import type { PublishResult, Publisher } from "./types.js";
@@ -60,6 +60,24 @@ export async function publishPrepared(
   const recorded = recordShare(s.harness.name, s.source.sessionId, { url: result.viewerUrl, mode: s.mode, target, sharedAt: new Date().toISOString() });
   if (!recorded) warnings.push("could not record this share in shares.json, so the browser will not mark it as shared");
   return { result, warnings };
+}
+
+/**
+ * Forget a deleted share in `shares.json` so the browser stops marking its session as shared.
+ * Records store the viewer link, so each is matched by parsing it like user input. Returns false
+ * (the caller warns) only when the file could not be read or updated; an unrecorded share is fine.
+ */
+export function forgetShare(ref: ShareRef, path?: string): boolean {
+  return removeShares((record) => {
+    try {
+      const recorded = parseShareRef(record.url, record.target);
+      // Gist ids are hex, so `ABC…` and `abc…` are the same gist; R2 ids are case-sensitive.
+      const same = ref.target === "gist" ? recorded.id.toLowerCase() === ref.id.toLowerCase() : recorded.id === ref.id;
+      return recorded.target === ref.target && same;
+    } catch {
+      return false;
+    }
+  }, path);
 }
 
 export type ShareRef = { target: ShareTarget; id: string };

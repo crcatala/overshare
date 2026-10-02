@@ -49,4 +49,39 @@ export function recordShare(harness: HarnessName, id: string, record: ShareRecor
   }
 }
 
+/**
+ * Drop every record `matches` selects (atomic write; a key left with no records is removed).
+ * Never throws: a share that is already gone from the remote must not turn a delete into a failure.
+ * Returns false when `shares.json` exists but could not be read or rewritten (the caller should warn);
+ * a missing file or no matching record is a normal no-op and returns true.
+ */
+export function removeShares(matches: (record: ShareRecord) => boolean, path = sharesPath()): boolean {
+  try {
+    let all: SharesFile;
+    try {
+      all = JSON.parse(readFileSync(path, "utf8"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
+      return false;
+    }
+    if (!all || typeof all !== "object" || Array.isArray(all)) return false;
+    let changed = false;
+    for (const [key, records] of Object.entries(all)) {
+      if (!Array.isArray(records)) continue;
+      const kept = records.filter((r) => !matches(r));
+      if (kept.length === records.length) continue;
+      changed = true;
+      if (kept.length) all[key] = kept;
+      else delete all[key];
+    }
+    if (!changed) return true;
+    const tmp = `${path}.${process.pid}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify(all, null, 2)}\n`, { mode: PRIVATE_FILE_MODE });
+    renameSync(tmp, path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const sharesFor = (all: SharesFile, harness: HarnessName, id: string): ShareRecord[] => all[shareKey(harness, id)] ?? [];

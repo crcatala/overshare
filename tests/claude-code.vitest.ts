@@ -89,6 +89,72 @@ describe("claude-code adapter", () => {
     expect(session.turns.map((x) => x.user?.text)).toEqual(["first", "edited prompt"]);
   });
 
+  it("keeps every result of parallel tool calls even though they hang off the tool_use lines as siblings", () => {
+    const t = new ClaudeTranscript().user("check three things");
+    t.assistant("m1", [{ type: "text", text: "Running three checks." }], ccUsage(1, 1));
+    const call = (id: string, command: string) => {
+      t.assistant("m1", [{ type: "tool_use", id, name: "Bash", input: { command } }], ccUsage(1, 1));
+      return t.lastUuid;
+    };
+    // Each result's parent is its own tool_use line; the next line chains from the last result only.
+    const a = call("tu_a", "echo a");
+    const b = call("tu_b", "echo b");
+    const c = call("tu_c", "echo c");
+    t.rewindTo(a).toolResult("tu_a", "out a");
+    t.rewindTo(b).toolResult("tu_b", "out b", {}, true);
+    t.rewindTo(c).toolResult("tu_c", "out c");
+    t.assistant("m2", [{ type: "text", text: "All done." }], ccUsage(1, 1));
+    const { session } = parseClaudeCode(t.toJsonl());
+    const tools = session.turns[0]!.steps.filter((s) => s.kind === "tool");
+    expect(tools.map((s) => s.kind === "tool" && s.result?.text)).toEqual(["out a", "out b", "out c"]);
+    expect(tools.map((s) => s.kind === "tool" && !!s.isError)).toEqual([false, true, false]);
+    expect(session.responses).toHaveLength(2);
+  });
+
+  it("does not recover a result that lies beyond --leaf", () => {
+    const t = new ClaudeTranscript().user("check things");
+    const call = (id: string) => {
+      t.assistant("m1", [{ type: "tool_use", id, name: "Bash", input: { command: `echo ${id}` } }], ccUsage(1, 1));
+      return t.lastUuid;
+    };
+    const a = call("tu_a");
+    const b = call("tu_b");
+    t.rewindTo(a).toolResult("tu_a", "SECRET-after-leaf-a");
+    t.rewindTo(b).toolResult("tu_b", "SECRET-after-leaf-b");
+    for (const leaf of [a, b]) {
+      const { session } = parseClaudeCode(t.toJsonl(), { leafId: leaf! });
+      expect(JSON.stringify(session)).not.toContain("SECRET");
+    }
+  });
+
+  it("does not attach a result from an abandoned branch to a tool call the kept branch shares", () => {
+    const t = new ClaudeTranscript().user("first");
+    t.assistant("m1", [{ type: "tool_use", id: "tu_1", name: "Bash", input: { command: "echo one" } }], ccUsage(1, 1));
+    const fork = t.lastUuid;
+    t.toolResult("tu_1", "SECRET-abandoned-result").assistant("m2", [{ type: "text", text: "abandoned" }], ccUsage(1, 1));
+    t.rewindTo(fork).user("edited prompt").assistant("m3", [{ type: "text", text: "kept" }], ccUsage(1, 1));
+    const { session } = parseClaudeCode(t.toJsonl());
+    expect(JSON.stringify(session)).not.toContain("SECRET");
+    expect(JSON.stringify(session)).toContain("kept");
+  });
+
+  it("does not pull in tool calls or results from an abandoned branch", () => {
+    const t = new ClaudeTranscript().user("first").assistant("m1", [{ type: "text", text: "a1" }], ccUsage(1, 1));
+    const fork = t.lastUuid;
+    t.user("abandoned prompt");
+    t.assistant("m2", [{ type: "tool_use", id: "tu_old", name: "Bash", input: { command: "echo old" } }], ccUsage(1, 1));
+    t.toolResult("tu_old", "old out").assistant("m3", [{ type: "text", text: "abandoned" }], ccUsage(1, 1));
+    t.rewindTo(fork).user("edited prompt");
+    t.assistant("m4", [{ type: "tool_use", id: "tu_new", name: "Bash", input: { command: "echo new" } }], ccUsage(1, 1));
+    t.toolResult("tu_new", "new out").assistant("m5", [{ type: "text", text: "kept" }], ccUsage(1, 1));
+    const { session } = parseClaudeCode(t.toJsonl());
+    const json = JSON.stringify(session);
+    expect(json).toContain("new out");
+    expect(json).not.toContain("old out");
+    expect(json).not.toContain("abandoned");
+    expect(session.responses).toHaveLength(3);
+  });
+
   it("treats queued prompts as turns but drops task notifications", () => {
     const t = new ClaudeTranscript()
       .user("start")

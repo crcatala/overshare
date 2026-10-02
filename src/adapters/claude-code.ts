@@ -349,7 +349,63 @@ function branchEntries(entries: Entry[], leafId?: string): Entry[] {
     cur = parent ? byId.get(parent) : undefined;
   }
   path.reverse();
+  const withResults = withSiblingToolResults(path, entries);
   const conversational = (list: Entry[]) => list.filter((e) => (e.type === "user" || e.type === "assistant") && !e.isSidechain).length;
   if (!leafId && conversational(path) < conversational(withId) * 0.5) return withId;
-  return path;
+  return withResults;
+}
+
+const toolUseIds = (e: Entry): string[] =>
+  e.type === "assistant" && Array.isArray(e.message?.content)
+    ? e.message.content.filter((c: Entry) => c?.type === "tool_use" && typeof c.id === "string").map((c: Entry) => c.id as string)
+    : [];
+
+const toolResultIds = (e: Entry): string[] =>
+  e.type === "user" && Array.isArray(e.message?.content)
+    ? e.message.content.filter((c: Entry) => c?.type === "tool_result" && typeof c.tool_use_id === "string").map((c: Entry) => c.tool_use_id as string)
+    : [];
+
+/**
+ * Claude Code chains the results of parallel tool calls as siblings: each result's parent is its own
+ * tool_use line, so only the last one lies on the parent chain from the leaf. Re-add the results that
+ * answer a call of the same API response as a result already on the branch (so the batch demonstrably
+ * ran to completion on this branch), placed just before the first user line that follows the call.
+ * Results the branch never reached stay out: one beyond `--leaf` (later than the leaf), or one from a
+ * rewound branch that shares only the tool_use line.
+ */
+function withSiblingToolResults(path: Entry[], entries: Entry[]): Entry[] {
+  const callIndex = new Map<string, number>();
+  const callResponse = new Map<string, string>();
+  path.forEach((e, i) => {
+    for (const id of toolUseIds(e)) {
+      callIndex.set(id, i);
+      if (typeof e.message?.id === "string") callResponse.set(id, e.message.id);
+    }
+  });
+  const answered = new Set<string>();
+  const finished = new Set<string>(); // API responses with a result on the branch
+  for (const e of path) {
+    for (const id of toolResultIds(e)) {
+      answered.add(id);
+      const response = callResponse.get(id);
+      if (response) finished.add(response);
+    }
+  }
+  const leafTime = Date.parse(path.at(-1)?.timestamp ?? "");
+  const onPath = new Set(path);
+  const extras = new Map<number, Entry[]>();
+  for (const e of entries) {
+    if (onPath.has(e) || e.isSidechain) continue;
+    if (Number.isFinite(leafTime) && Date.parse(e.timestamp ?? "") > leafTime) continue;
+    const ids = toolResultIds(e);
+    const open = ids.filter((id) => callIndex.has(id) && !answered.has(id) && finished.has(callResponse.get(id) ?? ""));
+    if (!open.length) continue;
+    for (const id of open) answered.add(id);
+    const callAt = Math.max(...open.map((id) => callIndex.get(id)!));
+    let at = path.findIndex((p, i) => i > callAt && p.type === "user");
+    if (at < 0) at = path.length;
+    extras.set(at, [...(extras.get(at) ?? []), e]);
+  }
+  if (!extras.size) return path;
+  return [...path.flatMap((e, i) => [...(extras.get(i) ?? []), e]), ...(extras.get(path.length) ?? [])];
 }

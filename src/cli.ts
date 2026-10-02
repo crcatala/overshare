@@ -8,7 +8,7 @@ import { exportFixtureShares, generateFixtures } from "./fixtures/index.js";
 import { formatBytes } from "./format.js";
 import { prepareShare, type PreparedShare } from "./pipeline.js";
 import { PromptsUnavailableError } from "./modes.js";
-import { createPublisher, parseShareRef, preflightWarnings, publishPrepared } from "./publish/index.js";
+import { createPublisher, forgetShare, parseShareRef, preflightWarnings, publishPrepared } from "./publish/index.js";
 import { readSecretsFile } from "./redact/known-values.js";
 import { formatReport } from "./report.js";
 import { defaultRoots, listSessions, resolveSession, type SessionRef } from "./resolve.js";
@@ -193,6 +193,8 @@ program
       }
     }
     await createPublisher(config, ref.target).delete(ref.id);
+    // Only after the remote delete succeeded; the browser's ✓ must not outlive the share.
+    if (!forgetShare(ref)) console.error("warning: could not update shares.json, so the browser may still mark this session as shared");
     console.log(`Deleted ${ref.target} share ${ref.id}.${ref.target === "r2" ? " Edge caches may serve it for up to 5 more minutes." : ""}`);
   });
 

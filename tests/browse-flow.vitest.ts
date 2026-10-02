@@ -89,7 +89,7 @@ describe("publish dialog", () => {
 
   it("lists what was redacted and asks for review when findings exist", async () => {
     const d = drive({
-      review: (_, mode) => ({ mode, clean: false, blocked: false, findings: [{ rule: "github-token", where: "turn 2 tool input", context: "x" }, { rule: "email", where: "turn 1 prompt", context: "y" }], redactions: 2, bytes: 5000 }),
+      review: (_, mode) => ({ mode, clean: false, blocked: false, findings: [{ rule: "github-token", where: "turn 2 tool input" }, { rule: "email", where: "turn 1 prompt" }], redactions: 2, bytes: 5000 }),
     });
     await d.press("p");
     expect(d.text()).toContain("! 2 findings — redacted, please review");

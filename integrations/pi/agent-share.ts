@@ -17,8 +17,8 @@ interface Report {
   clean: boolean;
   blocked: boolean;
   counts: Record<string, number>;
-  findings: { category: string; rule: string; where: string; context: string }[];
-  rescan: { rule: string; preview: string }[];
+  findings: { category: string; rule: string; where: string }[];
+  rescan: { rule: string; length?: number }[];
   bytes: number;
 }
 
@@ -108,11 +108,11 @@ export default function agentShare(pi: ExtensionAPI) {
         const secrets = report.findings.filter((f) => f.category === "known-secret" || f.category === "secret-pattern");
         const preview = secrets
           .slice(0, 6)
-          .map((f) => `• ${f.rule} @ ${f.where}\n   …${f.context}…`)
+          .map((f) => `• ${f.rule} @ ${f.where}`)
           .join("\n");
         const ok = await ctx.ui.confirm(
           "Secrets were redacted — publish anyway?",
-          `Redactions: ${counts}\n\n${preview}${secrets.length > 6 ? `\n… ${secrets.length - 6} more` : ""}\n\nThe redacted values are replaced, but review the surrounding context above.`,
+          `Redactions: ${counts}\n\n${preview}${secrets.length > 6 ? `\n… ${secrets.length - 6} more` : ""}\n\nThe redacted values are replaced. Review the session itself for anything that was not recognized: the report does not show the text around a finding.`,
         );
         if (!ok) return ctx.ui.notify("Share cancelled.", "info");
         allowFindings = true;

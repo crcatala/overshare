@@ -137,9 +137,10 @@ export function readSecretsFile(path: string, warn: (message: string) => void = 
       if (value.length >= MIN_SECRET_LENGTH) out.push({ value, label: "secret", source: "secrets-file" });
       else warn(`${path}:${i + 1}: value is shorter than ${MIN_SECRET_LENGTH} characters; skipped`);
       // Ambiguous `name=value` (e.g. a lowercase key): also redact the part after `=` on its
-      // own. Over-redacting a substring is harmless; missing a password is not.
+      // own. Over-redacting a substring is harmless; missing a password is not. The "name" may be
+      // part of the password, so it is never used as a label.
       const after = eq > 0 ? unquote(withoutExport.slice(eq + 1)) : "";
-      if (after.length >= 8 && after !== value) out.push({ value: after, label: key || "secret", source: "secrets-file" });
+      if (after.length >= 8 && after !== value) out.push({ value: after, label: "secret", source: "secrets-file" });
     });
   return out;
 }

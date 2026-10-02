@@ -1,10 +1,12 @@
 import type { KnownSecret } from "./known-values.js";
+import { withSafeLabels } from "./labels.js";
 import { findSecretPatterns } from "./patterns.js";
 
+/** What the re-scan found, never the value: not a fragment, not a hash. The length is the only detail. */
 export interface RescanIssue {
   rule: string;
-  /** Masked preview: first 4 characters of the match plus its length. */
-  preview: string;
+  /** Length of the match in characters; absent for findings that are not a single value. */
+  length?: number;
 }
 
 /**
@@ -21,9 +23,8 @@ export function rescanPayload(
 ): RescanIssue[] {
   const issues: RescanIssue[] = [];
   const allow = new Set(opts.allowlist ?? []);
-  const mask = (v: string) => `${v.slice(0, 4)}…(${v.length} chars)`;
-  for (const k of opts.knownSecrets ?? []) {
-    if (!allow.has(k.value) && payload.includes(k.value)) issues.push({ rule: `known-secret:${k.label}`, preview: mask(k.value) });
+  for (const k of withSafeLabels(opts.knownSecrets ?? [])) {
+    if (!allow.has(k.value) && payload.includes(k.value)) issues.push({ rule: `known-secret:${k.label}`, length: k.value.length });
   }
   const texts: string[] = [];
   try {
@@ -38,12 +39,12 @@ export function rescanPayload(
       const value = text.slice(m.start, m.end);
       if (seen.has(value)) continue;
       seen.add(value);
-      issues.push({ rule: m.rule, preview: mask(value) });
+      issues.push({ rule: m.rule, length: value.length });
     }
   }
   const home = opts.homeDir?.replace(/[\\/]+$/, "");
   if (home && home.length > 1 && new RegExp(`${home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w.-])`).test(payload)) {
-    issues.push({ rule: "home-path", preview: "home directory path still present" });
+    issues.push({ rule: "home-path" });
   }
   return issues;
 }

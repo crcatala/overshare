@@ -3,7 +3,7 @@ import type { ShareReport } from "./pipeline.js";
 import { SECRET_CATEGORIES, type RedactionCategory } from "./redact/index.js";
 import { totalTokens } from "./schema.js";
 
-/** Human-readable redaction report. Contains only redacted context, never raw secret values. */
+/** Human-readable redaction report: rules, locations and counts, never secret values or the text around them. */
 export function formatReport(r: ShareReport, opts: { maxFindings?: number; color?: boolean } = {}): string {
   const color = (code: number) => (s: string) => (opts.color ? `\x1b[${code}m${s}\x1b[0m` : s);
   const bold = color(1);
@@ -47,14 +47,13 @@ export function formatReport(r: ShareReport, opts: { maxFindings?: number; color
     lines.push("", bold(`Findings (${r.findings.length}):`));
     for (const f of r.findings.slice(0, max)) {
       lines.push(`  ${SECRET_CATEGORIES.has(f.category) ? yellow("●") : dim("○")} ${f.rule} ${dim(`@ ${f.where}`)}`);
-      lines.push(dim(`      …${f.context}…`));
     }
     if (r.findings.length > max) lines.push(dim(`  … ${r.findings.length - max} more (use --all-findings)`));
   }
   lines.push("", `${dim(`Known local secret values checked: ${r.knownSecretCount}`)}`);
   if (r.rescan.length) {
     lines.push(red(bold(`Final re-scan: ${plural(r.rescan.length, "issue")} — publishing blocked`)));
-    for (const i of r.rescan) lines.push(red(`  ✗ ${i.rule}: ${i.preview}`));
+    for (const i of r.rescan) lines.push(red(`  ✗ ${i.rule}${i.length === undefined ? "" : ` (${plural(i.length, "char")})`}`));
   } else {
     lines.push(green("Final re-scan: clean ✓"));
   }

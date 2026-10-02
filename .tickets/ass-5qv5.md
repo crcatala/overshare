@@ -1,8 +1,8 @@
 ---
 id: ass-5qv5
-status: open
+status: closed
 deps: []
-links: [ass-13r0, ass-azwt, ass-iugy, ass-8w1o]
+links: [ass-13r0, ass-azwt, ass-iugy, ass-8w1o, ass-1c07]
 created: 2026-10-02T19:40:50Z
 type: bug
 priority: 2
@@ -42,3 +42,9 @@ Decision record (2026-10-02): reading real machine secret values for redaction i
 - The `formatReport` doc comment ("never raw secret values") is true and is backed by these tests.
 - `npm test`, `npm run typecheck`, `npm run build` pass.
 
+
+## Notes
+
+**2026-10-02T20:05:57Z**
+
+Implemented. Decisions: (1) RescanIssue is now {rule, length?}; no value fragment and no hash. (2) Finding context dropped entirely (type, human report, JSON report, browse ShareSummary); no opt-in flag added since nothing needs it, and the Redactor now records findings at redaction time instead of slicing context afterwards. (3) src/redact/labels.ts safeLabel(): charset [A-Za-z0-9_.:-]{1,64}, rejects anything findSecretPatterns/looksLikeSecret flags (SCREAMING_SNAKE names with an underscore are exempt from the entropy heuristic); applied to known-secret labels (Redactor + rescan), sensitive-key names, where tool names, and stats.tools keys (the latter also fixes the published payload, where tool names in stats were never redacted). (4) JSON report is not versioned and the session payload shape is unchanged, so no SCHEMA_VERSION bump. Follow-up for the smaller leftovers (sessionId, known-secret source, model names): ass-1c07. Proof: tests/report-leaks.vitest.ts (fails on main with leaked fragments 'ghp','hp_' and the neighbor text; passes now). npm test 865 pass, typecheck and build clean.

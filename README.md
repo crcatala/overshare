@@ -150,9 +150,14 @@ Layers, in order (see `src/redact/`):
 
 Report status:
 - **CLEAN** — no secrets found; `publish --yes` publishes without prompting.
-- **NEEDS REVIEW** (exit 2) — secrets were redacted; the report shows redacted context.
+- **NEEDS REVIEW** (exit 2) — secrets were redacted; the report lists each finding by rule and location.
   Publishing requires an interactive "y" or `--yes --allow-findings`.
 - **BLOCKED** (exit 3) — the re-scan found something; publishing is refused.
+
+Reports (terminal, `--json` and the browse dialog) show rules, locations, counts and a length, never
+a secret value, a fragment of one, or the text around a finding: an unredacted secret next to a caught
+one would otherwise be printed into your terminal and CI logs. Names taken from the data (env/JSON key
+names, tool names) appear only if they look like plain identifiers, otherwise as `secret`, `key` or `tool`.
 
 Pattern redaction is best effort: novel formats, secrets split across lines, or
 proprietary code in `full` mode can still leak. Review before sharing publicly;

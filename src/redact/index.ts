@@ -1,5 +1,6 @@
 import type { NormalizedSession } from "../schema.js";
 import type { KnownSecret } from "./known-values.js";
+import { safeLabel } from "./labels.js";
 import { SENSITIVE_KEY, findSecretPatterns, isLiteralSecretValue } from "./patterns.js";
 
 export type { KnownSecret } from "./known-values.js";
@@ -20,8 +21,6 @@ export interface RedactionFinding {
   category: RedactionCategory;
   rule: string;
   where: string;
-  /** Surrounding text *after* redaction, safe to print. */
-  context: string;
 }
 
 export interface RedactorOptions {
@@ -55,7 +54,10 @@ export class Redactor {
 
   constructor(private readonly opts: RedactorOptions = {}) {
     this.allow = new Set(opts.allowlist ?? []);
-    this.known = (opts.knownSecrets ?? []).filter((k) => !this.allow.has(k.value)).sort((a, b) => b.value.length - a.value.length);
+    this.known = (opts.knownSecrets ?? [])
+      .filter((k) => !this.allow.has(k.value))
+      .map((k) => ({ ...k, label: safeLabel(k.label, "secret") }))
+      .sort((a, b) => b.value.length - a.value.length);
     this.deny = (opts.denylist ?? []).filter((d) => d.trim()).map((d) => new RegExp(escapeRe(d), "gi"));
     const home = opts.homeDir?.replace(/[\\/]+$/, "");
     this.homeRes = [];
@@ -83,7 +85,6 @@ export class Redactor {
   /** Redact one string. `where` labels findings for the report. */
   redactText(text: string, where = ""): string {
     if (!text) return text;
-    const marks: { category: RedactionCategory; rule: string; token: string }[] = [];
     let out = text;
 
     for (const k of this.known) {
@@ -92,12 +93,12 @@ export class Redactor {
       const n = out.split(k.value).length - 1;
       out = out.split(k.value).join(token);
       this.count("known-secret", n);
-      marks.push({ category: "known-secret", rule: `${k.label} (${k.source})`, token });
+      this.findings.push({ category: "known-secret", rule: `${k.label} (${k.source})`, where });
     }
     for (const re of this.deny) {
       out = out.replace(re, () => {
         this.count("denylist");
-        marks.push({ category: "denylist", rule: "denylist", token: "[REDACTED]" });
+        this.findings.push({ category: "denylist", rule: "denylist", where });
         return "[REDACTED]";
       });
     }
@@ -106,7 +107,7 @@ export class Redactor {
       const token = `[REDACTED:${m.rule}]`;
       out = out.slice(0, m.start) + token + out.slice(m.end);
       this.count("secret-pattern");
-      marks.push({ category: "secret-pattern", rule: `${m.rule} (${m.confidence})`, token });
+      this.findings.push({ category: "secret-pattern", rule: `${m.rule} (${m.confidence})`, where });
     }
     if (this.opts.redactEmails !== false) {
       out = out.replace(EMAIL, (email) => {
@@ -124,12 +125,6 @@ export class Redactor {
     if (this.userRe) out = out.replace(this.userRe, () => (this.count("username"), "[user]"));
     if (this.hostRe) out = out.replace(this.hostRe, () => (this.count("hostname"), "[host]"));
 
-    for (const mark of marks) {
-      const at = out.indexOf(mark.token);
-      if (at === -1) continue;
-      const context = `${out.slice(Math.max(0, at - 40), at)}${mark.token}${out.slice(at + mark.token.length, at + mark.token.length + 40)}`;
-      this.findings.push({ category: mark.category, rule: mark.rule, where, context: context.replace(/\s+/g, " ").trim() });
-    }
     return out;
   }
 
@@ -137,9 +132,9 @@ export class Redactor {
   redactField(key: string, value: string, where: string): string {
     if (key && SENSITIVE_KEY.test(key) && isLiteralSecretValue(value) && !this.allow.has(value) && !value.startsWith("[REDACTED")) {
       this.count("secret-pattern");
-      const token = `[REDACTED:${key}]`;
-      this.findings.push({ category: "secret-pattern", rule: `sensitive-key:${key} (medium)`, where, context: `${key}: ${token}` });
-      return token;
+      const label = safeLabel(key, "key");
+      this.findings.push({ category: "secret-pattern", rule: `sensitive-key:${label} (medium)`, where });
+      return `[REDACTED:${label}]`;
     }
     return this.redactText(value, where);
   }
@@ -172,9 +167,9 @@ function describeStep(step: NormalizedSession["turns"][number]["steps"][number])
   switch (step.kind) {
     // Labels are printed in reports, so they must never include (unredacted) content.
     case "tool":
-      return step.name;
+      return safeLabel(step.name, "tool");
     case "subagent":
-      return `subagent ${step.tool}`;
+      return `subagent ${safeLabel(step.tool, "tool")}`;
     default:
       return step.kind;
   }

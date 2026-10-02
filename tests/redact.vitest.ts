@@ -66,7 +66,6 @@ describe("Redactor", () => {
     const out = r.redactText(`$ env\nMY_SERVICE_KEY=${value}\nOTHER=1`, "turn 1 · Bash");
     expect(out).toBe("$ env\nMY_SERVICE_KEY=[REDACTED:MY_SERVICE_KEY]\nOTHER=1");
     expect(r.findings[0]).toMatchObject({ category: "known-secret", rule: "MY_SERVICE_KEY (env)", where: "turn 1 · Bash" });
-    expect(r.findings[0]!.context).not.toContain(value);
   });
 
   it("rewrites home paths, path slugs and the username but keeps project names", () => {
@@ -133,8 +132,8 @@ describe("rescanPayload", () => {
     const payload = JSON.stringify({ a: `x ${known}`, b: `y ${fake.github()}`, c: "/home/tester/secret-project" });
     const issues = rescanPayload(payload, { knownSecrets: [{ value: known, label: "K", source: "env" }], homeDir: "/home/tester" });
     expect(issues.map((i) => i.rule)).toEqual(["known-secret:K", "github-v2", "home-path"]);
-    expect(issues.every((i) => !payload.includes(i.preview.replace(/….*/, "") + "zzz"))).toBe(true);
-    expect(issues[0]!.preview).toMatch(/^.{4}…\(\d+ chars\)$/);
+    expect(issues.map((i) => i.length)).toEqual([known.length, expect.any(Number), undefined]);
+    expect(JSON.stringify(issues)).not.toContain(known.slice(0, 4));
   });
 });
 

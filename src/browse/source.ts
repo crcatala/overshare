@@ -58,7 +58,7 @@ export interface ShareSummary {
   clean: boolean;
   /** The final re-scan found unredacted secrets: publishing must be refused. */
   blocked: boolean;
-  findings: Array<{ rule: string; where: string; context: string }>;
+  findings: Array<{ rule: string; where: string }>;
   redactions: number;
   bytes: number;
 }
@@ -164,7 +164,7 @@ export function summarizeShare(prepared: PreparedShare): ShareSummary {
     mode: report.mode,
     clean: report.clean,
     blocked: report.blocked,
-    findings: report.findings.map((f) => ({ rule: stripControls(f.rule), where: stripControls(f.where), context: stripControls(f.context) })),
+    findings: report.findings.map((f) => ({ rule: stripControls(f.rule), where: stripControls(f.where) })),
     redactions: Object.values(report.counts).reduce((a, b) => a + b, 0),
     bytes: report.bytes,
   };

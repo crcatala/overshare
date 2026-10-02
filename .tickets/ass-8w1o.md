@@ -1,6 +1,6 @@
 ---
 id: ass-8w1o
-status: open
+status: closed
 deps: []
 links: [ass-13r0, ass-azwt, ass-iugy, ass-5qv5]
 created: 2026-10-02T19:40:50Z
@@ -35,3 +35,9 @@ Decision record (2026-10-02): we keep harvesting machine secrets (narrowed and m
 - Only the matcher paths call the accessor; a test or grep check enforces that the call sites stay limited to an expected list.
 - `npm test`, `npm run typecheck`, `npm run build` pass.
 
+
+## Notes
+
+**2026-10-02T22:23:18Z**
+
+2026-10-02 implemented. Design: SecretValue (src/redact/secret-value.ts) keeps the text in a #private field with no accessor at all; the matchers the layers need (isIn, countIn, replaceIn, contains, inSet, equals) live on the class, so no code outside it ever holds the raw string. This is stricter than the ticket's reveal() sketch: there are zero reveal() call sites to audit. toString/toJSON/Symbol.toPrimitive/util.inspect.custom return [redacted]. KnownSecret.value is now a SecretValue; knownSecret(value,label,source) is the only constructor path (collectKnownSecrets, readSecretsFile). label/source stay plain. Tests: tests/secret-leaks.vitest.ts (print-path matrix; encapsulation guard on the prototype surface, constructor sites and matcher call sites; real-pipeline leak tests with secrets planted in env, .env, claude/codex credential files, gh hosts.yml, .npmrc, .netrc, gh auth token via a fake gh, and extraKnownSecrets, forcing a rescan block, malformed transcripts, a failing GistPublisher and a sloppy publisher that dumps everything; plus a CLI e2e for report/blocked/failed-publish/garbage input). Mutation check: making SecretValue stringify to the value fails 15 of the tests. Note: the CLI treats a garbage file as an empty session rather than an error (parsers tolerate torn lines); not changed here.

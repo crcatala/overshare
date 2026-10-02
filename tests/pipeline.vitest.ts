@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { prepareShare } from "../src/pipeline.js";
+import { knownSecret } from "../src/redact/known-values.js";
 import { ClaudeTranscript, ccUsage, fake } from "./helpers.js";
 
 const machine = { homeDir: "/home/tester", username: "tester", hostname: "box" };
@@ -43,7 +44,7 @@ describe("prepareShare", () => {
       .toJsonl();
     const { session, json, report } = prepareShare(raw, {
       mode: "prompts", config: DEFAULT_CONFIG, machine,
-      knownSecrets: [{ value: hidden, label: "HIDDEN", source: "env" }, { value: visible, label: "VISIBLE", source: "env" }],
+      knownSecrets: [knownSecret(hidden, "HIDDEN", "env"), knownSecret(visible, "VISIBLE", "env")],
     });
     expect(json).not.toContain(hidden);
     expect(json).not.toContain(visible);
@@ -85,7 +86,7 @@ describe("prepareShare", () => {
       mode: "brief",
       config: DEFAULT_CONFIG,
       machine,
-      knownSecrets: [{ value: secret, label: "LEAKED", source: "env" }],
+      knownSecrets: [knownSecret(secret, "LEAKED", "env")],
     });
     expect(report.blocked).toBe(true);
     expect(report.clean).toBe(false);

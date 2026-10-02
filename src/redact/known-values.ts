@@ -3,16 +3,22 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { SENSITIVE_KEY, isLiteralSecretValue, looksLikeSecret } from "./patterns.js";
+import { SecretValue } from "./secret-value.js";
 
 /**
  * Exact secret values present on this machine. Replacing these verbatim catches
  * secrets in any format, including ones no regex knows about. Values never leave
- * this process: reports show only the label and source.
+ * this process: reports show only the label and source, and `SecretValue` refuses
+ * to be printed or serialized.
  */
 export interface KnownSecret {
-  value: string;
+  value: SecretValue;
   label: string;
   source: string;
+}
+
+export function knownSecret(value: string, label: string, source: string): KnownSecret {
+  return { value: new SecretValue(value), label, source };
 }
 
 export interface KnownValueSources {
@@ -42,7 +48,7 @@ function acceptable(value: string): boolean {
 export function collectKnownSecrets(sources: KnownValueSources = {}): KnownSecret[] {
   const env = sources.env ?? process.env;
   const home = sources.home ?? homedir();
-  const out = new Map<string, KnownSecret>();
+  const out = new Map<string, { value: string; label: string; source: string }>();
   const add = (value: unknown, label: string, source: string) => {
     if (typeof value !== "string" || !acceptable(value)) return;
     const v = value.trim();
@@ -100,7 +106,7 @@ export function collectKnownSecrets(sources: KnownValueSources = {}): KnownSecre
       }
     }
   }
-  return [...out.values()].sort((a, b) => b.value.length - a.value.length);
+  return [...out.values()].map((k) => knownSecret(k.value, k.label, k.source)).sort((a, b) => b.value.length - a.value.length);
 }
 
 /** Values shorter than this would redact common substrings everywhere, so they are skipped. */
@@ -129,18 +135,18 @@ export function readSecretsFile(path: string, warn: (message: string) => void = 
       const key = eq > 0 ? withoutExport.slice(0, eq).trim() : "";
       if (ENV_NAME_KEY.test(key)) {
         const value = unquote(withoutExport.slice(eq + 1));
-        if (value.length >= MIN_SECRET_LENGTH) out.push({ value, label: key, source: "secrets-file" });
+        if (value.length >= MIN_SECRET_LENGTH) out.push(knownSecret(value, key, "secrets-file"));
         else warn(`${path}:${i + 1}: value for ${key} is shorter than ${MIN_SECRET_LENGTH} characters; skipped`);
         return;
       }
       const value = unquote(trimmed);
-      if (value.length >= MIN_SECRET_LENGTH) out.push({ value, label: "secret", source: "secrets-file" });
+      if (value.length >= MIN_SECRET_LENGTH) out.push(knownSecret(value, "secret", "secrets-file"));
       else warn(`${path}:${i + 1}: value is shorter than ${MIN_SECRET_LENGTH} characters; skipped`);
       // Ambiguous `name=value` (e.g. a lowercase key): also redact the part after `=` on its
       // own. Over-redacting a substring is harmless; missing a password is not. The "name" may be
       // part of the password, so it is never used as a label.
       const after = eq > 0 ? unquote(withoutExport.slice(eq + 1)) : "";
-      if (after.length >= 8 && after !== value) out.push({ value: after, label: "secret", source: "secrets-file" });
+      if (after.length >= 8 && after !== value) out.push(knownSecret(after, "secret", "secrets-file"));
     });
   return out;
 }

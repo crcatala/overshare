@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Redactor } from "../src/redact/index.js";
-import { collectKnownSecrets, readSecretsFile } from "../src/redact/known-values.js";
+import { collectKnownSecrets, knownSecret, readSecretsFile } from "../src/redact/known-values.js";
 import { findSecretPatterns, looksLikeSecret } from "../src/redact/patterns.js";
 import { rescanPayload } from "../src/redact/rescan.js";
 import { fake, randomish } from "./helpers.js";
@@ -62,7 +62,7 @@ describe("pattern detection", () => {
 describe("Redactor", () => {
   it("replaces known local secret values exactly, with their label", () => {
     const value = fake.envValue();
-    const r = new Redactor({ ...machine, knownSecrets: [{ value, label: "MY_SERVICE_KEY", source: "env" }] });
+    const r = new Redactor({ ...machine, knownSecrets: [knownSecret(value, "MY_SERVICE_KEY", "env")] });
     const out = r.redactText(`$ env\nMY_SERVICE_KEY=${value}\nOTHER=1`, "turn 1 · Bash");
     expect(out).toBe("$ env\nMY_SERVICE_KEY=[REDACTED:MY_SERVICE_KEY]\nOTHER=1");
     expect(r.findings[0]).toMatchObject({ category: "known-secret", rule: "MY_SERVICE_KEY (env)", where: "turn 1 · Bash" });
@@ -116,9 +116,9 @@ describe("collectKnownSecrets", () => {
       credentialFiles: [credFile],
     });
     const byLabel = Object.fromEntries(found.map((k) => [k.label, k]));
-    expect(byLabel.MY_API_KEY?.value).toBe(envValue);
-    expect(byLabel["anthropic.access"]?.value).toBe(oauth);
-    expect(byLabel.DB_PASSWORD?.value).toBe(dotenvValue);
+    expect(byLabel.MY_API_KEY?.value.equals(envValue)).toBe(true);
+    expect(byLabel["anthropic.access"]?.value.equals(oauth)).toBe(true);
+    expect(byLabel.DB_PASSWORD?.value.equals(dotenvValue)).toBe(true);
     expect(found.map((k) => k.label)).not.toContain("CLAUDE_CODE_SESSION_ID");
     expect(found.map((k) => k.label)).not.toContain("SHORT_TOKEN");
     expect(found.map((k) => k.label)).not.toContain("ENABLE_AUTH");
@@ -130,7 +130,7 @@ describe("rescanPayload", () => {
   it("flags known values, high-confidence patterns and home paths left in the payload", () => {
     const known = fake.envValue();
     const payload = JSON.stringify({ a: `x ${known}`, b: `y ${fake.github()}`, c: "/home/tester/secret-project" });
-    const issues = rescanPayload(payload, { knownSecrets: [{ value: known, label: "K", source: "env" }], homeDir: "/home/tester" });
+    const issues = rescanPayload(payload, { knownSecrets: [knownSecret(known, "K", "env")], homeDir: "/home/tester" });
     expect(issues.map((i) => i.rule)).toEqual(["known-secret:K", "github-v2", "home-path"]);
     expect(issues.map((i) => i.length)).toEqual([known.length, expect.any(Number), undefined]);
     expect(JSON.stringify(issues)).not.toContain(known.slice(0, 4));
@@ -142,35 +142,38 @@ describe("readSecretsFile", () => {
     const file = join(mkdtempSync(join(tmpdir(), "as-sf-")), "secrets.env");
     writeFileSync(file, content);
     const warnings: string[] = [];
-    const values = readSecretsFile(file, (w) => warnings.push(w)).map((k) => [k.label, k.value]);
-    return { values, warnings };
+    const values = readSecretsFile(file, (w) => warnings.push(w));
+    // `SecretValue` has no accessor, so entries are checked through `equals`.
+    const has = (label: string, value: string) => values.some((k) => k.label === label && k.value.equals(value));
+    return { values, has, warnings };
   }
 
   it("splits env-style KEY=VALUE lines, keeping = inside values and stripping quotes", () => {
-    expect(parse('DB_PASSWORD=pa=ss=word123\nexport API_KEY="quoted-value"\n# comment\n\n').values).toEqual([
-      ["DB_PASSWORD", "pa=ss=word123"],
-      ["API_KEY", "quoted-value"],
-    ]);
+    const { values, has } = parse('DB_PASSWORD=pa=ss=word123\nexport API_KEY="quoted-value"\n# comment\n\n');
+    expect(values).toHaveLength(2);
+    expect(has("DB_PASSWORD", "pa=ss=word123")).toBe(true);
+    expect(has("API_KEY", "quoted-value")).toBe(true);
   });
 
   it("keeps bare values whole — base64 padding and embedded = never drop or leak a prefix", () => {
-    const { values } = parse("c2VjcmV0LWJhc2U2NC12YWx1ZQ==\nabc=defghijklmnop\n");
-    expect(values).toContainEqual(["secret", "c2VjcmV0LWJhc2U2NC12YWx1ZQ=="]);
-    expect(values).toContainEqual(["secret", "abc=defghijklmnop"]);
+    const { has } = parse("c2VjcmV0LWJhc2U2NC12YWx1ZQ==\nabc=defghijklmnop\n");
+    expect(has("secret", "c2VjcmV0LWJhc2U2NC12YWx1ZQ==")).toBe(true);
+    expect(has("secret", "abc=defghijklmnop")).toBe(true);
     // The ambiguous "abc=" line also redacts its tail on its own, labelled generically (the "abc" may be part of the secret).
-    expect(values).toContainEqual(["secret", "defghijklmnop"]);
+    expect(has("secret", "defghijklmnop")).toBe(true);
   });
 
   it("also redacts the value of a lowercase key on its own", () => {
-    expect(parse("db_password=hunter2xyz\n").values).toEqual([
-      ["secret", "db_password=hunter2xyz"],
-      ["secret", "hunter2xyz"],
-    ]);
+    const { values, has } = parse("db_password=hunter2xyz\n");
+    expect(values).toHaveLength(2);
+    expect(has("secret", "db_password=hunter2xyz")).toBe(true);
+    expect(has("secret", "hunter2xyz")).toBe(true);
   });
 
   it("warns about values too short to redact safely", () => {
-    const { values, warnings } = parse("TOO=ab\nxy\nOK_KEY=long-enough\n");
-    expect(values).toEqual([["OK_KEY", "long-enough"]]);
+    const { values, has, warnings } = parse("TOO=ab\nxy\nOK_KEY=long-enough\n");
+    expect(values).toHaveLength(1);
+    expect(has("OK_KEY", "long-enough")).toBe(true);
     expect(warnings).toEqual([expect.stringMatching(/:1: value for TOO is shorter/), expect.stringMatching(/:2: value is shorter/)]);
   });
 });

@@ -24,7 +24,7 @@ export function rescanPayload(
   const issues: RescanIssue[] = [];
   const allow = new Set(opts.allowlist ?? []);
   for (const k of withSafeLabels(opts.knownSecrets ?? [])) {
-    if (!allow.has(k.value) && payload.includes(k.value)) issues.push({ rule: `known-secret:${k.label}`, length: k.value.length });
+    if (!k.value.inSet(allow) && k.value.isIn(payload)) issues.push({ rule: `known-secret:${k.label}`, length: k.value.length });
   }
   const texts: string[] = [];
   try {

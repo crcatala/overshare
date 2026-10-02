@@ -130,7 +130,7 @@ describe("query", () => {
   });
   it("filters by harness, recency, model, tool and shared state", () => {
     expect(searchSessions(all, "harness:pi").map((s) => s.id)).toEqual(["b"]);
-    expect(searchSessions(all, "since:3d", {}).map((s) => s.id)).toEqual(["a"]);
+    expect(searchSessions(all, parseQuery("since:3d", NOW), {}).map((s) => s.id)).toEqual(["a"]);
     expect(searchSessions(all, "model:opus").map((s) => s.id)).toEqual(["a"]);
     expect(searchSessions(all, "tool:Bash").map((s) => s.id)).toEqual(["a"]);
     const shares = { "pi:b": [{ url: "u", mode: "brief" as const, target: "gist" as const, sharedAt: "t" }] };
@@ -215,6 +215,24 @@ describe("forgetting deleted shares", () => {
     recordShare("pi", "s1", gist(), path);
     expect(forgetShare(parseShareRef(input, fallback), path)).toBe(true);
     expect(sharesFor(loadShares(path), "pi", "s1").map((r) => r.target)).toEqual(["gist"]);
+  });
+
+  it("forgetShare matches a gist id regardless of case, but r2 ids stay case-sensitive", () => {
+    const path = fresh();
+    recordShare("pi", "s1", gist(), path);
+    recordShare("pi", "s1", r2(), path);
+    expect(forgetShare(parseShareRef(`https://agent.nub.sh/session/#octo/${GIST.toUpperCase()}`), path)).toBe(true);
+    expect(forgetShare(parseShareRef("r2:abcdefghijklmnopqrstuv"), path)).toBe(true);
+    expect(sharesFor(loadShares(path), "pi", "s1").map((r) => r.target)).toEqual(["r2"]);
+  });
+
+  it("removeShares keeps the file and reports failure when the replacement cannot be written", () => {
+    const path = fresh();
+    recordShare("pi", "s1", gist(), path);
+    const before = readFileSync(path, "utf8");
+    mkdirSync(`${path}.${process.pid}.tmp`); // the temp file cannot be created
+    expect(removeShares(() => true, path)).toBe(false);
+    expect(readFileSync(path, "utf8")).toBe(before);
   });
 
   it("forgetShare leaves records with an unparseable url alone", () => {

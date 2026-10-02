@@ -368,22 +368,37 @@ const toolResultIds = (e: Entry): string[] =>
 /**
  * Claude Code chains the results of parallel tool calls as siblings: each result's parent is its own
  * tool_use line, so only the last one lies on the parent chain from the leaf. Re-add the results that
- * answer a tool call on the branch but hang off it, placed just before the first user line that
- * follows the call (or at the end when nothing follows).
+ * answer a call of the same API response as a result already on the branch (so the batch demonstrably
+ * ran to completion on this branch), placed just before the first user line that follows the call.
+ * Results the branch never reached stay out: one beyond `--leaf` (later than the leaf), or one from a
+ * rewound branch that shares only the tool_use line.
  */
 function withSiblingToolResults(path: Entry[], entries: Entry[]): Entry[] {
   const callIndex = new Map<string, number>();
-  const answered = new Set<string>();
+  const callResponse = new Map<string, string>();
   path.forEach((e, i) => {
-    for (const id of toolUseIds(e)) callIndex.set(id, i);
-    for (const id of toolResultIds(e)) answered.add(id);
+    for (const id of toolUseIds(e)) {
+      callIndex.set(id, i);
+      if (typeof e.message?.id === "string") callResponse.set(id, e.message.id);
+    }
   });
+  const answered = new Set<string>();
+  const finished = new Set<string>(); // API responses with a result on the branch
+  for (const e of path) {
+    for (const id of toolResultIds(e)) {
+      answered.add(id);
+      const response = callResponse.get(id);
+      if (response) finished.add(response);
+    }
+  }
+  const leafTime = Date.parse(path.at(-1)?.timestamp ?? "");
   const onPath = new Set(path);
   const extras = new Map<number, Entry[]>();
   for (const e of entries) {
     if (onPath.has(e) || e.isSidechain) continue;
+    if (Number.isFinite(leafTime) && Date.parse(e.timestamp ?? "") > leafTime) continue;
     const ids = toolResultIds(e);
-    const open = ids.filter((id) => callIndex.has(id) && !answered.has(id));
+    const open = ids.filter((id) => callIndex.has(id) && !answered.has(id) && finished.has(callResponse.get(id) ?? ""));
     if (!open.length) continue;
     for (const id of open) answered.add(id);
     const callAt = Math.max(...open.map((id) => callIndex.get(id)!));

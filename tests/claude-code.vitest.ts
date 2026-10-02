@@ -111,6 +111,33 @@ describe("claude-code adapter", () => {
     expect(session.responses).toHaveLength(2);
   });
 
+  it("does not recover a result that lies beyond --leaf", () => {
+    const t = new ClaudeTranscript().user("check things");
+    const call = (id: string) => {
+      t.assistant("m1", [{ type: "tool_use", id, name: "Bash", input: { command: `echo ${id}` } }], ccUsage(1, 1));
+      return t.lastUuid;
+    };
+    const a = call("tu_a");
+    const b = call("tu_b");
+    t.rewindTo(a).toolResult("tu_a", "SECRET-after-leaf-a");
+    t.rewindTo(b).toolResult("tu_b", "SECRET-after-leaf-b");
+    for (const leaf of [a, b]) {
+      const { session } = parseClaudeCode(t.toJsonl(), { leafId: leaf! });
+      expect(JSON.stringify(session)).not.toContain("SECRET");
+    }
+  });
+
+  it("does not attach a result from an abandoned branch to a tool call the kept branch shares", () => {
+    const t = new ClaudeTranscript().user("first");
+    t.assistant("m1", [{ type: "tool_use", id: "tu_1", name: "Bash", input: { command: "echo one" } }], ccUsage(1, 1));
+    const fork = t.lastUuid;
+    t.toolResult("tu_1", "SECRET-abandoned-result").assistant("m2", [{ type: "text", text: "abandoned" }], ccUsage(1, 1));
+    t.rewindTo(fork).user("edited prompt").assistant("m3", [{ type: "text", text: "kept" }], ccUsage(1, 1));
+    const { session } = parseClaudeCode(t.toJsonl());
+    expect(JSON.stringify(session)).not.toContain("SECRET");
+    expect(JSON.stringify(session)).toContain("kept");
+  });
+
   it("does not pull in tool calls or results from an abandoned branch", () => {
     const t = new ClaudeTranscript().user("first").assistant("m1", [{ type: "text", text: "a1" }], ccUsage(1, 1));
     const fork = t.lastUuid;

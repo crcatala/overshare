@@ -71,7 +71,9 @@ export function forgetShare(ref: ShareRef, path?: string): boolean {
   return removeShares((record) => {
     try {
       const recorded = parseShareRef(record.url, record.target);
-      return recorded.target === ref.target && recorded.id === ref.id;
+      // Gist ids are hex, so `ABC…` and `abc…` are the same gist; R2 ids are case-sensitive.
+      const same = ref.target === "gist" ? recorded.id.toLowerCase() === ref.id.toLowerCase() : recorded.id === ref.id;
+      return recorded.target === ref.target && same;
     } catch {
       return false;
     }

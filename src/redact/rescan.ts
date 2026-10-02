@@ -1,5 +1,5 @@
 import type { KnownSecret } from "./known-values.js";
-import { safeLabel } from "./labels.js";
+import { withSafeLabels } from "./labels.js";
 import { findSecretPatterns } from "./patterns.js";
 
 /** What the re-scan found, never the value: not a fragment, not a hash. The length is the only detail. */
@@ -23,8 +23,8 @@ export function rescanPayload(
 ): RescanIssue[] {
   const issues: RescanIssue[] = [];
   const allow = new Set(opts.allowlist ?? []);
-  for (const k of opts.knownSecrets ?? []) {
-    if (!allow.has(k.value) && payload.includes(k.value)) issues.push({ rule: `known-secret:${safeLabel(k.label, "secret")}`, length: k.value.length });
+  for (const k of withSafeLabels(opts.knownSecrets ?? [])) {
+    if (!allow.has(k.value) && payload.includes(k.value)) issues.push({ rule: `known-secret:${k.label}`, length: k.value.length });
   }
   const texts: string[] = [];
   try {

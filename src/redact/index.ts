@@ -1,6 +1,6 @@
 import type { NormalizedSession } from "../schema.js";
 import type { KnownSecret } from "./known-values.js";
-import { safeLabel } from "./labels.js";
+import { safeLabel, withSafeLabels } from "./labels.js";
 import { SENSITIVE_KEY, findSecretPatterns, isLiteralSecretValue } from "./patterns.js";
 
 export type { KnownSecret } from "./known-values.js";
@@ -54,10 +54,7 @@ export class Redactor {
 
   constructor(private readonly opts: RedactorOptions = {}) {
     this.allow = new Set(opts.allowlist ?? []);
-    this.known = (opts.knownSecrets ?? [])
-      .filter((k) => !this.allow.has(k.value))
-      .map((k) => ({ ...k, label: safeLabel(k.label, "secret") }))
-      .sort((a, b) => b.value.length - a.value.length);
+    this.known = withSafeLabels((opts.knownSecrets ?? []).filter((k) => !this.allow.has(k.value))).sort((a, b) => b.value.length - a.value.length);
     this.deny = (opts.denylist ?? []).filter((d) => d.trim()).map((d) => new RegExp(escapeRe(d), "gi"));
     const home = opts.homeDir?.replace(/[\\/]+$/, "");
     this.homeRes = [];

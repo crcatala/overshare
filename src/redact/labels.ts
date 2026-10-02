@@ -1,3 +1,4 @@
+import type { KnownSecret } from "./known-values.js";
 import { findSecretPatterns, looksLikeSecret } from "./patterns.js";
 
 /**
@@ -27,4 +28,16 @@ function isSafe(label: string): boolean {
 
 export function safeLabel(label: string, fallback: string): string {
   return isSafe(label) ? label : fallback;
+}
+
+/**
+ * Known secrets with report-safe labels. On top of `safeLabel`, a label that appears inside any known
+ * value is dropped: whatever produced it, it is then part of a secret, and the label is printed and
+ * published in the `[REDACTED:<label>]` token.
+ */
+export function withSafeLabels(known: readonly KnownSecret[]): KnownSecret[] {
+  return known.map((k) => {
+    const label = safeLabel(k.label, "secret");
+    return known.some((other) => other.value.includes(label)) ? { ...k, label: "secret" } : { ...k, label };
+  });
 }

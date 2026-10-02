@@ -11,6 +11,8 @@ import { summarizeShare } from "../src/browse/source.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { prepareShare, type PrepareOptions } from "../src/pipeline.js";
 import { Redactor } from "../src/redact/index.js";
+import { readSecretsFile } from "../src/redact/known-values.js";
+import { rescanPayload } from "../src/redact/rescan.js";
 import { safeLabel } from "../src/redact/labels.js";
 import { formatReport } from "../src/report.js";
 import { spawnSync } from "node:child_process";
@@ -180,5 +182,41 @@ describe("data-derived labels", () => {
     const name = fake.github();
     const prepared = prepare(transcript({ command: "x" }, `TOKEN=${fake.github()}`, name));
     expect(prepared.report.findings.map((f) => f.where)).toEqual(["turn 0 · tool", "turn 0 · tool"]);
+  });
+});
+
+describe("known-secret labels that are part of a known value", () => {
+  // An ambiguous `name=value` line in a secrets file is labelled by the text before the `=`, which is
+  // part of the secret. The label ends up in the published token, the report and the re-scan.
+  const prefix = `pw${randomish(10, 41)}`;
+  const tail = `Z${randomish(12, 43)}`;
+  const secretsFile = () => {
+    const file = join(mkdtempSync(join(tmpdir(), "as-labels-")), "secrets.env");
+    writeFileSync(file, `${prefix}=${tail}\n`);
+    return readSecretsFile(file);
+  };
+
+  it("readSecretsFile labels ambiguous lines generically", () => {
+    expect(secretsFile().map((k) => k.label)).toEqual(["secret", "secret"]);
+  });
+
+  it("the Redactor never uses a label that appears inside a known value, whatever produced it", () => {
+    const known = [{ value: tail, label: prefix, source: "secrets-file" }, { value: `${prefix}=${tail}`, label: "secret", source: "secrets-file" }];
+    const r = new Redactor({ ...machine, knownSecrets: known });
+    const out = r.redactText(`only the tail: ${tail} here`, "t");
+    expect(out).toBe("only the tail: [REDACTED:secret] here");
+    expect(JSON.stringify(r.findings)).not.toContain(prefix);
+  });
+
+  it("the re-scan does not name a known secret by a label that is part of a known value", () => {
+    const known = [{ value: tail, label: prefix, source: "secrets-file" }, { value: `${prefix}=${tail}`, label: "secret", source: "secrets-file" }];
+    const issues = rescanPayload(JSON.stringify({ a: tail }), { knownSecrets: known });
+    expect(issues.map((i) => i.rule)).toEqual(["known-secret:secret"]);
+  });
+
+  it("end to end: a secrets-file line whose tail shows up alone is not published with its prefix", () => {
+    const prepared = prepare(transcript({ command: "cat" }, `out ${tail}`), { knownSecrets: secretsFile() });
+    for (const [name, text] of Object.entries({ ...surfaces(prepared), payload: prepared.json })) expect(text, name).not.toContain(prefix);
+    expect(prepared.json).toContain("[REDACTED:secret]");
   });
 });

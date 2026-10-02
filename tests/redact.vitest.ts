@@ -157,14 +157,14 @@ describe("readSecretsFile", () => {
     const { values } = parse("c2VjcmV0LWJhc2U2NC12YWx1ZQ==\nabc=defghijklmnop\n");
     expect(values).toContainEqual(["secret", "c2VjcmV0LWJhc2U2NC12YWx1ZQ=="]);
     expect(values).toContainEqual(["secret", "abc=defghijklmnop"]);
-    // The ambiguous "abc=" line also redacts its tail on its own.
-    expect(values).toContainEqual(["abc", "defghijklmnop"]);
+    // The ambiguous "abc=" line also redacts its tail on its own, labelled generically (the "abc" may be part of the secret).
+    expect(values).toContainEqual(["secret", "defghijklmnop"]);
   });
 
   it("also redacts the value of a lowercase key on its own", () => {
     expect(parse("db_password=hunter2xyz\n").values).toEqual([
       ["secret", "db_password=hunter2xyz"],
-      ["db_password", "hunter2xyz"],
+      ["secret", "hunter2xyz"],
     ]);
   });
 

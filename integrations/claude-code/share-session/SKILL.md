@@ -32,8 +32,8 @@ Modes (default `brief`):
      ```bash
      agent-share publish --current --harness claude-code --mode <mode> --yes
      ```
-   - **Needs review (exit 2):** show the user the `Findings` section verbatim (it only
-     contains redacted context) and ask whether to publish. Only after they explicitly
+   - **Needs review (exit 2):** show the user the `Findings` section verbatim (rules and
+     locations only; it never contains secret values or the text around them) and ask whether to publish. Only after they explicitly
      agree, run the publish command with `--yes --allow-findings`. Never add
      `--allow-findings` on your own.
    - **Blocked (exit 3):** do not publish. Tell the user which rule fired and suggest

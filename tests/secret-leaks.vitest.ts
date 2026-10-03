@@ -263,23 +263,31 @@ describe("planted secrets never surface in output, even when things fail", () =>
     expect(leaks(JSON.stringify(issues) + inspect(issues, { depth: null }), planted)).toEqual([]);
   });
 
-  it("malformed transcripts: the thrown errors carry no planted value", () => {
+  it("malformed transcripts: neither the thrown errors nor the output of tolerated ones carry a planted value", () => {
     const garbage = [
       `this is not a transcript ${planted.secrets.DB_PASSWORD}`,
       `{"type":"user","sessionId":"x","message":"${planted.secrets.MY_SERVICE_API_KEY}"`, // torn line
       JSON.stringify({ type: "user", sessionId: "s", uuid: "u", cwd: planted.project, message: { content: [{ type: "tool_result", tool_use_id: planted.secrets.GH_TOKEN, content: { weird: planted.secrets.npmrc } }, null, 7] } }),
       JSON.stringify({ type: "assistant", uuid: "a", parentUuid: "u", message: { content: [{ type: "tool_use", id: planted.secrets.netrc, name: { n: planted.secrets.netrc }, input: planted.secrets.SECRETS_FILE }] } }),
     ];
-    const errors: Error[] = [];
-    for (const raw of [garbage[0], garbage[1], garbage.join("\n"), garbage.slice(2).join("\n")]) {
+    // Only `prepareShare` is inside the try: an assertion in there would be swallowed by the catch and a leak would pass.
+    // Valid sessions with junk or a torn last line are tolerated rather than rejected, so the output side is exercised too.
+    const valid = dumpTranscript(planted);
+    const inputs = [garbage[0], garbage[1], garbage.join("\n"), garbage.slice(2).join("\n"), `${valid}${garbage[0]}\n`, `${valid}${garbage[1]}`];
+    const outcomes = inputs.map((raw) => {
       try {
-        const prepared = prepareShare(raw ?? "", { mode: "full", config: DEFAULT_CONFIG, machine: machine(), extraKnownSecrets: extra() });
-        expect(leaks(everything(prepared), planted)).toEqual([]);
-      } catch (err) {
-        errors.push(err as Error);
+        return { prepared: prepareShare(raw ?? "", { mode: "full", config: DEFAULT_CONFIG, machine: machine(), extraKnownSecrets: extra() }) };
+      } catch (error) {
+        return { error: error as Error };
       }
-    }
+    });
+    const errors = outcomes.flatMap((o) => (o.error ? [o.error] : []));
+    // Both branches must run, or one of the leak checks below is dead code.
     expect(errors.length).toBeGreaterThan(0);
+    expect(outcomes.some((o) => o.prepared)).toBe(true);
+    for (const o of outcomes) {
+      if (o.prepared) expect(leaks(everything(o.prepared), planted)).toEqual([]);
+    }
     for (const err of errors) expect(leaks(`${err.name}: ${err.message}\n${err.stack ?? ""}\n${inspect(err, { depth: null })}`, planted), err.message).toEqual([]);
     expect(leaks(captured.join("\n"), planted)).toEqual([]);
   });

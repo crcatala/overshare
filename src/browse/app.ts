@@ -4,6 +4,8 @@
  *
  *   list      h harness · r repo · t time · s shared · g group · o sort   (x clears filters)
  *             Shift+key opens the same choice as a dialog: H R T S G O     (R: type / to filter the repo list)
+ *             space/ctrl-f/PgDn and b/ctrl-b/PgUp page · ctrl-d/ctrl-u half a page · , settings
+ *             changing a filter, the search or the sort jumps back to the first session; grouping keeps the selection
  *   search    /  free words plus harness:pi project:x branch:y model:opus tool:Bash since:7d shared:no workers:yes
  *   open      enter → viewer (message list ↔ content); v cycles prompts / conversation / everything
  *   publish   p → mode → review → confirm; yes uploads exactly what was reviewed
@@ -13,10 +15,11 @@ import { SHARE_MODES, type HarnessName } from "../schema.js";
 import { facet, parseQuery, searchSessions } from "../sessions/query.js";
 import { sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
-import { ago, dayBucket, durationMs, plural, sessionDuration, shortModel, toolSummary } from "./display.js";
+import { ago, DATE_FORMATS, dateFormat, dayBucket, durationMs, plural, sessionDuration, shortModel, toolSummary, type DateFormatId } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { copyToClipboard, MODE_HINT, PublishFlow } from "./flow.js";
-import { box, columns, composite, cut, fit, hr, isKey, isPlain, isShift, padLines, Screen, st, w, wrap } from "./kit.js";
+import { box, columns, composite, cut, fit, hr, isKey, isPlain, isShift, padLines, pagingKey, Screen, st, w, wrap, type PageMove } from "./kit.js";
+import { memorySettings, SAVE_FAILED_MESSAGE, type SettingsPatch, type SettingsStore } from "./settings.js";
 import type { Source } from "./source.js";
 import { SessionViewer } from "./viewer.js";
 
@@ -67,6 +70,8 @@ export interface BrowserOptions {
   harness?: HarnessName;
   /** Clock, injectable for tests. */
   now?: () => number;
+  /** Preferences (confirm-on-quit, date format, viewer layout). In memory unless the caller passes a file-backed store. */
+  settings?: SettingsStore;
 }
 
 export class BrowserApp extends Screen {
@@ -84,10 +89,12 @@ export class BrowserApp extends Screen {
   flow?: PublishFlow;
   private typing = false;
   private help = false;
+  private quitPrompt = false;
   private message = "";
   private topLine = 0;
   private topProjects: string[];
   private now: () => number;
+  private settings: SettingsStore;
 
   constructor(
     private source: Source,
@@ -95,6 +102,7 @@ export class BrowserApp extends Screen {
   ) {
     super();
     this.now = opts.now ?? Date.now;
+    this.settings = opts.settings ?? memorySettings();
     this.query = opts.query ?? "";
     this.harness = opts.harness;
     this.topProjects = facet(source.sessions.filter((s) => !s.worker), (s) => s.project).slice(0, 14).map((f) => f.value);
@@ -139,8 +147,37 @@ export class BrowserApp extends Screen {
     this.cursor = at >= 0 ? at : Math.min(this.cursor, Math.max(0, list.length - 1));
   }
 
+  /** A filter or the search changed: the old position means nothing, so start again from the first session. */
+  private refilterFromTop(): void {
+    this.refilter();
+    this.cursor = 0;
+    this.topLine = 0;
+  }
+
   private groupLabel(s: SessionSummary): string {
     return this.group === "date" ? dayBucket(s.mtimeMs, this.now()) : this.group === "project" ? (s.project ?? "(no repo)") : s.harness === "pi" ? "pi" : "Claude Code";
+  }
+
+  /** List rows in screen order: sessions, plus a header line wherever the group changes. Cheap (no string work). */
+  private entries(): Entry[] {
+    const entries: Entry[] = [];
+    let last: string | undefined;
+    this.view.forEach((s, idx) => {
+      if (this.group !== "none") {
+        const g = this.groupLabel(s);
+        if (g !== last) {
+          entries.push({ header: g });
+          last = g;
+        }
+      }
+      entries.push({ idx });
+    });
+    return entries;
+  }
+
+  /** Rows the session list shows: the screen minus the 3-line header, the rule and the footer. */
+  private listHeight(): number {
+    return Math.max(1, this.rows - 5);
   }
 
   private anyFilter(): boolean {
@@ -150,7 +187,7 @@ export class BrowserApp extends Screen {
   private clearFilters(): void {
     this.query = "";
     this.harness = this.project = this.time = this.shared = undefined;
-    this.refilter();
+    this.refilterFromTop();
   }
 
   // ── dialogs ──
@@ -175,7 +212,7 @@ export class BrowserApp extends Screen {
           () => this.harness,
           (v) => {
             this.harness = v as HarnessFilter;
-            this.refilter(keep);
+            this.refilterFromTop();
           },
         );
       case "repo": {
@@ -186,7 +223,7 @@ export class BrowserApp extends Screen {
           () => this.project,
           (v) => {
             this.project = v as string | undefined;
-            this.refilter(keep);
+            this.refilterFromTop();
           },
           true,
         );
@@ -198,7 +235,7 @@ export class BrowserApp extends Screen {
           () => this.time,
           (v) => {
             this.time = v as TimeFilter;
-            this.refilter(keep);
+            this.refilterFromTop();
           },
         );
       case "shared":
@@ -208,7 +245,7 @@ export class BrowserApp extends Screen {
           () => this.shared,
           (v) => {
             this.shared = v as SharedFilter;
-            this.refilter(keep);
+            this.refilterFromTop();
           },
         );
       case "group":
@@ -228,7 +265,7 @@ export class BrowserApp extends Screen {
           current: () => this.sort.field,
           apply: (v) => {
             this.setSortField(v as SortField);
-            this.refilter(keep);
+            this.refilterFromTop();
           },
         };
         const dir: DialogSection = {
@@ -240,12 +277,38 @@ export class BrowserApp extends Screen {
           current: () => this.sort.dir,
           apply: (v) => {
             this.sort.dir = v as "asc" | "desc";
-            this.refilter(keep);
+            this.refilterFromTop();
           },
         };
         return new RadioDialog("Sort", [field, dir], { onClose });
       }
     }
+  }
+
+  /** `,`: preferences that persist across runs (see settings.ts). */
+  private settingsDialog(): RadioDialog {
+    const save = (patch: SettingsPatch) => {
+      if (!this.settings.update(patch)) this.message = SAVE_FAILED_MESSAGE;
+    };
+    const sections: DialogSection[] = [
+      {
+        title: "Confirm before quitting",
+        items: [{ label: "yes", value: true }, { label: "no", value: false }],
+        current: () => this.settings.get().confirmQuit,
+        apply: (v) => save({ confirmQuit: v as boolean }),
+      },
+      {
+        title: "Date format (updated column)",
+        items: DATE_FORMATS.map((f) => ({ label: f.label, value: f.id, hint: f.example })),
+        current: () => this.settings.get().dateFormat,
+        apply: (v) => save({ dateFormat: v as DateFormatId }),
+      },
+    ];
+    return new RadioDialog("Settings", sections, {
+      onClose: () => {
+        this.dialog = undefined;
+      },
+    });
   }
 
   /** Choosing a sort field resets the direction to that field's natural one (A→Z for text, newest/largest first otherwise). */
@@ -256,6 +319,7 @@ export class BrowserApp extends Screen {
   // ── input ──
   onKey(data: string): void {
     this.message = "";
+    if (this.quitPrompt) return this.quitKey(data);
     if (this.dialog) return this.dialog.onKey(data);
     if (this.flow) return this.flowKey(data);
     if (this.help) {
@@ -265,36 +329,36 @@ export class BrowserApp extends Screen {
     if (this.viewer) return this.viewer.onKey(data);
     if (this.typing) return this.typingKey(data);
     const n = this.view.length;
-    const page = Math.max(1, this.rows - 6);
-    if (isKey(data, "q") || isKey(data, "escape")) return this.query || this.anyFilter() ? this.clearFilters() : this.quit();
+    let paging: PageMove | undefined;
+    if (isKey(data, "q") || isKey(data, "escape")) return this.query || this.anyFilter() ? this.clearFilters() : this.requestQuit();
     if (isKey(data, "j") || isKey(data, "down")) this.cursor = Math.min(n - 1, this.cursor + 1);
     else if (isKey(data, "k") || isKey(data, "up")) this.cursor = Math.max(0, this.cursor - 1);
-    else if (isKey(data, "ctrl+d") || isKey(data, "pageDown")) this.cursor = Math.min(n - 1, this.cursor + Math.floor(page / 2));
-    else if (isKey(data, "ctrl+u") || isKey(data, "pageUp")) this.cursor = Math.max(0, this.cursor - Math.floor(page / 2));
+    else if ((paging = pagingKey(data))) this.page(paging.dir, paging.fraction);
     else if (isKey(data, "home")) this.cursor = 0;
     else if (isKey(data, "end")) this.cursor = Math.max(0, n - 1);
     else if (data === "/") this.typing = true;
     else if (data === "?") this.help = true;
+    else if (data === ",") this.dialog = this.settingsDialog();
     // one-key cycles …
     else if (isPlain(data, "h")) {
       this.harness = cycle(HARNESSES, this.harness);
-      this.refilter(this.current);
+      this.refilterFromTop();
     } else if (isPlain(data, "r")) {
       const repos = [undefined, ...this.topProjects];
       this.project = cycle(repos, repos.includes(this.project) ? this.project : undefined);
-      this.refilter();
+      this.refilterFromTop();
     } else if (isPlain(data, "t")) {
       this.time = cycle(TIMES, this.time);
-      this.refilter();
+      this.refilterFromTop();
     } else if (isPlain(data, "s")) {
       this.shared = cycle(SHARED, this.shared);
-      this.refilter();
+      this.refilterFromTop();
     } else if (isPlain(data, "g")) {
       this.group = cycle(GROUPS.map((g) => g.id), this.group);
       this.refilter(this.current);
     } else if (isPlain(data, "o")) {
       this.setSortField(cycle(SORTS.map((s) => s.id), this.sort.field));
-      this.refilter(this.current);
+      this.refilterFromTop();
     }
     // … and their Shift dialogs
     else if (isShift(data, "h")) this.dialog = this.dialogFor("harness");
@@ -310,26 +374,62 @@ export class BrowserApp extends Screen {
     this.cursor = Math.max(0, Math.min(Math.max(0, this.view.length - 1), Math.floor(this.cursor)));
   }
 
+  /** Quitting asks first unless the user turned that off in the settings. */
+  private requestQuit(): void {
+    if (this.settings.get().confirmQuit) this.quitPrompt = true;
+    else this.quit();
+  }
+
+  private quitKey(data: string): void {
+    if (data === "y" || data === "Y" || isKey(data, "enter") || isKey(data, "q")) {
+      this.quitPrompt = false;
+      this.quit();
+    } else if (data === "n" || data === "N" || isKey(data, "escape")) this.quitPrompt = false;
+  }
+
+  /** Move the selection by `fraction` of the visible list, counted in screen rows so group headers take their share. */
+  private page(dir: 1 | -1, fraction: number): void {
+    const entries = this.entries();
+    const at = entries.findIndex((e) => "idx" in e && e.idx === this.cursor);
+    if (at < 0) return;
+    const rows = Math.max(1, Math.floor(this.listHeight() * fraction));
+    const target = Math.max(0, Math.min(entries.length - 1, at + dir * rows));
+    // Headers cannot be selected: land on the nearest session in the direction of travel, else back the other way.
+    for (const step of [dir, -dir]) {
+      for (let i = target; i >= 0 && i < entries.length; i += step) {
+        const e = entries[i]!;
+        if ("idx" in e) {
+          this.cursor = e.idx;
+          return;
+        }
+      }
+    }
+  }
+
   private typingKey(data: string): void {
     if (isKey(data, "enter") || isKey(data, "down")) this.typing = false;
     else if (isKey(data, "escape")) {
       this.typing = false;
       this.query = "";
-      this.refilter();
+      this.refilterFromTop();
     } else if (isKey(data, "backspace")) {
       this.query = this.query.slice(0, -1);
-      this.refilter();
+      this.refilterFromTop();
     } else if (isKey(data, "ctrl+u")) {
       this.query = "";
-      this.refilter();
+      this.refilterFromTop();
     } else if (!data.startsWith("\x1b") && data >= " ") {
       this.query += data;
-      this.refilter();
+      this.refilterFromTop();
     }
   }
 
   private openViewer(s: SessionSummary): void {
     this.viewer = new SessionViewer(s, this.source, {
+      settings: this.settings,
+      notify: (message) => {
+        this.message = message;
+      },
       requestRender: () => this.requestRender(),
       openDialog: (d) => {
         this.dialog = d;
@@ -394,10 +494,15 @@ export class BrowserApp extends Screen {
   draw(width: number, height: number): string[] {
     const base = this.viewer ? [...this.viewer.draw(width, height - 1), this.footer(width)] : this.drawList(width, height);
     let out = base;
-    if (this.flow) out = composite(base, this.drawFlow(Math.min(74, width - 4)), width);
+    if (this.quitPrompt) out = composite(base, this.drawQuit(Math.min(44, width - 4)), width);
+    else if (this.flow) out = composite(base, this.drawFlow(Math.min(74, width - 4)), width);
     else if (this.dialog) out = composite(base, this.dialog.draw(Math.min(64, width - 4), height), width);
     else if (this.help) out = composite(base, this.drawHelp(Math.min(78, width - 4)), width);
     return padLines(out, height).slice(0, height);
+  }
+
+  private drawQuit(width: number): string[] {
+    return box("Quit", ["Quit agent-share?", "", `${st.key("y")}${st.dim("/")}${st.key("enter")} ${st.dim("quit")}   ${st.key("n")}${st.dim("/")}${st.key("esc")} ${st.dim("stay")}`, "", st.dim("turn this off with , (settings)")], width);
   }
 
   private footer(width: number): string {
@@ -406,23 +511,41 @@ export class BrowserApp extends Screen {
       ? this.viewer.footerKeys().map(([a, b]) => k(a, b))
       : this.typing
         ? [k("enter", "done"), k("esc", "clear")]
-        : [k("j/k", "move"), k("/", "search"), k("h r t s", "filter"), k("g", "group"), k("o", "sort"), k("Shift+", "dialog"), k("enter", "open"), k("p", "publish"), k("?", "help"), k("q", "quit")];
+        : [
+            k("j/k", "move"),
+            k("/", "search"),
+            k("h r t s", "filter"),
+            ...(this.query || this.anyFilter() ? [k("x", "clear filters")] : []),
+            k("g", "group"),
+            k("o", "sort"),
+            k("Shift+", "dialog"),
+            k("enter", "open"),
+            k("p", "publish"),
+            k(",", "settings"),
+            k("?", "help"),
+            k("q", "quit"),
+          ];
     const msg = this.lastError ? `${st.red(`error: ${this.lastError}`)}  ` : this.message ? `${st.yellow(this.message)}  ` : "";
     return cut(msg + keys.join("  "), width);
   }
 
   private header(width: number): string[] {
-    const chip = (label: string, on: boolean) => (on ? st.chip(label) : st.chipOff(label));
+    // The hotkey letter is bold + underlined inside its chip, so the chips double as a key legend.
+    const chip = (name: string, hotkey: string, value: string, on: boolean) => {
+      const at = name.indexOf(hotkey);
+      const label = `${name.slice(0, at)}${st.hot(hotkey)}${name.slice(at + 1)}: ${value}`;
+      return on ? st.chip(label) : st.chipOff(label);
+    };
     const sortLabel = SORTS.find((s) => s.id === this.sort.field)!.label;
     const arrow = this.sort.dir === "asc" ? "↑" : "↓";
     const title = `${st.bold("agent-share")}  ${st.dim(`${this.view.length}/${this.source.sessions.length}`)}`;
     const chips = [
-      chip(`harness: ${this.harness ? (this.harness === "pi" ? "pi" : "claude") : "all"}`, !!this.harness),
-      chip(`repo: ${this.project ?? "all"}`, !!this.project),
-      chip(`time: ${this.time ?? "any"}`, !!this.time),
-      chip(`shared: ${this.shared === undefined ? "any" : this.shared ? "yes" : "no"}`, this.shared !== undefined),
-      chip(`group: ${GROUPS.find((g) => g.id === this.group)!.label}`, this.group !== "none"),
-      chip(`sort: ${sortLabel} ${arrow}`, this.sort.field !== "default"),
+      chip("harness", "h", this.harness ? (this.harness === "pi" ? "pi" : "claude") : "all", !!this.harness),
+      chip("repo", "r", this.project ?? "all", !!this.project),
+      chip("time", "t", this.time ?? "any", !!this.time),
+      chip("shared", "s", this.shared === undefined ? "any" : this.shared ? "yes" : "no", this.shared !== undefined),
+      chip("group", "g", GROUPS.find((g) => g.id === this.group)!.label, this.group !== "none"),
+      chip("sort", "o", `${sortLabel} ${arrow}`, this.sort.field !== "default"),
     ].join(" ");
     const search = this.typing
       ? `${st.cyan("/")} ${this.query}${st.inv(" ")}`
@@ -437,25 +560,14 @@ export class BrowserApp extends Screen {
     const bodyH = Math.max(1, height - head.length - 2);
     const lw = Math.max(30, Math.floor(width * 0.56));
     const rw = Math.max(10, width - lw - 3);
-    // Entries are cheap (no string work); only the visible window is formatted.
-    const entries: Entry[] = [];
-    let last: string | undefined;
-    this.view.forEach((s, idx) => {
-      if (this.group !== "none") {
-        const g = this.groupLabel(s);
-        if (g !== last) {
-          entries.push({ header: g });
-          last = g;
-        }
-      }
-      entries.push({ idx });
-    });
+    const entries = this.entries();
     const sel = Math.max(0, entries.findIndex((e) => "idx" in e && e.idx === this.cursor));
     if (sel < this.topLine) this.topLine = "header" in (entries[sel - 1] ?? {}) ? sel - 1 : sel;
     if (sel >= this.topLine + bodyH) this.topLine = sel - bodyH + 1;
     this.topLine = Math.max(0, Math.min(this.topLine, Math.max(0, entries.length - bodyH)));
     const rows: string[] = [];
-    if (this.view.length === 0) rows.push(st.dim("  no sessions match — x clears filters"));
+    // While typing, `x` would land in the search box, so point at the key that works there.
+    if (this.view.length === 0) rows.push(st.dim(this.typing ? "  no sessions match — esc clears the search" : "  no sessions match — x clears filters"));
     for (const e of entries.slice(this.topLine, this.topLine + bodyH)) {
       rows.push("header" in e ? st.dim(`── ${e.header} ${"─".repeat(Math.max(0, lw - w(e.header) - 4))}`) : this.row(this.view[e.idx]!, e.idx === this.cursor, lw));
     }
@@ -466,8 +578,9 @@ export class BrowserApp extends Screen {
   private row(s: SessionSummary, selected: boolean, width: number): string {
     const shared = sharesFor(this.source.shares, s.harness, s.id).length > 0;
     const harness = s.harness === "pi" ? st.magenta("π ") : st.yellow("CC");
-    const fixed = 1 + 11 + 3 + 15 + 3;
-    const cells = `${selected ? st.cyan("▌") : " "}${fit(ago(s.mtimeMs, this.now()), 11)}${harness} ${fit(st.dim(s.project ?? "?"), 14)} ${fit(s.title ?? "(untitled)", width - fixed)} ${shared ? st.green("✓") : " "}`;
+    const fmt = dateFormat(this.settings.get().dateFormat);
+    const fixed = 1 + (fmt.width + 1) + 3 + 15 + 3;
+    const cells = `${selected ? st.cyan("▌") : " "}${fit(fmt.format(s.mtimeMs, this.now()), fmt.width + 1)}${harness} ${fit(st.dim(s.project ?? "?"), 14)} ${fit(s.title ?? "(untitled)", width - fixed)} ${shared ? st.green("✓") : " "}`;
     return selected ? st.sel(fit(cells, width)) : cells;
   }
 
@@ -533,18 +646,24 @@ export class BrowserApp extends Screen {
       "Keys",
       [
         st.bold("List"),
-        row("j/k  ↑/↓", "move · ctrl-d/u page · home/end"),
+        row("j/k  ↑/↓", "move · home/end"),
+        row("space  b", "page down · up (also PgDn PgUp, ctrl-f ctrl-b)"),
+        row("ctrl-d/u", "half a page down · up"),
         row("/", "search (harness:pi since:7d tool:Bash shared:no …)"),
         row("h r t s", "cycle harness · repo · time · shared"),
         row("g  o", "cycle grouping · sort field"),
+        st.dim("  changing a filter, the search or the sort selects the first session again"),
         row("H R T S G O", "Shift: pick from a dialog (R: / filters the repo list; O: field + direction)"),
         row("x", "clear search + filters"),
+        row(",", "settings: confirm before quitting · date format"),
         row("enter  p  y", "open viewer · publish · copy link"),
         "",
         st.bold("Viewer"),
-        row("j/k  J/K", "message · previous/next prompt"),
-        row("v  V", "cycle prompts → conversation → everything · dialog"),
-        row("space", "scroll the content pane"),
+        row("j/k  J/K", "message (or scroll, in the content pane) · previous/next prompt"),
+        row("enter  tab", "read the message: focus the content pane (l / → too)"),
+        row("esc  tab", "back to the list from the content pane (h / ← / q too)"),
+        row("space  b", "page down / up in whichever pane has the focus; g/G top/bottom"),
+        row("v  V", "cycle prompts → conversation → everything · dialog + layout"),
         "",
         st.dim("any key closes this"),
       ],

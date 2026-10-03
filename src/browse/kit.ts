@@ -28,8 +28,15 @@ export const st = {
   magenta: sgr("35", "39"),
   cyan: sgr("36", "39"),
   gray: sgr("90", "39"),
-  /** Selected-row background. */
-  sel: (s: string): string => `\x1b[48;5;238m${s}\x1b[49m`,
+  /**
+   * Selected-row background. Truncation (and any inner style) can emit a full reset, `\x1b[0m`, which would also
+   * clear this background for the rest of the row, so the background is re-applied after every reset.
+   */
+  sel: (s: string): string => `\x1b[48;5;238m${s.replace(/\x1b\[(?:0?|49)m/g, (reset) => `${reset}\x1b[48;5;238m`)}\x1b[49m`,
+  /** Selected row in a pane that does not have the keyboard focus. */
+  selDim: (s: string): string => `\x1b[48;5;236m${s.replace(/\x1b\[(?:0?|49)m/g, (reset) => `${reset}\x1b[48;5;236m`)}\x1b[49m`,
+  /** The hotkey letter inside a label: bold + underline, without touching colours or backgrounds. */
+  hot: (s: string): string => `\x1b[1;4m${s}\x1b[22;24m`,
   chip: (s: string): string => `\x1b[48;5;24m\x1b[38;5;255m ${s} \x1b[0m`,
   chipOff: (s: string): string => `\x1b[48;5;236m\x1b[38;5;245m ${s} \x1b[0m`,
   key: (s: string): string => `\x1b[38;5;110m${s}\x1b[39m`,
@@ -50,6 +57,24 @@ export const isPlain = (data: string, key: string): boolean => data !== key.toUp
 /** Shift + a letter. */
 export const isShift = (data: string, key: string): boolean => data === key.toUpperCase() || isKey(data, `shift+${key}`);
 
+/** A page-sized move: `fraction` of the visible rows, up or down. */
+export interface PageMove {
+  dir: 1 | -1;
+  fraction: number;
+}
+
+/**
+ * The paging keys every scrollable pane shares: space, PgDn, ctrl-f / b, PgUp, ctrl-b a full page,
+ * ctrl-d / ctrl-u half a page. (`space`/`b` need no modifier, and ctrl-b is tmux's prefix.)
+ */
+export function pagingKey(data: string): PageMove | undefined {
+  if (isKey(data, "pageDown") || isKey(data, "ctrl+f") || isKey(data, "space")) return { dir: 1, fraction: 1 };
+  if (isKey(data, "pageUp") || isKey(data, "ctrl+b") || isPlain(data, "b")) return { dir: -1, fraction: 1 };
+  if (isKey(data, "ctrl+d")) return { dir: 1, fraction: 0.5 };
+  if (isKey(data, "ctrl+u")) return { dir: -1, fraction: 0.5 };
+  return undefined;
+}
+
 /** Join two blocks side by side; each gets a fixed width. */
 export function columns(left: string[], right: string[], lw: number, rw: number, sep = " │ "): string[] {
   const n = Math.max(left.length, right.length);
@@ -69,6 +94,22 @@ export function box(title: string, inner: string[], width: number): string[] {
   const top = st.gray("╭─ ") + st.bold(cut(title, iw - 2)) + st.gray(` ${"─".repeat(Math.max(0, width - 5 - Math.min(w(title), iw - 2)))}╮`);
   const body = inner.map((l) => `${st.gray("│")} ${fit(l, iw)} ${st.gray("│")}`);
   return [top, ...body, st.gray(`╰${"─".repeat(Math.max(0, width - 2))}╯`)];
+}
+
+/**
+ * A rounded panel exactly `width` columns wide, with `title` set into the top border and an optional right-aligned
+ * `bottom` label in the bottom border (lazygit/lazydocker style). The active panel draws a bright border and a bold
+ * title; an inactive one is gray. `inner` lines are fitted to the inside (`width - 2` columns), so callers add their own padding.
+ */
+export function frame(title: string, inner: string[], width: number, opts: { active: boolean; bottom?: string }): string[] {
+  const edge = opts.active ? st.cyan : st.gray;
+  const iw = Math.max(0, width - 2);
+  const t = title ? ` ${cut(title, Math.max(0, iw - 3))} ` : "";
+  const top = `${edge("╭─")}${opts.active ? st.bold(t) : t}${edge(`${"─".repeat(Math.max(0, iw - 1 - w(t)))}╮`)}`;
+  const body = inner.map((l) => `${edge("│")}${fit(l, iw)}${edge("│")}`);
+  const b = opts.bottom ? ` ${cut(opts.bottom, Math.max(0, iw - 3))} ` : "";
+  const bottom = edge(`╰${"─".repeat(Math.max(0, iw - 1 - w(b)))}`) + (opts.active ? b : st.dim(b)) + edge("─╯");
+  return [top, ...body, bottom];
 }
 
 /** Paint `overlay` lines centred over `base`, dimming everything behind so it reads as modal. */

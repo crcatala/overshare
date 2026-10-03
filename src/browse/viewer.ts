@@ -1,17 +1,23 @@
 /**
- * Session viewer: the left pane is a navigable list of messages, the right pane is the selected message in
- * full. The header shows stats, the tool-call breakdown and the redaction status of a brief share.
+ * Session viewer: the left panel is a navigable list of messages, the right panel is the selected message in
+ * full, each in its own rounded frame (the message heading sits in the right panel's top border; the panel with
+ * the focus has the bright border). The header shows stats, the tool-call breakdown and the redaction status of
+ * a brief share.
  *
- *   j/k ↑/↓  message         J/K  next/previous prompt        g/G  first/last
- *   v        cycle the list: prompts → conversation → everything           V  as a dialog
- *   space / ctrl-d / ctrl-u  scroll the content pane           p  publish        esc  back
+ *   Two panes, one has the focus (the list at first): enter / tab / → / l  read the message (focus the content),
+ *   esc / tab / ← / h  back to the list. The same movement keys drive whichever pane is focused:
+ *   j/k ↑/↓ line · space/PgDn/ctrl-f and b/PgUp/ctrl-b page · ctrl-d/u half page · g/G first/last.
+ *   Everywhere: J/K next/previous prompt · p publish. From the list, esc / q / ← / h leaves the viewer.
+ *   v        cycle the list: prompts → conversation → everything           V  as a dialog, plus layout
+ *            settings that persist: indent replies under their prompt, and tool calls one level deeper
  */
 import { formatBytes } from "../format.js";
 import { sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import { plural, shortModel } from "./display.js";
-import { RadioDialog } from "./dialogs.js";
-import { columns, cut, fit, hr, isKey, padLines, st, wrap } from "./kit.js";
+import { RadioDialog, type DialogSection } from "./dialogs.js";
+import { cut, fit, frame, isKey, padLines, pagingKey, st, wrap } from "./kit.js";
+import { SAVE_FAILED_MESSAGE, type SettingsStore } from "./settings.js";
 import type { ShareSummary, SessionView, Source, ViewItem, ViewKind } from "./source.js";
 
 export const LEVELS = [
@@ -29,13 +35,21 @@ const ICON: Record<ViewKind, (s: string) => string> = {
   event: (s) => `${st.blue("⚑")} ${st.dim(s)}`,
 };
 
+/** Columns each tree level moves a row to the right. */
+const INDENT = 2;
+
 export interface ViewerHooks {
+  settings: SettingsStore;
+  /** Show a short message in the footer until the next key. */
+  notify(message: string): void;
   requestRender(): void;
   openDialog(d: RadioDialog): void;
   closeDialog(): void;
   publish(): void;
   close(): void;
 }
+
+export type Pane = "list" | "content";
 
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -46,11 +60,14 @@ export class SessionViewer {
   report?: ShareSummary;
   reportError?: string;
   level = 1;
+  private pane: Pane = "list";
   private cursor = 0;
   private scroll = 0;
   private listTop = 0;
   private rightLines: string[] = [];
   private rightHeight = 1;
+  /** Rows both panes showed on the last draw: the size of a page. */
+  private bodyHeight = 10;
   private timers: Array<ReturnType<typeof setTimeout>> = [];
 
   constructor(
@@ -86,6 +103,14 @@ export class SessionViewer {
     for (const t of this.timers) clearTimeout(t);
   }
 
+  /** Tree depth of a row under the persisted layout settings: prompts at 0, replies at 1, tool calls one deeper. */
+  private depth(kind: ViewKind): number {
+    const { indentReplies, indentTools } = this.hooks.settings.get().viewer;
+    if (kind === "user") return 0;
+    const replies = indentReplies ? 1 : 0;
+    return kind === "assistant" ? replies : replies + (indentTools ? 1 : 0);
+  }
+
   private get items(): ViewItem[] {
     const kinds = LEVELS[this.level]!.kinds as readonly ViewKind[];
     return (this.view?.items ?? []).filter((i) => kinds.includes(i.kind));
@@ -105,38 +130,91 @@ export class SessionViewer {
     this.scroll = 0;
   }
 
+  /** Which pane the movement keys drive. */
+  get focus(): Pane {
+    return this.pane;
+  }
+
   onKey(data: string): void {
     const items = this.items;
     const move = (to: number) => {
       this.cursor = Math.max(0, Math.min(items.length - 1, to));
       this.scroll = 0;
     };
+    const scrollTo = (to: number) => {
+      this.scroll = Math.max(0, Math.min(this.maxScroll(), to));
+    };
+    const paging = pagingKey(data);
+    if (this.pane === "content") {
+      // Right pane: the same keys as everywhere, scrolling the message. esc (or h / ←, q) goes back to the list.
+      if (isKey(data, "escape") || isKey(data, "q") || isKey(data, "left") || isKey(data, "h") || isKey(data, "tab")) this.pane = "list";
+      else if (isKey(data, "down") || isKey(data, "j")) scrollTo(this.scroll + 1);
+      else if (isKey(data, "up") || isKey(data, "k")) scrollTo(this.scroll - 1);
+      else if (paging) scrollTo(this.scroll + paging.dir * Math.max(1, Math.floor(this.bodyHeight * paging.fraction)));
+      else if (isKey(data, "g") || isKey(data, "home")) scrollTo(0);
+      else if (data === "G" || isKey(data, "shift+g") || isKey(data, "end")) scrollTo(this.maxScroll());
+      else this.sharedKey(data, items, move);
+      return;
+    }
     if (isKey(data, "escape") || isKey(data, "q") || isKey(data, "left") || isKey(data, "h")) return this.hooks.close();
-    if (isKey(data, "down") || isKey(data, "j")) move(this.cursor + 1);
+    if (isKey(data, "enter") || isKey(data, "tab") || isKey(data, "right") || isKey(data, "l")) {
+      if (items.length > 0) this.pane = "content";
+    } else if (isKey(data, "down") || isKey(data, "j")) move(this.cursor + 1);
     else if (isKey(data, "up") || isKey(data, "k")) move(this.cursor - 1);
-    else if (data === "J" || isKey(data, "shift+j")) {
+    else if (paging) move(this.cursor + paging.dir * Math.max(1, Math.floor(this.bodyHeight * paging.fraction)));
+    else if (isKey(data, "g") || isKey(data, "home")) move(0);
+    else if (data === "G" || isKey(data, "shift+g") || isKey(data, "end")) move(items.length - 1);
+    else this.sharedKey(data, items, move);
+  }
+
+  /** Keys that work whichever pane has the focus. */
+  private sharedKey(data: string, items: ViewItem[], move: (to: number) => void): void {
+    if (data === "J" || isKey(data, "shift+j")) {
       const next = items.findIndex((it, i) => i > this.cursor && it.kind === "user");
       move(next >= 0 ? next : items.length - 1);
     } else if (data === "K" || isKey(data, "shift+k")) {
       let i = this.cursor - 1;
       while (i > 0 && items[i]!.kind !== "user") i--;
       move(i);
-    } else if (isKey(data, "g") || isKey(data, "home")) move(0);
-    else if (data === "G" || isKey(data, "shift+g") || isKey(data, "end")) move(items.length - 1);
-    else if (isKey(data, "pageDown") || isKey(data, "ctrl+d") || isKey(data, "space")) this.scroll += 8;
-    else if (isKey(data, "pageUp") || isKey(data, "ctrl+u")) this.scroll = Math.max(0, this.scroll - 8);
-    else if (isKey(data, "v")) this.setLevel((this.level + 1) % LEVELS.length);
-    else if (data === "V" || isKey(data, "shift+v")) {
-      this.hooks.openDialog(
-        new RadioDialog("Message list", [{ items: LEVELS.map((l, i) => ({ label: l.label, value: i, hint: l.hint })), current: () => this.level, apply: (v) => this.setLevel(v as number) }], {
-          onClose: () => this.hooks.closeDialog(),
-        }),
-      );
-    } else if (isKey(data, "p")) this.hooks.publish();
+    } else if (isKey(data, "v")) this.setLevel((this.level + 1) % LEVELS.length);
+    else if (data === "V" || isKey(data, "shift+v")) this.hooks.openDialog(this.viewDialog());
+    else if (isKey(data, "p")) this.hooks.publish();
+  }
+
+  /** The furthest the content pane can scroll, from the last draw. */
+  private maxScroll(): number {
+    return Math.max(0, this.rightLines.length - this.rightHeight);
+  }
+
+  /**
+   * `V`: the list level (this session only, same as `v`) plus the layout options, which are saved and apply to every
+   * session from now on, whichever level is showing.
+   */
+  private viewDialog(): RadioDialog {
+    const yesNo = [{ label: "yes", value: true }, { label: "no", value: false }];
+    const layout = (title: string, key: "indentReplies" | "indentTools"): DialogSection => ({
+      title,
+      items: yesNo,
+      current: () => this.hooks.settings.get().viewer[key],
+      apply: (v) => {
+        if (!this.hooks.settings.update({ viewer: { [key]: v as boolean } })) this.hooks.notify(SAVE_FAILED_MESSAGE);
+      },
+    });
+    return new RadioDialog(
+      "View",
+      [
+        { title: "Message list", items: LEVELS.map((l, i) => ({ label: l.label, value: i, hint: l.hint })), current: () => this.level, apply: (v) => this.setLevel(v as number) },
+        layout("Indent assistant replies", "indentReplies"),
+        layout("Indent tool calls further", "indentTools"),
+      ],
+      { onClose: () => this.hooks.closeDialog() },
+    );
   }
 
   footerKeys(): Array<[string, string]> {
-    return [["j/k", "message"], ["J/K", "prompt"], ["v", "list level"], ["V", "level dialog"], ["space", "scroll"], ["p", "publish"], ["esc", "back"]];
+    return this.pane === "content"
+      ? [["j/k", "scroll"], ["space/b", "page"], ["g/G", "top/bottom"], ["J/K", "prompt"], ["tab/esc", "back to list"], ["p", "publish"]]
+      : [["j/k", "message"], ["space/b", "page"], ["J/K", "prompt"], ["enter/tab", "read"], ["v", "list level"], ["V", "view options"], ["p", "publish"], ["esc", "back"]];
   }
 
   private header(width: number): string[] {
@@ -181,35 +259,52 @@ export class SessionViewer {
     if (!this.view) return [...head, "", st.dim("  reading the session…")];
     const items = this.items;
     const shared = sharesFor(this.source.shares, this.session.harness, this.session.id).length > 0;
-    head.push(hr(width, `${LEVELS[this.level]!.label} · ${items.length} of ${this.view.items.length}${shared ? " · shared ✓" : ""}`));
-    const bodyH = Math.max(1, height - head.length - 1);
-    const lw = Math.max(20, Math.min(width - 14, Math.floor(width * 0.4)));
-    const rw = Math.max(10, width - lw - 3);
+    // Two rounded panels side by side, one row of border above and below: the active one has the bright border.
+    const total = Math.max(3, height - head.length);
+    const inner = total - 2;
+    this.bodyHeight = inner;
+    const listActive = this.pane === "list";
+    const leftW = Math.max(22, Math.min(width - 17, Math.floor(width * 0.4) + 2));
+    const rightW = Math.max(12, width - leftW - 1);
+    const rowW = leftW - 2;
     this.cursor = Math.min(this.cursor, Math.max(0, items.length - 1));
     if (this.cursor < this.listTop) this.listTop = this.cursor;
-    if (this.cursor >= this.listTop + bodyH) this.listTop = this.cursor - bodyH + 1;
-    const left = items.slice(this.listTop, this.listTop + bodyH).map((it, k) => {
+    if (this.cursor >= this.listTop + inner) this.listTop = this.cursor - inner + 1;
+    const rows = items.slice(this.listTop, this.listTop + inner).map((it, k) => {
       const i = this.listTop + k;
       const turn = it.kind === "user" ? st.dim(`#${it.turn} `) : "";
-      const row = `${i === this.cursor ? st.cyan("▌") : " "}${ICON[it.kind](`${turn}${it.error ? st.red(it.label) : it.label}`)}`;
-      return i === this.cursor ? st.sel(fit(row, lw)) : row;
+      const row = `${i === this.cursor ? (listActive ? st.cyan("▌") : st.gray("▌")) : " "}${" ".repeat(this.depth(it.kind) * INDENT)}${ICON[it.kind](`${turn}${it.error ? st.red(it.label) : it.label}`)}`;
+      return i === this.cursor ? (listActive ? st.sel : st.selDim)(fit(row, rowW)) : row;
     });
-    const right = this.rightPane(items[this.cursor], rw, bodyH);
-    return [...head, ...columns(padLines(left, bodyH), padLines(right, bodyH), lw, rw).slice(0, bodyH), this.scrollRule(width)];
+    const left = frame(`${LEVELS[this.level]!.label} · ${items.length} of ${this.view.items.length}${shared ? " · shared ✓" : ""}`, padLines(rows, inner), leftW, {
+      active: listActive,
+      bottom: items.length ? `${this.cursor + 1}/${items.length}` : undefined,
+    });
+    const { title, lines, bottom } = this.rightPane(items[this.cursor], rightW - 4, inner);
+    const right = frame(title, padLines(lines.map((l) => ` ${l}`), inner), rightW, { active: !listActive, bottom });
+    return [...head, ...left.map((l, i) => `${l} ${right[i] ?? ""}`)];
   }
 
-  private rightPane(it: ViewItem | undefined, width: number, height: number): string[] {
-    if (!it) return [st.dim("nothing to show")];
+  /** The message in full, scrolled, plus the heading and the hint for the border of its panel. */
+  private rightPane(it: ViewItem | undefined, width: number, height: number): { title: string; lines: string[]; bottom?: string } {
+    if (!it) {
+      this.rightLines = [];
+      this.rightHeight = height;
+      return { title: "message", lines: [st.dim("nothing to show")] };
+    }
     const title = `${it.kind === "user" ? "prompt" : it.kind}${it.meta ? ` · ${it.meta}` : ""}${it.error ? " · error" : ""}  ${st.dim(`turn ${it.turn}`)}`;
     const dimmed = it.kind === "tool" || it.kind === "thinking";
-    this.rightLines = [st.cyan(title), "", ...it.body.split("\n").flatMap((l) => (l ? wrap(dimmed ? st.gray(l) : l, width) : [""]))];
+    this.rightLines = it.body.split("\n").flatMap((l) => (l ? wrap(dimmed ? st.gray(l) : l, width) : [""]));
     this.rightHeight = height;
-    this.scroll = Math.min(this.scroll, Math.max(0, this.rightLines.length - height));
-    return this.rightLines.slice(this.scroll, this.scroll + height);
+    this.scroll = Math.min(this.scroll, this.maxScroll());
+    return { title, lines: this.rightLines.slice(this.scroll, this.scroll + height), bottom: this.rightHint() };
   }
 
-  private scrollRule(width: number): string {
+  /** What the content panel's bottom border says: how much is hidden, and how to move the focus. */
+  private rightHint(): string | undefined {
     const more = this.rightLines.length - this.rightHeight - this.scroll;
-    return more > 0 ? hr(width, `↓ ${more} more lines · space`) : hr(width);
+    const hidden = more > 0 ? `↓ ${more} more lines` : "";
+    if (this.pane === "content") return [hidden, "j/k scroll", "space/b page", "tab/esc back"].filter(Boolean).join(" · ");
+    return more > 0 ? `${hidden} · enter to read` : undefined;
   }
 }

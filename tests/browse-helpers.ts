@@ -18,6 +18,12 @@ export const KEY = {
   space: " ",
   backspace: "\x7f",
   pageDown: "\x1b[6~",
+  pageUp: "\x1b[5~",
+  ctrlF: "\x06",
+  ctrlB: "\x02",
+  ctrlD: "\x04",
+  ctrlU: "\x15",
+  end: "\x1b[F",
 } as const;
 
 /** Wednesday 2026-09-30 12:00 UTC. */
@@ -135,7 +141,7 @@ export interface Driver {
 /** A browser over a fake source with a frozen clock (call `vi.useFakeTimers()` in the test file). */
 export function drive(opts: FakeSourceOptions & BrowserOptions = {}): Driver {
   const source = fakeSource(opts);
-  const app = new BrowserApp(source, { now: () => NOW, query: opts.query, harness: opts.harness });
+  const app = new BrowserApp(source, { now: () => NOW, query: opts.query, harness: opts.harness, settings: opts.settings });
   app.attach(() => 34, () => {});
   const lines = (width = 130, height = 34) => {
     app.attach(() => height, () => {});
@@ -173,3 +179,25 @@ export function order(lines: string[], titles: string[]): string[] {
 }
 
 export const TITLES = sampleSessions().map((s) => s.title!);
+
+/** `n` sessions, newest first, titled "Session number 000" …, alternating harness so a filter changes the list. */
+export function manySessions(n: number): SessionSummary[] {
+  return Array.from({ length: n }, (_, i) =>
+    summary({ id: `m${i}`, harness: i % 2 ? "pi" : "claude-code", title: `Session number ${String(i).padStart(3, "0")}`, mtimeMs: Date.UTC(2026, 8, 30) - i * HOUR }),
+  );
+}
+
+/** The number of the selected `manySessions` row (the one with the ▌ marker), if it is on screen. */
+export function selectedNumber(lines: string[]): number | undefined {
+  const m = listColumn(lines).find((l) => l.includes("▌"))?.match(/Session number (\d+)/);
+  return m ? Number(m[1]) : undefined;
+}
+
+/** The viewer's two panels, side by side: each screen line split at the gap between their borders. */
+export function viewerPanes(lines: string[]): { left: string[]; right: string[] } {
+  const split = lines.map((l) => {
+    const m = l.match(/[│╮╯] [│╭╰]/);
+    return m ? [l.slice(0, m.index! + 1), l.slice(m.index! + 2)] : [l, ""];
+  });
+  return { left: split.map((x) => x[0]!), right: split.map((x) => x[1]!) };
+}

@@ -38,7 +38,7 @@ export interface RedactorOptions {
 const EMAIL = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 const SAFE_EMAIL = /^(noreply@|no-reply@)|@(users\.noreply\.github\.com|example\.(com|org|net)|anthropic\.com)$/i;
 // Keys whose values are identifiers/metadata, never user content.
-const SKIP_KEYS = new Set(["schema", "id", "responseId", "timestamp", "kind", "event", "action", "sessionId", "leafId", "startedAt", "endedAt", "sharedAt"]);
+export const SKIP_KEYS: ReadonlySet<string> = new Set(["schema", "id", "responseId", "timestamp", "kind", "event", "action", "sessionId", "leafId", "startedAt", "endedAt", "sharedAt"]);
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -153,15 +153,18 @@ export function redactSession(session: NormalizedSession, redactor: Redactor): N
   copy.project = walk(session.project, "", "project") as NormalizedSession["project"];
   copy.turns = session.turns.map((turn) => ({
     ...turn,
-    user: turn.user ? (walk(turn.user, "", `turn ${turn.index} · prompt`) as typeof turn.user) : undefined,
-    steps: turn.steps.map((step) => walk(step, "", `turn ${turn.index} · ${describeStep(step)}`) as typeof step),
+    user: turn.user ? (walk(turn.user, "", `${turnLabel(turn.index)} · prompt`) as typeof turn.user) : undefined,
+    steps: turn.steps.map((step) => walk(step, "", `${turnLabel(turn.index)} · ${describeStep(step)}`) as typeof step),
   }));
   return copy;
 }
 
-function describeStep(step: NormalizedSession["turns"][number]["steps"][number]): string {
+/** 1-based, like the turn numbers in the browse viewer, so a location can be followed there. */
+export const turnLabel = (index: number): string => `turn ${index + 1}`;
+
+/** Where a step lives, for reports; printed, so it never includes (unredacted) content. */
+export function describeStep(step: NormalizedSession["turns"][number]["steps"][number]): string {
   switch (step.kind) {
-    // Labels are printed in reports, so they must never include (unredacted) content.
     case "tool":
       return safeLabel(step.name, "tool");
     case "subagent":

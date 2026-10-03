@@ -2,6 +2,7 @@ import { formatBytes, formatCacheSummary, formatSessionCost, formatTokens, forma
 import type { ShareReport } from "./pipeline.js";
 import { SECRET_CATEGORIES, type RedactionCategory } from "./redact/index.js";
 import { KNOWN_SOURCE_LABELS, type KnownSourceUse } from "./redact/known-values.js";
+import { stripControls } from "./sanitize.js";
 import { totalTokens } from "./schema.js";
 
 /** Which sources supplied exact secret values, e.g. `env (4), project .env (2); not read: credential files, gh auth token (disabled)`. Names and counts only. */
@@ -12,7 +13,7 @@ export function formatKnownSources(sources: KnownSourceUse[]): string {
 }
 
 /** Human-readable redaction report: rules, locations and counts, never secret values or the text around them. */
-export function formatReport(r: ShareReport, opts: { maxFindings?: number; color?: boolean } = {}): string {
+export function formatReport(r: ShareReport, opts: { maxFindings?: number; color?: boolean; transcriptPath?: string } = {}): string {
   const color = (code: number) => (s: string) => (opts.color ? `\x1b[${code}m${s}\x1b[0m` : s);
   const bold = color(1);
   const dim = color(2);
@@ -61,16 +62,30 @@ export function formatReport(r: ShareReport, opts: { maxFindings?: number; color
   lines.push("", dim(`Known values: ${formatKnownSources(r.knownSources)}`));
   if (r.rescan.length) {
     lines.push(red(bold(`Final re-scan: ${plural(r.rescan.length, "issue")} — publishing blocked`)));
-    for (const i of r.rescan) lines.push(red(`  ✗ ${i.rule}${i.length === undefined ? "" : ` (${plural(i.length, "char")})`}`));
+    for (const i of r.rescan) lines.push(red(`  ✗ ${i.rule}${i.length === undefined ? "" : ` (${plural(i.length, "char")})`}${i.location ? ` @ ${i.location}` : ""}`));
   } else {
     lines.push(green("Final re-scan: clean ✓"));
+  }
+  if (r.suspicious.length) {
+    const max = opts.maxFindings ?? 25;
+    lines.push(yellow(bold(`Suspicious: ${plural(r.suspicious.length, "value")} could not be redacted and ${r.suspicious.length === 1 ? "is" : "are"} still in the payload`)));
+    for (const i of r.suspicious.slice(0, max)) {
+      lines.push(yellow(`  ? ${i.rule} (${plural(i.length, "char")}${i.occurrences > 1 ? `, ×${i.occurrences}` : ""}) `) + dim(`@ ${i.location}`));
+    }
+    if (r.suspicious.length > max) lines.push(dim(`  … ${r.suspicious.length - max} more (use --all-findings)`));
+    lines.push(
+      dim(`  Look at these places in the transcript${opts.transcriptPath ? ` (${stripControls(opts.transcriptPath)})` : ""} (turn numbers as in \`agent-share browse\`).`),
+      dim("  A value that is fine can be added to redact.allowlist. This check cannot see secrets that have no recognizable format."),
+    );
   }
   lines.push(
     r.blocked
       ? red(bold("Status: BLOCKED — fix the source or add an allowlist entry"))
-      : r.clean
-        ? green(bold("Status: CLEAN — safe to publish with --yes"))
-        : yellow(bold("Status: NEEDS REVIEW — secrets were redacted; review findings before publishing")),
+      : r.suspicious.length
+        ? yellow(bold("Status: NEEDS CONFIRMATION — suspicious values are still in the payload; inspect them before publishing"))
+        : r.clean
+          ? green(bold("Status: CLEAN — safe to publish with --yes"))
+          : yellow(bold("Status: NEEDS REVIEW — secrets were redacted; review findings before publishing")),
   );
   return lines.join("\n");
 }

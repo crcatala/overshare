@@ -263,7 +263,7 @@ describe("planted secrets never surface in output, even when things fail", () =>
     expect(prepared.report.rescan[0]).toMatchObject({ rule: "known-secret:DB_PASSWORD", length: leakyKey.length });
     // The payload is the thing that is blocked; what a caller may print is everything else.
     expect(leaks(everything(prepared), planted)).toEqual([]);
-    const issues = rescanPayload(prepared.json, { knownSecrets: [...collectKnownSecrets({ home: planted.home, projectDir: planted.project, enabled: ALL_SOURCES }).secrets] });
+    const { issues } = rescanPayload(prepared.json, { knownSecrets: [...collectKnownSecrets({ home: planted.home, projectDir: planted.project, enabled: ALL_SOURCES }).secrets] });
     expect(leaks(JSON.stringify(issues) + inspect(issues, { depth: null }), planted)).toEqual([]);
   });
 

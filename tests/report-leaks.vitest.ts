@@ -172,7 +172,7 @@ describe("data-derived labels", () => {
     const name = fake.github();
     const prepared = prepare(transcript({ command: "x" }, "ok", name));
     // The name is itself redacted in the payload, so it is a finding; it is located by the generic name.
-    expect(prepared.report.findings.map((f) => f.where)).toEqual(["turn 0 · tool"]);
+    expect(prepared.report.findings.map((f) => f.where)).toEqual(["turn 1 · tool"]);
     const all = { ...surfaces(prepared), payload: prepared.json };
     for (const [n, text] of Object.entries(all)) expect(text, n).not.toContain(name);
     expect(prepared.report.stats.tools).toEqual({ tool: 1 });
@@ -181,7 +181,7 @@ describe("data-derived labels", () => {
   it("a finding inside a secret-named tool is located by a generic tool name", () => {
     const name = fake.github();
     const prepared = prepare(transcript({ command: "x" }, `TOKEN=${fake.github()}`, name));
-    expect(prepared.report.findings.map((f) => f.where)).toEqual(["turn 0 · tool", "turn 0 · tool"]);
+    expect(prepared.report.findings.map((f) => f.where)).toEqual(["turn 1 · tool", "turn 1 · tool"]);
   });
 });
 
@@ -210,7 +210,7 @@ describe("known-secret labels that are part of a known value", () => {
 
   it("the re-scan does not name a known secret by a label that is part of a known value", () => {
     const known = [knownSecret(tail, prefix, "secrets-file"), knownSecret(`${prefix}=${tail}`, "secret", "secrets-file")];
-    const issues = rescanPayload(JSON.stringify({ a: tail }), { knownSecrets: known });
+    const { issues } = rescanPayload(JSON.stringify({ a: tail }), { knownSecrets: known });
     expect(issues.map((i) => i.rule)).toEqual(["known-secret:secret"]);
   });
 

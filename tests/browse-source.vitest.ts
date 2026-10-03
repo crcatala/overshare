@@ -297,6 +297,41 @@ describe("review requests", () => {
     expect((await again).mode).toBe("brief");
   });
 
+  it("a retry made in the same tick as the abort starts a fresh scan instead of joining the cancelled one", async () => {
+    const { sessions, session } = indexed();
+    const { runner, jobs } = heldRunner();
+    const source = createSource({ config: DEFAULT_CONFIG, sessions, runner });
+    const a = new AbortController();
+    const cancelled = source.review(session, "brief", a.signal).catch((e: unknown) => e);
+    a.abort();
+    const retry = source.review(session, "brief", live.signal); // no await in between: the cancelled scan has not settled yet
+    expect(jobs).toHaveLength(2);
+    expect(jobs[0]!.signal.aborted).toBe(true);
+    expect(jobs[1]!.signal.aborted).toBe(false);
+    jobs[1]!.finish();
+    expect((await retry).mode).toBe("brief");
+    expect(isAbort(await cancelled)).toBe(true);
+  });
+
+  it("a caller whose signal is already aborted starts nothing and leaves nothing waiting", async () => {
+    const { sessions, session } = indexed();
+    const { runner, jobs } = heldRunner();
+    const source = createSource({ config: DEFAULT_CONFIG, sessions, runner });
+    const dead = new AbortController();
+    dead.abort();
+    expect(isAbort(await source.review(session, "brief", dead.signal).catch((e: unknown) => e))).toBe(true);
+    expect(jobs).toHaveLength(0);
+    // It must not have counted as a waiter of a later scan either: when that scan's only real caller leaves, it stops.
+    const b = new AbortController();
+    const waiting = source.review(session, "brief", b.signal).catch((e: unknown) => e);
+    const alsoDead = source.review(session, "brief", dead.signal).catch((e: unknown) => e);
+    b.abort();
+    expect(isAbort(await waiting)).toBe(true);
+    expect(isAbort(await alsoDead)).toBe(true);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.signal.aborted).toBe(true);
+  });
+
   it("publish takes the id of the review it was shown: another review's id, or another mode's, uploads nothing", async () => {
     const { sessions, session } = indexed();
     const publisher = recordingPublisher();

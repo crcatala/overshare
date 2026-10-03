@@ -19,7 +19,7 @@ import type { ShareMode } from "../schema.js";
 import { shareKey, type SharesFile, loadShares } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import type { PublishSession } from "./job.js";
-import { workerRunner, type JobRunner } from "./runner.js";
+import { abortError, workerRunner, type JobRunner } from "./runner.js";
 
 export type ViewKind = "user" | "assistant" | "tool" | "thinking" | "subagent" | "event";
 
@@ -164,7 +164,7 @@ export function createSource(opts: SourceOptions): Source {
   /** Reject as soon as `signal` aborts, whatever the underlying job is doing. */
   const until = <T>(signal: AbortSignal, work: Promise<T>): Promise<T> =>
     new Promise<T>((resolve, reject) => {
-      const abort = () => reject(Object.assign(new Error("cancelled"), { name: "AbortError" }));
+      const abort = () => reject(abortError());
       if (signal.aborted) return abort();
       signal.addEventListener("abort", abort, { once: true });
       work.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
@@ -201,13 +201,20 @@ export function createSource(opts: SourceOptions): Source {
       return result.view;
     },
     async review(s, mode, signal) {
+      // A caller that is already gone must not start (or join) a scan: its abort listener would never fire.
+      if (signal.aborted) throw abortError();
       const k = key(s, mode);
       const hit = prepared.get(k);
       if (hit) return hit.summary;
       const flight = flights.get(k) ?? start(s, mode);
       flight.waiters++;
-      // The scan stops once nobody is waiting for it any more.
-      const release = () => void (--flight.waiters <= 0 && flight.abort());
+      // The scan stops once nobody is waiting for it any more, and is forgotten at once so that a retry made
+      // right away starts a fresh scan instead of joining the cancelled one.
+      const release = () => {
+        if (--flight.waiters > 0) return;
+        flight.abort();
+        if (flights.get(k) === flight) flights.delete(k);
+      };
       signal.addEventListener("abort", release, { once: true });
       try {
         return (await until(signal, flight.done)).summary;

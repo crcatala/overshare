@@ -28,7 +28,7 @@ export class JobError extends Error {
 }
 
 export const isAbort = (err: unknown): boolean => err instanceof Error && err.name === "AbortError";
-const abortError = (): Error => Object.assign(new Error("cancelled"), { name: "AbortError" });
+export const abortError = (): Error => Object.assign(new Error("cancelled"), { name: "AbortError" });
 
 /** The error a caller of `Source` sees for a failed job. */
 export function failure(error: SafeError): Error {

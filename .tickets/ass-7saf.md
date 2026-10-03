@@ -1,6 +1,6 @@
 ---
 id: ass-7saf
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-10-03T19:05:09Z
@@ -21,3 +21,9 @@ DECISION (user, 2026-10-03): leave it raw for now. Rejected: redacting at index 
 
 Either: list matches the pane (pattern-only mask at render, with a test using planted fakes) or: closed as wont-fix with the observed pane behaviour recorded.
 
+
+## Notes
+
+**2026-10-03T23:09:35Z**
+
+Observed (planted fake anthropic key straddling the 80-char title cut, real BrowserApp over the real Source, temp dir, terminal width 130 and 250). Counts of 12-char key windows visible: list row col = 0 at 130 cols (title column is ~40 chars, cut before the key starts), 35 at 250 cols; always-on preview column (title + first prompt, wrapped) = 86 at 130 / 96 at 250; viewer pane = 86; full key printed = false everywhere; redaction marker present = false in all three. So the preview column and the viewer both show the raw prompt (by design, src/browse/source.ts view is unredacted: the user's own machine). No inconsistency between list and pane => no code change. Closed wont-fix per the ticket decision. Masking only the list row would leave the preview column and viewer raw anyway.

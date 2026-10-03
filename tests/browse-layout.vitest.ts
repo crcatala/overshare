@@ -1,6 +1,6 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { drive, KEY, type Driver } from "./browse-helpers.js";
+import { drive, KEY, sampleSessions, type Driver } from "./browse-helpers.js";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -48,6 +48,31 @@ describe("every screen fits the terminal", () => {
       }
     });
   }
+
+  describe("while the index is still running (placeholder rows)", () => {
+    const ids = sampleSessions().map((x) => x.id);
+    const PENDING: Array<[string, (d: Driver) => Promise<void>]> = [
+      ["nothing read yet", async () => {}],
+      ["half read", async (d) => void ["s1", "s2", "s3", "w1"].forEach((id) => d.source.fill(id))],
+      ["searching, partial results", async (d) => void (await d.press("/", ..."invoice"))],
+      ["grouped by repo, sorted by title", async (d) => void (await d.press("g", "g", "o", "o"))],
+      ["opening a row that is not read", async (d) => void (await d.press(KEY.enter))],
+      ["quit prompt", async (d) => void (await d.press("q"))],
+      ["empty search", async (d) => void (await d.press("/", ..."zzzzqqq"))],
+    ];
+    for (const [name, setup] of PENDING) {
+      it(name, async () => {
+        const d = drive({ pending: ids });
+        await setup(d);
+        for (const [width, height] of SIZES) {
+          d.app.attach(() => height, () => {});
+          const lines = d.app.draw(width, height);
+          expect(lines, `${name} @ ${width}x${height}`).toHaveLength(height);
+          expect(lines.map((l) => visibleWidth(l)).filter((n) => n > width), `${name} @ ${width}x${height} has over-wide lines`).toEqual([]);
+        }
+      });
+    }
+  });
 
   it("render never exceeds the width even in a tiny terminal", async () => {
     const d = drive();

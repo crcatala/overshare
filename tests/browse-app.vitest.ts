@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { drive, KEY, manySessions, order, selectedNumber, summary, TITLES } from "./browse-helpers.js";
+import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { drive, KEY, listColumn, manySessions, order, sampleSessions, selectedNumber, summary, TITLES } from "./browse-helpers.js";
+import { IndexJob } from "../src/sessions/index.js";
+import { ClaudeTranscript } from "./helpers.js";
 import { memorySettings } from "../src/browse/settings.js";
 
 beforeEach(() => vi.useFakeTimers());
@@ -206,7 +211,8 @@ describe("robustness", () => {
     expect(d.text()).not.toContain("Quit agent-share?");
     await d.press(KEY.esc, KEY.esc); // esc asks as well; esc on the dialog stays
     expect(quit).toBe(0);
-    await d.press("q", "y");
+    d.app.handleInput("q"); // no timers run between the keys: the index is still midway
+    d.app.handleInput("y");
     expect(quit).toBe(1);
   });
 
@@ -477,5 +483,134 @@ describe("selected row highlight", () => {
     const d = drive({ sessions: [summary({ id: "t", title: "T".repeat(200), project: "short" })], shares: { "claude-code:t": [{ url: "https://v/#t", mode: "brief", target: "gist", sharedAt: new Date().toISOString() }] } });
     const row = d.app.render(130).find((l) => stripTerminalSequences(l).includes("TTTT"))!;
     expect(fullyHighlighted(row.slice(0, row.indexOf("\x1b[49m") + "\x1b[49m".length))).toBe(true);
+  });
+});
+
+describe("while the index is still running", () => {
+  const ALL = sampleSessions().map((x) => x.id);
+  const selectedLine = (d: ReturnType<typeof drive>) => d.lines().find((l) => l.includes("▌"))!.split(" │ ")[0]!;
+
+  it("paints the whole list at once from the stat-only rows, with a placeholder title and a progress count", () => {
+    const d = drive({ pending: ALL });
+    const text = d.text();
+    expect(text).toContain("8/8"); // a worker session is not known to be one until it is read, so it is listed for now
+    expect(text).toContain("reading sessions 0/8");
+    expect(listColumn(d.lines()).filter((l) => l.includes("reading…"))).toHaveLength(8);
+    expect(text).toContain("reading this session…"); // the preview of the selected row
+    expect(text).not.toContain("Fix invoice currency bug");
+    // The harness, time and the list order come from the stat alone.
+    expect(selectedLine(d)).toContain("CC");
+  });
+
+  it("fills rows in as they are read, and drops the progress count when the last one arrives", () => {
+    const d = drive({ pending: ALL });
+    d.source.fill("s1");
+    d.source.fill("s3");
+    expect(order(d.lines(), TITLES)).toEqual(["Fix invoice currency bug", "Onboarding empty state"]);
+    expect(d.text()).toContain("reading sessions 2/8");
+    expect(d.text()).toContain("Fix invoice currency bug"); // the selected row's preview too
+    for (const id of ALL) d.source.fill(id);
+    expect(d.text()).not.toContain("reading sessions");
+    expect(order(d.lines(), TITLES)).toEqual(BY_RECENCY);
+    expect(d.text()).toContain("7/8"); // the worker is hidden once it is known to be one
+  });
+
+  it("keeps the selection on the same session while rows fill in, even when sorting reorders them", async () => {
+    const d = drive({ pending: ALL });
+    await d.press(KEY.down, KEY.down, KEY.down); // s1, w1 (not yet known to be a worker), s2, s3
+    expect(d.app.current?.id).toBe("s3");
+    d.source.fill("s1");
+    d.source.fill("s3");
+    expect(d.app.current?.id).toBe("s3");
+    expect(selectedLine(d)).toContain("Onboarding empty state");
+    await d.press("o", "o", "o", "o"); // sort by file size (known from the stat): s1 900k, s4, s2, s3 ...
+    const id = d.app.current!.id;
+    d.source.fill("s4");
+    d.source.fill("s2");
+    expect(d.app.current?.id).toBe(id);
+  });
+
+  it("moves, pages, and filters by harness/time/shared on rows that have not been read yet", async () => {
+    const d = drive({ pending: ALL });
+    await d.press("j", "j", "j", "j");
+    expect(d.app.current?.id).toBe("s4");
+    await d.press("h"); // claude-code only: a placeholder knows its harness
+    expect(d.app.view.every((x) => x.harness === "claude-code")).toBe(true);
+    await d.press("h");
+    expect(d.app.view.every((x) => x.harness === "pi")).toBe(true);
+    await d.press("x", "t"); // last 24h, from the file's mtime
+    expect(d.app.view.map((x) => x.id)).toEqual(["s1", "w1", "s2"]);
+    await d.press(KEY.end);
+    expect(d.app.current?.id).toBe("s2");
+  });
+
+  it("searches the rows read so far, says so, and picks up the rest as they arrive", async () => {
+    const d = drive({ pending: ALL });
+    await d.press("/");
+    await d.type("invoice");
+    expect(d.app.view).toHaveLength(0);
+    expect(d.text()).toContain("search covers the sessions read so far");
+    expect(d.text()).toContain("no sessions match");
+    d.source.fill("s2"); // "Refactor money helpers": no match
+    expect(d.app.view).toHaveLength(0);
+    d.source.fill("s1");
+    expect(d.app.view.map((x) => x.id)).toEqual(["s1"]);
+    expect(d.app.current?.id).toBe("s1");
+    for (const id of ALL) d.source.fill(id);
+    expect(d.text()).not.toContain("search covers");
+  });
+
+  it("will not open or publish a row that has not been read, and says why", async () => {
+    const d = drive({ pending: ALL });
+    await d.press(KEY.enter);
+    expect(d.app.viewer).toBeUndefined();
+    expect(d.text()).toContain("still reading this session");
+    await d.press("p");
+    expect(d.app.flow).toBeUndefined();
+    expect(d.source.reviewed).toEqual([]);
+    d.source.fill("s1");
+    await d.press(KEY.enter);
+    expect(d.app.viewer).toBeDefined();
+  });
+
+  it("an open viewer is not disturbed by rows filling in behind it", async () => {
+    const d = drive({ pending: ["s2", "s3"] });
+    await d.press(KEY.enter, "j");
+    const before = d.text();
+    d.source.fill("s2");
+    d.source.fill("s3");
+    expect(d.app.viewer).toBeDefined();
+    expect(d.text()).toBe(before);
+  });
+
+  it("quitting mid-index stops the index so the cache keeps what was read", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "browse-quit-"));
+    const claude = join(dir, "claude");
+    mkdirSync(join(claude, "-home-x"), { recursive: true });
+    for (let i = 0; i < 4; i++) {
+      const file = join(claude, "-home-x", `sess-${i}.jsonl`);
+      const t = new ClaudeTranscript(`sess-${i}`, "/home/tester/work/demo");
+      t.meta("ai-title", { aiTitle: `Title ${i}` });
+      t.user(`prompt ${i}`);
+      writeFileSync(file, t.toJsonl());
+      utimesSync(file, new Date(2026, 0, 1), new Date(2026, 0, 1, 12, 4 - i));
+    }
+    const cachePath = join(dir, "cache.json");
+    const job = new IndexJob({ roots: { "claude-code": claude, pi: join(dir, "pi") }, cachePath, sliceMs: 0, saveEveryMs: 60_000 });
+    const d = drive({ sessions: job.sessions, index: job });
+    expect(d.text()).toContain("reading sessions 0/4");
+    await vi.advanceTimersToNextTimerAsync();
+    await vi.advanceTimersToNextTimerAsync();
+    expect(d.text()).toContain("Title 1");
+    expect(d.text()).toContain("reading sessions 2/4");
+    let quit = 0;
+    d.app.onQuit = () => quit++;
+    d.app.handleInput("q"); // no timers run between the keys: the index is still midway
+    d.app.handleInput("y");
+    expect(quit).toBe(1);
+    const cached = Object.keys(JSON.parse(readFileSync(cachePath, "utf8")).sessions);
+    expect(cached.map((p) => p.match(/sess-(\d)/)![1]).sort()).toEqual(["0", "1"]);
+    await vi.runAllTimersAsync();
+    expect(job.sessions.filter((x) => !x.pending)).toHaveLength(2); // nothing is read after the quit
   });
 });

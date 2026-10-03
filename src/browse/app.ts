@@ -97,6 +97,7 @@ export class BrowserApp extends Screen {
   private topProjects: string[];
   private now: () => number;
   private settings: SettingsStore;
+  private unsubscribeIndex?: () => void;
 
   constructor(
     private source: Source,
@@ -107,8 +108,25 @@ export class BrowserApp extends Screen {
     this.settings = opts.settings ?? memorySettings();
     this.query = opts.query ?? "";
     this.harness = opts.harness;
-    this.topProjects = facet(source.sessions.filter((s) => !s.worker), (s) => s.project).slice(0, 14).map((f) => f.value);
+    this.topProjects = this.computeTopProjects();
     this.refilter();
+    // Rows fill in while the index runs: redo the list (the selection stays on the same session) and redraw.
+    this.unsubscribeIndex = source.index?.subscribe(() => {
+      this.topProjects = this.computeTopProjects();
+      this.refilter(this.current);
+      this.requestRender();
+    });
+  }
+
+  private computeTopProjects(): string[] {
+    return facet(this.source.sessions.filter((s) => !s.worker), (s) => s.project).slice(0, 14).map((f) => f.value);
+  }
+
+  /** Quitting also stops the index (which saves what it has read), whichever key asked for it. */
+  override quit(): void {
+    this.unsubscribeIndex?.();
+    this.source.index?.stop();
+    super.quit();
   }
 
   get current(): SessionSummary | undefined {
@@ -145,7 +163,8 @@ export class BrowserApp extends Screen {
       list = [...groups.values()].flat();
     }
     this.view = list;
-    const at = keep ? list.indexOf(keep) : -1;
+    // By path: a row that was just read is a new object for the same session.
+    const at = keep ? list.findIndex((s) => s.path === keep.path) : -1;
     this.cursor = at >= 0 ? at : Math.min(this.cursor, Math.max(0, list.length - 1));
   }
 
@@ -370,6 +389,7 @@ export class BrowserApp extends Screen {
     else if (isShift(data, "g")) this.dialog = this.dialogFor("group");
     else if (isShift(data, "o")) this.dialog = this.dialogFor("sort");
     else if (isPlain(data, "x")) this.clearFilters();
+    else if ((isKey(data, "enter") || isPlain(data, "p")) && this.current?.pending) this.message = "still reading this session…";
     else if (isKey(data, "enter") && this.current) this.openViewer(this.current);
     else if (isPlain(data, "p") && this.current) this.openFlow(this.current);
     else if (isPlain(data, "y") && this.current) this.copyLink(this.current);
@@ -544,7 +564,10 @@ export class BrowserApp extends Screen {
     };
     const sortLabel = SORTS.find((s) => s.id === this.sort.field)!.label;
     const arrow = this.sort.dir === "asc" ? "↑" : "↓";
-    const title = `${st.bold("agent-share")}  ${st.dim(`${this.view.length}/${this.source.sessions.length}`)}`;
+    const indexing = this.source.index?.progress();
+    // Search and the repo/branch/model/tool filters only see sessions that have been read; say so while that is true.
+    const partial = indexing && (this.query || this.project) ? " · search covers the sessions read so far" : "";
+    const title = `${st.bold("agent-share")}  ${st.dim(`${this.view.length}/${this.source.sessions.length}`)}${indexing ? `  ${st.yellow(`reading sessions ${indexing.done}/${indexing.total}`)}${st.dim(partial)}` : ""}`;
     const chips = [
       chip("harness", "h", this.harness ? (this.harness === "pi" ? "pi" : "claude") : "all", !!this.harness),
       chip("repo", "r", this.project ?? "all", !!this.project),
@@ -558,7 +581,7 @@ export class BrowserApp extends Screen {
       : this.query
         ? `${st.cyan("/")} ${this.query}`
         : st.dim("/ search  ·  harness:pi  since:7d  shared:no  tool:Bash  model:opus");
-    return [title, cut(chips, width), cut(search, width)];
+    return [cut(title, width), cut(chips, width), cut(search, width)];
   }
 
   private drawList(width: number, height: number): string[] {
@@ -586,11 +609,14 @@ export class BrowserApp extends Screen {
     const harness = s.harness === "pi" ? st.magenta("π ") : st.yellow("CC");
     const fmt = dateFormat(this.settings.get().dateFormat);
     const fixed = 1 + (fmt.width + 1) + 3 + 15 + 3;
-    const cells = `${selected ? st.cyan("▌") : " "}${fit(fmt.format(s.mtimeMs, this.now()), fmt.width + 1)}${harness} ${fit(st.dim(s.project ?? "?"), 14)} ${fit(s.title ?? "(untitled)", width - fixed)} ${shared ? st.green("✓") : " "}`;
+    const project = s.pending ? "…" : (s.project ?? "?");
+    const title = s.pending ? st.dim("reading…") : (s.title ?? "(untitled)");
+    const cells = `${selected ? st.cyan("▌") : " "}${fit(fmt.format(s.mtimeMs, this.now()), fmt.width + 1)}${harness} ${fit(st.dim(project), 14)} ${fit(title, width - fixed)} ${shared ? st.green("✓") : " "}`;
     return selected ? st.sel(fit(cells, width)) : cells;
   }
 
   private preview(s: SessionSummary, width: number): string[] {
+    if (s.pending) return [st.dim(s.harness === "pi" ? "pi" : "Claude Code"), st.dim(formatBytes(s.size)), "", st.dim("reading this session…")];
     const out: string[] = [];
     out.push(...wrap(st.bold(s.title ?? "(untitled)"), width).slice(0, 2));
     out.push(st.dim([s.harness === "pi" ? "pi" : "Claude Code", s.models.map(shortModel).join(", "), s.branch, sessionDuration(s)].filter(Boolean).join(" · ")));

@@ -4,7 +4,7 @@ process.env.TZ = "UTC"; // day buckets ("Today", "Yesterday") depend on the loca
 import { vi } from "vitest";
 import { BrowserApp, type BrowserOptions } from "../src/browse/app.js";
 import { plainText } from "../src/browse/kit.js";
-import type { Preflight, SessionView, ShareSummary, Source, ViewItem } from "../src/browse/source.js";
+import type { IndexFeed, Preflight, SessionView, ShareSummary, Source, ViewItem } from "../src/browse/source.js";
 import type { ShareMode } from "../src/schema.js";
 import type { SharesFile } from "../src/sessions/shares.js";
 import { shareKey } from "../src/sessions/shares.js";
@@ -87,8 +87,17 @@ export function sampleView(): SessionView {
 
 const clean = (mode: ShareMode): ShareSummary => ({ mode, clean: true, blocked: false, findings: [], suspicious: [], knownSources: [], redactions: 0, bytes: 12_345 });
 
+/** What the list has for a session before its file is read: the stat fields only (see `IndexJob`). */
+export function placeholderOf(s: SessionSummary): SessionSummary {
+  return { harness: s.harness, id: s.id, path: s.path, mtimeMs: s.mtimeMs, size: s.size, models: [], prompts: 0, calls: 0, tools: {}, subagents: 0, worker: false, promptHead: [], promptTail: [], searchText: "", pending: true };
+}
+
 export interface FakeSourceOptions {
   sessions?: SessionSummary[];
+  /** Ids that start as stat-only placeholders; `source.fill(id)` reads one, like the index would. */
+  pending?: string[];
+  /** Use this index feed (e.g. a real `IndexJob` whose `sessions` are passed too) instead of the fake one. */
+  index?: IndexFeed;
   shares?: SharesFile;
   view?: (s: SessionSummary) => SessionView;
   review?: (s: SessionSummary, mode: ShareMode) => ShareSummary;
@@ -101,6 +110,10 @@ export interface FakeSource extends Source {
   /** `suspiciousConfirmed` as passed to each `publish`, in order. */
   suspiciousConfirmed: Array<boolean | undefined>;
   reviewed: Array<{ id: string; mode: ShareMode }>;
+  /** The index finished reading `id`: swap in its full summary and notify the browser. */
+  fill(id: string): void;
+  /** Whether the browser told the index to stop (it quit). */
+  stopped: boolean;
 }
 
 export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
@@ -108,8 +121,33 @@ export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
   const published: FakeSource["published"] = [];
   const reviewed: FakeSource["reviewed"] = [];
   const suspiciousConfirmed: FakeSource["suspiciousConfirmed"] = [];
-  return {
-    sessions: opts.sessions ?? sampleSessions(),
+  const full = opts.sessions ?? sampleSessions();
+  const sessions = full.map((s) => (opts.pending?.includes(s.id) ? placeholderOf(s) : s));
+  const listeners = new Set<() => void>();
+  const feed: IndexFeed | undefined = opts.pending
+    ? {
+        progress: () => {
+          const left = sessions.filter((s) => s.pending).length;
+          return left ? { done: sessions.length - left, total: sessions.length } : undefined;
+        },
+        subscribe: (l) => {
+          listeners.add(l);
+          return () => void listeners.delete(l);
+        },
+        stop: () => {
+          source.stopped = true;
+        },
+      }
+    : opts.index;
+  const source: FakeSource = {
+    sessions: opts.index ? full : sessions,
+    index: feed,
+    stopped: false,
+    fill(id) {
+      const at = sessions.findIndex((s) => s.id === id);
+      sessions[at] = full.find((s) => s.id === id)!;
+      for (const l of listeners) l();
+    },
     shares,
     destination: "a secret (unlisted) gist",
     published,
@@ -129,6 +167,7 @@ export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
       return out;
     },
   };
+  return source;
 }
 
 export interface Driver {

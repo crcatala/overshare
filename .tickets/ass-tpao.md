@@ -2,7 +2,7 @@
 id: ass-tpao
 status: closed
 deps: []
-links: [ass-iugy]
+links: [ass-iugy, ass-1c07]
 created: 2026-10-03T02:36:00Z
 type: bug
 priority: 3
@@ -34,3 +34,7 @@ Design: OWN_STEP_FIELDS / OWN_TURN_FIELDS / OWN_SESSION_FIELDS in src/redact/ind
 **2026-10-03T04:23:22Z**
 
 Real-session regression (counts only, knownSecrets: [], default config, own machine, modes full and brief, main 5d559c3 vs this branch, sessions over 12 MB skipped like in ass-iugy): 486 stable sessions (Claude Code + pi) + this repo's live transcript. Payload changed: 0 of 486 in both modes; strings changed: 0; new findings by rule: none; new suspicious: 0; newly blocked: 0. The live transcript grows between the two runs, so it was excluded from the sweep and compared on identical raw text instead: byte-identical payload on main and branch. Exposure: in full mode 131 strings in 23 of the 486 sessions sit under an id/action key inside a tool input (70 action, 61 id) and were previously skipped; they now go through the Redactor and none was altered (no ids mangled, no new noise). Brief mode has no such strings (input is dropped). Honest read: on this machine the gap was latent, not exploited; the fix is about the field name no longer deciding whether redaction applies.
+
+**2026-10-03T05:32:51Z**
+
+Residual (secret-shaped step id / responseId copied as an own field) folded into ass-1c07 rather than filed separately.

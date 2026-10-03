@@ -132,9 +132,9 @@ Layers, in order (see `src/redact/`):
    bodies, sidechains, system prompts and tool schemas, thinking signatures, image data.
    The report lists what was dropped.
 2. **Known local values** — exact values of secret-looking env vars
-   (`*KEY*|*TOKEN*|*SECRET*|*PASSWORD*…`), pi/Claude/Codex credential files, `gh auth token`,
-   `~/.npmrc`, `~/.netrc`, and the session project's `.env*` files. Replaced with
-   `[REDACTED:<NAME>]`. Catches secrets in any format.
+   (`*KEY*|*TOKEN*|*SECRET*|*PASSWORD*…`) and the session project's `.env*` files, plus anything
+   you opt in to or declare (see [What this tool reads and why](#what-this-tool-reads-and-why)).
+   Replaced with `[REDACTED:<NAME>]`. Catches secrets in any format.
 3. **Patterns** — [`@sanity-labs/secret-scan`](https://github.com/sanity-labs/secret-scan)
    (~1,100 TruffleHog-derived rules). Prefix-anchored rules (GitHub, Anthropic, OpenAI,
    AWS, Stripe, Slack, JWT, private keys, connection strings…) are trusted; generic
@@ -160,6 +160,42 @@ unredacted secret next to a caught one would otherwise be printed into your term
 Names taken from the data (env/JSON key names, tool names) appear only if they look like plain
 identifiers, otherwise as `secret`, `key` or `tool`. Other strings the report echoes from the
 transcript or machine (such as the session id) are not yet sanitized (ass-1c07).
+
+### What this tool reads and why
+
+Exact-value replacement is the only layer that catches a secret with no recognizable format
+(a custom internal key, a short password). To do that, `report`, `export`, `publish` and the
+browse publish dialog collect secret values from your machine at the start of each run. They
+live in process memory for that run only: never written to disk, never printed (reports show
+source names and counts, never values), and held in a type that refuses to be stringified.
+
+| Source (`redact.knownSources.<name>`) | What is read | Default |
+|---|---|---|
+| `env` | secret-looking environment variables (`*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASSWORD*`…) | **on** |
+| `projectEnv` | the session project's `.env*` files (not `.example`/`.sample`/`.template`) | **on** |
+| `credentialFiles` | pi `auth.json`, Claude `.credentials.json`, Codex `auth.json`, `~/.config/gh/hosts.yml`, `~/.npmrc`, `~/.netrc` | off |
+| `ghToken` | runs `gh auth token` | off |
+
+`env` and `projectEnv` are on because they are already in the process or in the project the session
+worked in, and agent transcripts are full of `printenv` and `cat .env` output. The other two read
+credential stores a share tool is not expected to open, so you choose them. Turn them on in the config:
+
+```json
+{ "redact": { "knownSources": { "credentialFiles": true, "ghToken": true } } }
+```
+
+Unknown source names and non-boolean values are config errors. Every report lists what was read and
+what was not, with counts only, for example
+`Known values: env (4), project .env (2); not read: credential files, gh auth token (disabled)`.
+The same line is in `report --json` (`knownSources`) and in the browse publish dialog. This
+is about the redaction step only: publishing to a gist still runs `gh auth status`,
+`gh gist create` and `gh api`.
+
+**The tradeoff.** With a source off, a secret that exists only there and has no recognizable format
+can leak: the pattern and entropy layers only see what some rule matched, so an unformatted secret
+that was not harvested is invisible to every layer. For values you know are sensitive, declare them
+instead of enabling a credential store: `--secrets-file <file>` (exact values, per run) or
+`redact.denylist` (literal strings, always).
 
 Pattern redaction is best effort: novel formats, secrets split across lines, or
 proprietary code in `full` mode can still leak. Review before sharing publicly;
@@ -189,7 +225,8 @@ included a full `env` dump with a dozen API keys and an age secret key.
     "username": true,
     "hostname": false,
     "denylist": ["Project Codename"],
-    "allowlist": ["a-known-public-test-token"]
+    "allowlist": ["a-known-public-test-token"],
+    "knownSources": { "env": true, "projectEnv": true, "credentialFiles": false, "ghToken": false }
   }
 }
 ```

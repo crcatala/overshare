@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseClaudeCode } from "../src/adapters/claude-code.js";
-import { availableModes, projectSession } from "../src/modes.js";
+import { availableModes, capToolText, projectSession } from "../src/modes.js";
 import { ClaudeTranscript, ccUsage } from "./helpers.js";
 
 function session() {
@@ -35,8 +35,9 @@ function session() {
 }
 
 describe("share modes", () => {
-  it("full keeps tool detail but truncates long results", () => {
-    const full = projectSession(session(), "full", { maxToolChars: 10 });
+  it("full keeps tool detail whole; capToolText truncates long results (on redacted text, see title-secret-prefix and tool-text-secret-prefix)", () => {
+    expect(JSON.stringify(projectSession(session(), "full"))).toContain("A".repeat(50));
+    const full = capToolText(projectSession(session(), "full"), 10);
     const read = full.turns[0]!.steps.find((s) => s.kind === "tool" && s.name === "Read" && s.id === "r1");
     expect(read).toMatchObject({ result: { truncatedFrom: 50 } });
     expect(read?.kind === "tool" && read.result?.text.startsWith("AAAAAAAAAA\n… [truncated 40 chars]")).toBe(true);

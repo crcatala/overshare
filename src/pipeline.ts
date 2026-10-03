@@ -2,11 +2,12 @@ import { hostname as osHostname, homedir, userInfo } from "node:os";
 import { parseSession } from "./adapters/index.js";
 import type { DropCounts, SubagentFileInput } from "./adapters/shared.js";
 import type { AgentShareConfig } from "./config.js";
-import { projectSession } from "./modes.js";
+import { capRedacted } from "./cap.js";
+import { capToolText, projectSession } from "./modes.js";
 import { collectKnownSecrets, type KnownSecret, type KnownSourceUse } from "./redact/known-values.js";
 import { Redactor, SECRET_CATEGORIES, redactSession, type RedactionFinding } from "./redact/index.js";
 import { rescanPayload, type RescanIssue, type SuspiciousItem } from "./redact/rescan.js";
-import type { HarnessName, NormalizedSession, SessionStats, ShareMode } from "./schema.js";
+import type { HarnessName, NormalizedSession, SessionStats, ShareMode, Step } from "./schema.js";
 import { computeStats } from "./stats.js";
 import { TOOL_NAME, TOOL_VERSION } from "./version.js";
 
@@ -94,8 +95,10 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
   });
 
   // Project first so only content that will actually be published is redacted and reported.
-  const projected = projectSession(full, opts.mode, { maxToolChars: opts.config.maxToolChars });
-  const session = redactSession(projected, redactor);
+  // Every length cap on text that reaches the payload runs AFTER redaction (ass-7x3c): the adapters keep summaries and
+  // descriptions whole and projection cuts nothing, so a secret is never split by a cut and left as an unmatched prefix.
+  const projected = projectSession(full, opts.mode);
+  const session = capSummaries(capToolText(redactSession(projected, redactor), opts.config.maxToolChars));
   if (derivedTitle && session.title) session.title = capTitle(session.title);
   const counts = Object.fromEntries(Object.entries(redactor.counts).filter(([, n]) => (n ?? 0) > 0)) as Record<string, number>;
   session.redaction = {
@@ -130,19 +133,28 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
   };
 }
 
-const TITLE_MAX = 80;
-/** Replacement tokens the Redactor writes (`[REDACTED:rule]`, `[email]`, ...): one is never cut in half. */
-const TOKEN = /\[[^\]\s]*\]/g;
-
-/** Cap an already redacted title at `TITLE_MAX` characters, the last being an ellipsis. */
-export function capTitle(title: string): string {
-  if (title.length <= TITLE_MAX) return title;
-  let cut = TITLE_MAX - 1;
-  for (const m of title.matchAll(TOKEN)) {
-    if (m.index < cut && m.index + m[0].length > cut) cut = m.index;
-  }
-  return `${title.slice(0, cut).trimEnd()}…`;
+/** Cap the one-line texts the adapters keep whole: tool summaries, subagent descriptions and the commands of a tool group. */
+function capSummaries(session: NormalizedSession): NormalizedSession {
+  const cap = (text: string) => capRedacted(text, SUMMARY_MAX);
+  const turns = session.turns.map((turn) => ({
+    ...turn,
+    steps: turn.steps.map((s): Step => {
+      // A file path is not cut: it was never capped, and the viewer shortens it relative to the project.
+      if (s.kind === "tool") return s.action === "read" || s.action === "edit" || s.action === "write" ? s : { ...s, summary: cap(s.summary) };
+      if (s.kind === "subagent") return s.description ? { ...s, description: cap(s.description) } : s;
+      if (s.kind === "toolGroup") return { ...s, commands: s.commands.map(cap) };
+      return s;
+    }),
+  }));
+  return { ...session, turns };
 }
+
+const TITLE_MAX = 80;
+/** A tool step's one-line summary and a subagent's description, as published. */
+export const SUMMARY_MAX = 160;
+
+/** Cap an already redacted title at `TITLE_MAX` characters, the last being an ellipsis; a replacement token is never cut. */
+export const capTitle = (title: string): string => capRedacted(title, TITLE_MAX);
 
 function safeUsername(): string | undefined {
   try {

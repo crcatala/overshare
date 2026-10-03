@@ -1,8 +1,8 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { buildIndex } from "../src/sessions/index.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildIndex, IndexJob } from "../src/sessions/index.js";
 import { matches, parseQuery, parseSince, searchSessions } from "../src/sessions/query.js";
 import { forgetShare, parseShareRef } from "../src/publish/index.js";
 import { loadShares, recordShare, removeShares, sharesFor, type ShareRecord } from "../src/sessions/shares.js";
@@ -291,5 +291,119 @@ describe("buildIndex", () => {
     parsed = [];
     expect(run()[0]?.title).toBe("New title");
     expect(Math.max(...parsed)).toBe(1);
+  });
+});
+
+describe("IndexJob (incremental index)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  /** `n` Claude sessions whose mtimes make sess-0 the newest. */
+  function setup(n: number) {
+    const dir = mkdtempSync(join(tmpdir(), "idx-job-"));
+    const claude = join(dir, "claude");
+    mkdirSync(join(claude, "-home-x"), { recursive: true });
+    const files = Array.from({ length: n }, (_, i) => {
+      const file = join(claude, "-home-x", `sess-${i}.jsonl`);
+      const t = new ClaudeTranscript(`sess-${i}`, "/home/tester/work/demo");
+      t.meta("ai-title", { aiTitle: `Title ${i}` });
+      t.user(`prompt ${i}`);
+      writeFileSync(file, t.toJsonl());
+      utimesSync(file, new Date(2026, 0, 1, 0, 0, 0), new Date(2026, 0, 1, 12, n - i));
+      return file;
+    });
+    const cachePath = join(dir, "cache.json");
+    const roots = { "claude-code": claude, pi: join(dir, "pi") };
+    const cachedIds = () => Object.keys(JSON.parse(readFileSync(cachePath, "utf8")).sessions).map((p) => p.match(/sess-(\d+)/)![1]);
+    return { dir, files, cachePath, roots, cachedIds };
+  }
+  /** Let `n` slices run (the job yields with setImmediate between slices). */
+  const slices = async (n: number) => {
+    for (let i = 0; i < n; i++) await vi.advanceTimersToNextTimerAsync();
+  };
+  const titles = (job: IndexJob) => job.sessions.map((s) => s.title ?? (s.pending ? "…" : "?"));
+
+  it("lists every session at once as stat-only placeholders, newest first, and fills them in as slices run", async () => {
+    const { roots, cachePath } = setup(3);
+    const job = new IndexJob({ roots, cachePath, sliceMs: 0 });
+    expect(job.sessions.map((s) => s.id)).toEqual(["sess-0", "sess-1", "sess-2"]);
+    expect(job.sessions.every((s) => s.pending && s.size > 0 && s.harness === "claude-code")).toBe(true);
+    expect(job.progress()).toEqual({ done: 0, total: 3 });
+    const seen: string[][] = [];
+    job.subscribe(() => seen.push(titles(job)));
+    await vi.runAllTimersAsync();
+    expect(seen).toEqual([["Title 0", "…", "…"], ["Title 0", "Title 1", "…"], ["Title 0", "Title 1", "Title 2"]]);
+    expect(job.sessions.some((s) => s.pending)).toBe(false);
+    expect(job.progress()).toBeUndefined();
+  });
+
+  it("reads several files per slice while the time budget allows, and notifies once per slice", async () => {
+    const { roots, cachePath } = setup(4);
+    let t = 0;
+    const job = new IndexJob({ roots, cachePath, sliceMs: 10, now: () => (t += 1) });
+    let notified = 0;
+    job.subscribe(() => notified++);
+    await vi.runAllTimersAsync();
+    expect(job.sessions.every((s) => !s.pending)).toBe(true);
+    expect(notified).toBeLessThan(4);
+    expect(notified).toBeGreaterThan(0);
+  });
+
+  it("persists only read summaries, periodically, so a quit mid-index keeps progress", async () => {
+    const { roots, cachePath, cachedIds } = setup(5);
+    const job = new IndexJob({ roots, cachePath, sliceMs: 0, saveEveryMs: 0 });
+    await slices(2);
+    expect(cachedIds().sort()).toEqual(["0", "1"]);
+    expect(readFileSync(cachePath, "utf8")).not.toContain("pending");
+    job.stop(); // the user quits
+    await vi.runAllTimersAsync();
+    expect(job.sessions.filter((s) => !s.pending)).toHaveLength(2); // nothing more was read
+    // The next run re-reads only what was not read before the quit.
+    const parsed: number[] = [];
+    expect(buildIndex({ roots, cachePath, onProgress: (p) => parsed.push(p.parsed) })).toHaveLength(5);
+    expect(Math.max(...parsed)).toBe(3);
+  });
+
+  it("stop() saves reads that the periodic save has not reached yet", async () => {
+    const { roots, cachePath, cachedIds } = setup(4);
+    const job = new IndexJob({ roots, cachePath, sliceMs: 0, saveEveryMs: 60_000 });
+    await slices(3);
+    expect(() => readFileSync(cachePath)).toThrow(); // nothing saved yet
+    job.stop();
+    expect(cachedIds().sort()).toEqual(["0", "1", "2"]);
+    job.stop(); // idempotent: it is also called from an exit handler
+    expect(cachedIds().sort()).toEqual(["0", "1", "2"]);
+  });
+
+  it("saves once at the end and has nothing left to read on the next run", async () => {
+    const { roots, cachePath, cachedIds } = setup(3);
+    const job = new IndexJob({ roots, cachePath });
+    await vi.runAllTimersAsync();
+    expect(cachedIds().sort()).toEqual(["0", "1", "2"]);
+    const warm = new IndexJob({ roots, cachePath });
+    expect(warm.progress()).toBeUndefined();
+    expect(warm.sessions.some((s) => s.pending)).toBe(false);
+    expect(titles(warm)).toEqual(titles(job));
+  });
+
+  it("shows a changed file as a placeholder again and re-reads only it", async () => {
+    const { roots, cachePath, files } = setup(3);
+    new IndexJob({ roots, cachePath });
+    await vi.runAllTimersAsync();
+    writeFileSync(files[1]!, `${readFileSync(files[1]!, "utf8")}${JSON.stringify({ type: "ai-title", aiTitle: "New title" })}\n`);
+    const job = new IndexJob({ roots, cachePath, sliceMs: 0 });
+    expect(job.sessions.filter((s) => s.pending).map((s) => s.id)).toEqual(["sess-1"]); // (its new mtime also makes it the newest)
+    expect(job.progress()).toEqual({ done: 2, total: 3 });
+    await vi.runAllTimersAsync();
+    expect(job.sessions.find((s) => s.id === "sess-1")!.title).toBe("New title");
+  });
+
+  it("drops a file that vanished before it was read", async () => {
+    const { roots, cachePath, files, cachedIds } = setup(3);
+    const job = new IndexJob({ roots, cachePath, sliceMs: 0 });
+    rmSync(files[1]!);
+    await vi.runAllTimersAsync();
+    expect(job.sessions.map((s) => s.id)).toEqual(["sess-0", "sess-2"]);
+    expect(cachedIds().sort()).toEqual(["0", "2"]);
   });
 });

@@ -47,6 +47,8 @@ export interface SessionSummary {
   promptTail: string[];
   /** Lower-cased title + project + prompt text for substring search (capped). */
   searchText: string;
+  /** Set only on the stat-only placeholder row the browser shows before the file is read; never in the cache. */
+  pending?: true;
 }
 
 type Entry = Record<string, any>;

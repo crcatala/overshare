@@ -180,7 +180,9 @@ Layers, in order (see `src/redact/`):
    username → `[user]`, emails → `[email]` (no-reply/example addresses kept). Repo and
    project names are kept. Hostname redaction is opt-in.
 5. **Final re-scan** of the exact payload bytes: any known value, high-confidence
-   pattern or home path still present **blocks publishing**.
+   pattern or home path still present **blocks publishing**. As a backstop (never the guard against a secret cut in two
+   before redaction) it also looks for a long, random-looking prefix or suffix of a known value (**blocks**) or of a secret a
+   pattern redacted (**needs confirmation**); ordinary text a value starts or ends with, like `postgres://user:` or a host name, never counts.
 
 Report status:
 - **CLEAN** — no secrets found; `publish --yes` publishes without prompting.

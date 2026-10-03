@@ -109,7 +109,7 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
   session.generator = { name: TOOL_NAME, version: TOOL_VERSION, sharedAt: (opts.now ?? new Date()).toISOString() };
 
   const json = JSON.stringify(session);
-  const { issues: rescan, suspicious } = rescanPayload(json, { knownSecrets, homeDir: machine.homeDir, allowlist: redact.allowlist });
+  const { issues: rescan, suspicious } = rescanPayload(json, { knownSecrets, matchedSecrets: redactor.matchedSecrets(), homeDir: machine.homeDir, allowlist: redact.allowlist });
   const secretsFound = [...SECRET_CATEGORIES].some((c) => (counts[c] ?? 0) > 0);
   return {
     session,

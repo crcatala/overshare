@@ -1,5 +1,5 @@
 import type { NormalizedSession } from "../schema.js";
-import { SKIP_KEYS, describeStep, turnLabel } from "./index.js";
+import { OWN_SESSION_FIELDS, OWN_STEP_FIELDS, OWN_TURN_FIELDS, describeStep, turnLabel } from "./index.js";
 import type { KnownSecret } from "./known-values.js";
 import { safeLabel, withSafeLabels } from "./labels.js";
 import { findSecretPatterns } from "./patterns.js";
@@ -71,7 +71,7 @@ export function rescanPayload(
         issues.push({ rule: m.rule, length: value.length, location });
         continue;
       }
-      // Identifier fields are never redacted and generic rules fire on ids; high matches there still block.
+      // Our own identifier fields are copied, not redacted, and generic rules fire on ids; high matches there still block.
       if (meta) continue;
       const known = seen.get(value);
       if (known) {
@@ -93,40 +93,42 @@ export function rescanPayload(
 interface Visit {
   text: string;
   location: string;
-  /** An identifier field of a turn, step or the session itself, which the Redactor skips on purpose (`SKIP_KEYS`). */
+  /** One of our schema's identifier fields (`OWN_STEP_FIELDS` and friends), which the Redactor copies on purpose. Copied is not trusted: some come from the transcript, so high-confidence matches here still block. */
   meta: boolean;
 }
+
+const NONE: ReadonlySet<string> = new Set();
 
 /**
  * Every string and object key of the payload with a location that is safe to print: turn and step as in the
  * report's findings, then the field path. Keys come from the data, so they only appear as `safeLabel`s.
  */
 function collectStrings(root: unknown, out: Visit[]): void {
-  // Session-level fields (`responses[].id`, ...) are our own schema, so an identifier key is one at any depth.
-  // Inside a turn it is one only directly on the turn/step: the Redactor skips these keys at any depth, so an `id`
-  // inside a tool input is real content and stays covered.
-  const walk = (v: unknown, key: string, scope: string, path: string, deepMeta = false): void => {
+  // `own` names the identifier fields of the object being walked (the same sets the Redactor uses), matched by the
+  // key path from that object, array indices dropped. A string is one only when it sits directly on its key, as the
+  // Redactor requires; an `id` inside a tool input (`input.id`) is content and stays covered.
+  const walk = (v: unknown, scope: string, path: string, route: string[], own: ReadonlySet<string>, direct = false): void => {
     const here = (isKey = false) => `${scope}${path ? ` · ${path}` : ""}${isKey ? " (object key)" : ""}`;
     if (typeof v === "string") {
-      out.push({ text: v, location: here(), meta: SKIP_KEYS.has(key) && (deepMeta || !path.includes(".")) });
+      out.push({ text: v, location: here(), meta: direct && own.has(route.join(".")) });
     } else if (Array.isArray(v)) {
-      v.forEach((x, i) => walk(x, key, scope, `${path}[${i}]`, deepMeta));
+      v.forEach((x, i) => walk(x, scope, `${path}[${i}]`, route, own));
     } else if (v && typeof v === "object") {
       for (const [k, x] of Object.entries(v)) {
         out.push({ text: k, location: here(true), meta: false });
-        walk(x, k, scope, path ? `${path}.${safeLabel(k, "key")}` : safeLabel(k, "key"), deepMeta);
+        walk(x, scope, path ? `${path}.${safeLabel(k, "key")}` : safeLabel(k, "key"), [...route, k], own, true);
       }
     }
   };
   const session = root as Partial<NormalizedSession> | null;
-  if (!session || typeof session !== "object" || !Array.isArray(session.turns)) return walk(root, "", "payload", "");
+  if (!session || typeof session !== "object" || !Array.isArray(session.turns)) return walk(root, "payload", "", [], NONE);
   const { turns, ...rest } = session;
-  walk(rest, "", "session", "", true);
+  walk(rest, "session", "", [], OWN_SESSION_FIELDS);
   turns.forEach((turn, i) => {
     const { user, steps, ...fields } = turn;
     const base = turnLabel(typeof turn.index === "number" ? turn.index : i);
-    walk(fields, "", base, "");
-    if (user) walk(user, "", `${base} · prompt`, "");
-    (Array.isArray(steps) ? steps : []).forEach((step) => walk(step, "", `${base} · ${describeStep(step)}`, ""));
+    walk(fields, base, "", [], OWN_TURN_FIELDS);
+    if (user) walk(user, `${base} · prompt`, "", [], NONE);
+    (Array.isArray(steps) ? steps : []).forEach((step) => walk(step, `${base} · ${describeStep(step)}`, "", [], OWN_STEP_FIELDS));
   });
 }

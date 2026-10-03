@@ -115,6 +115,8 @@ export function capToolText(session: NormalizedSession, max: number = DEFAULT_MA
   const steps = (list: Step[]): Step[] =>
     list.map((s): Step => {
       if (s.kind === "tool") return { ...s, input: truncateDeep(s.input, max), result: truncateResult(s.result, max) };
+      // Only a background (async) answer is bounded at SUBAGENT_RESULT_CHARS. A foreground answer, or a transcript summary
+      // on a step that was not launched in the background, keeps the `maxToolChars` cap.
       if (s.kind === "subagent") return { ...s, result: truncateResult(s.result, s.async ? Math.min(max, SUBAGENT_RESULT_CHARS) : max) };
       return s;
     });

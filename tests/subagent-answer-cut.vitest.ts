@@ -148,6 +148,32 @@ describe("a secret that straddles the cut of a background subagent's answer", ()
     expect(answerOf(fg)).toBe("y".repeat(CUT + 500));
   });
 
+  it("a transcript summary on a step that was not launched in the background keeps the maxToolChars cap, and a secret at that cut is not published", () => {
+    const summary = (answer: string) => {
+      const t = new ClaudeTranscript()
+        .user("go")
+        .assistant("m1", [{ type: "tool_use", id: LAUNCH, name: "Agent", input: { subagent_type: "Explore", description: "look" } }], ccUsage(1, 1))
+        .assistant("m2", [{ type: "text", text: "done" }], ccUsage(1, 1));
+      const line = { type: "assistant", isSidechain: true, uuid: "sc-1", timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, 0, 1)).toISOString(), message: { id: "msg_a1", model: "claude-haiku-4-5-20251001", role: "assistant", content: [{ type: "text", text: answer }], usage: ccUsage(5, 7, 100, 50) } };
+      return { raw: t.toJsonl(), subagentFiles: [{ fileName: "agent-a1.jsonl", raw: `${JSON.stringify(line)}\n`, meta: { toolUseId: LAUNCH } }] };
+    };
+    const run = (answer: string) => {
+      const { raw, subagentFiles } = summary(answer);
+      return prepareShare(raw, { mode: "full", config: DEFAULT_CONFIG, harness: "claude-code", machine, subagentFiles, knownSecrets: [] });
+    };
+    const step = (p: ReturnType<typeof prepareShare>) => p.session.turns.flatMap((t) => t.steps).find((s): s is SubagentStep => s.kind === "subagent")!;
+
+    const long = "w".repeat(CUT + 500);
+    expect(step(run(long)).async).toBeUndefined();
+    expect(step(run(long)).result).toEqual({ text: long }); // not cut at 4000
+
+    const secret = fake.github();
+    const prepared = run(`${lead(DEFAULT_CONFIG.maxToolChars - 5)}${secret}`);
+    expect(step(prepared).result?.truncatedFrom).toBeGreaterThan(DEFAULT_CONFIG.maxToolChars);
+    for (const text of Object.values(surfacesOf(prepared))) expect(fragments(secret).filter((f) => text.includes(f))).toHaveLength(0);
+    expect(prepared.report.blocked).toBe(false);
+  });
+
   it("the adapter keeps the answer whole, so the cap lives in one place (after redaction)", () => {
     for (const entry of ENTRIES) {
       const long = "z".repeat(CUT + 500);

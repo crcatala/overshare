@@ -37,8 +37,32 @@ export interface RedactorOptions {
 
 const EMAIL = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 const SAFE_EMAIL = /^(noreply@|no-reply@)|@(users\.noreply\.github\.com|example\.(com|org|net)|anthropic\.com)$/i;
-// Keys whose values are identifiers/metadata, never user content.
-export const SKIP_KEYS: ReadonlySet<string> = new Set(["schema", "id", "responseId", "timestamp", "kind", "event", "action", "sessionId", "leafId", "startedAt", "endedAt", "sharedAt"]);
+/**
+ * Strings the tool itself wrote (ids, timestamps, kinds), by place in the schema. They are copied as they are: they are
+ * never user content, and the email/home-path/username rules could mangle them. Everything else is free-form
+ * (tool input, tool results, event detail, prompts) and is redacted with no key skipped: an `id`, `kind`, `event` or
+ * `action` inside a tool input is the tool's data, and its name must not decide whether it is redacted.
+ * Do not add a key here because some free-form object happens to use it.
+ *
+ * Steps: their direct fields (`StepBase`, the `kind` tag, `ToolStep.action`, `EventStep.event`).
+ */
+export const OWN_STEP_FIELDS: ReadonlySet<string> = new Set(["id", "responseId", "timestamp", "kind", "event", "action"]);
+/** Turns: their direct fields. */
+export const OWN_TURN_FIELDS: ReadonlySet<string> = new Set(["timestamp"]);
+/**
+ * Session-level fields outside `turns`, as dotted paths with array indices dropped. The Redactor never walks them
+ * (only `title` and `project` are); the final re-scan does, and treats exactly these as identifiers.
+ */
+export const OWN_SESSION_FIELDS: ReadonlySet<string> = new Set([
+  "schema",
+  "startedAt",
+  "endedAt",
+  "source.sessionId",
+  "source.leafId",
+  "generator.sharedAt",
+  "responses.id",
+  "responses.timestamp",
+]);
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -139,7 +163,7 @@ export class Redactor {
 /** Deep-redact every string in a session (in place semantics avoided: returns a copy). */
 export function redactSession(session: NormalizedSession, redactor: Redactor): NormalizedSession {
   const walk = (value: unknown, key: string, where: string): unknown => {
-    if (typeof value === "string") return SKIP_KEYS.has(key) ? value : redactor.redactField(key, value, where);
+    if (typeof value === "string") return redactor.redactField(key, value, where);
     if (Array.isArray(value)) return value.map((v) => walk(v, key, where));
     if (value && typeof value === "object") {
       const out: Record<string, unknown> = {};
@@ -148,13 +172,19 @@ export function redactSession(session: NormalizedSession, redactor: Redactor): N
     }
     return value;
   };
+  // Own identifier fields are exempt only directly on the step; everything below (tool input, results, ...) is walked whole.
+  const walkStep = (step: Record<string, unknown>, where: string): Record<string, unknown> => {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(step)) out[k] = typeof v === "string" && OWN_STEP_FIELDS.has(k) ? v : walk(v, k, where);
+    return out;
+  };
   const copy: NormalizedSession = { ...session };
   copy.title = session.title ? redactor.redactText(session.title, "title") : session.title;
   copy.project = walk(session.project, "", "project") as NormalizedSession["project"];
   copy.turns = session.turns.map((turn) => ({
     ...turn,
     user: turn.user ? (walk(turn.user, "", `${turnLabel(turn.index)} · prompt`) as typeof turn.user) : undefined,
-    steps: turn.steps.map((step) => walk(step, "", `${turnLabel(turn.index)} · ${describeStep(step)}`) as typeof step),
+    steps: turn.steps.map((step) => walkStep(step as unknown as Record<string, unknown>, `${turnLabel(turn.index)} · ${describeStep(step)}`) as unknown as typeof step),
   }));
   return copy;
 }

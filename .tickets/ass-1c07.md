@@ -1,6 +1,6 @@
 ---
 id: ass-1c07
-status: open
+status: closed
 deps: []
 links: [ass-5qv5, ass-tpao]
 created: 2026-10-02T20:05:57Z
@@ -25,3 +25,9 @@ Fix: run these through `safeLabel` (src/redact/labels.ts) or an equivalent path-
 
 Report (human and --json) never echoes sessionId, known-secret source, or data-keyed stats strings unless they pass the identifier check; a secret-shaped step id or responseId is redacted in the payload (both harnesses, real pipeline); regression tests planted with secret-shaped values.
 
+
+## Notes
+
+**2026-10-03T23:19:22Z**
+
+Done: Redactor.redactIdentifier (known values + denylist + secret patterns, no email/path/user rules) applied to step id/responseId and session.responses[].id; report sessionId, project .env source name and data-keyed stats (model ids) pass safeLabel/safeKeys. Tool names were already safeLabel'd in computeStats. Not changed (by design): payload source.sessionId/leafId, still only covered by the final re-scan (a secret-shaped one blocks); payload stats model keys; medium-confidence generic matches in ids stay exempt from the suspicious tier. 13 new tests in tests/untrusted-identifiers.vitest.ts (10 fail without the fix). No real sessions used.

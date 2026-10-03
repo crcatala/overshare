@@ -41,7 +41,8 @@ const SAFE_EMAIL = /^(noreply@|no-reply@)|@(users\.noreply\.github\.com|example\
  * Identifier fields of our schema, exempt from redaction by their position in it (not by their key name). They are
  * copied as they are because the email/home-path/username rules could mangle ids and timestamps. The exemption is
  * not a claim that the value is trusted: some are copied from the transcript (a tool or subagent step `id` is the
- * harness call id), so a secret-shaped one is only caught by the final re-scan (see ass-1c07).
+ * harness call id), so `redactSession` runs `id` and `responseId` through `Redactor.redactIdentifier` (known values and
+ * secret patterns only) and the final re-scan stays the backstop for what no pattern recognises (ass-1c07).
  *
  * Everything else is free-form (tool input, tool results, event detail, prompts) and is redacted with no key
  * skipped: an `id`, `kind`, `event` or `action` inside a tool input is the tool's data, and its name must not
@@ -119,6 +120,19 @@ export class Redactor {
   /** Redact one string. `where` labels findings for the report. */
   redactText(text: string, where = ""): string {
     if (!text) return text;
+    return this.redactPersonal(this.redactSecrets(text, where));
+  }
+
+  /**
+   * Redact a value the transcript supplies as an identifier (a call id, a response id): exact known values and secret
+   * patterns, but not the email/home-path/username/hostname rules, which could mangle an id that merely resembles one.
+   */
+  redactIdentifier(id: string, where = ""): string {
+    return id ? this.redactSecrets(id, where) : id;
+  }
+
+  /** Known values, the denylist and the secret patterns. */
+  private redactSecrets(text: string, where: string): string {
     let out = text;
 
     for (const k of this.known) {
@@ -154,6 +168,12 @@ export class Redactor {
       pieces.push(out.slice(pos));
       out = pieces.join("");
     }
+    return out;
+  }
+
+  /** Emails, home paths, the user name and the host name. */
+  private redactPersonal(text: string): string {
+    let out = text;
     if (this.opts.redactEmails !== false) {
       out = out.replace(EMAIL, (email) => {
         if (SAFE_EMAIL.test(email) || this.allow.has(email)) return email;
@@ -200,12 +220,17 @@ export function redactSession(session: NormalizedSession, redactor: Redactor): N
   // Own identifier fields are exempt only directly on the step; everything below (tool input, results, ...) is walked whole.
   const walkStep = (step: Record<string, unknown>, where: string): Record<string, unknown> => {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(step)) out[k] = typeof v === "string" && OWN_STEP_FIELDS.has(k) ? v : walk(v, k, where);
+    for (const [k, v] of Object.entries(step)) {
+      if (typeof v === "string" && OWN_STEP_FIELDS.has(k)) out[k] = k === "id" || k === "responseId" ? redactor.redactIdentifier(v, where) : v;
+      else out[k] = walk(v, k, where);
+    }
     return out;
   };
   const copy: NormalizedSession = { ...session };
   copy.title = session.title ? redactor.redactText(session.title, "title") : session.title;
   copy.project = walk(session.project, "", "project") as NormalizedSession["project"];
+  // The response ids are the harness's message ids, copied from the transcript like a step's `responseId`.
+  copy.responses = session.responses.map((r) => ({ ...r, id: redactor.redactIdentifier(r.id, "responses") }));
   copy.turns = session.turns.map((turn) => ({
     ...turn,
     user: turn.user ? (walk(turn.user, "", `${turnLabel(turn.index)} · prompt`) as typeof turn.user) : undefined,

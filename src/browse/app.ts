@@ -509,9 +509,10 @@ export class BrowserApp extends Screen {
         inner.push(`${formatBytes(r.bytes)} payload · ${plural(r.redactions, "redaction")}`);
         inner.push(r.blocked ? st.red("✗ blocked: unredacted secrets remain") : r.clean ? st.green("✓ clean") : st.yellow(`! ${plural(r.findings.length, "finding")} — redacted, please review`));
         for (const x of r.findings.slice(0, 3)) inner.push(st.dim(`  ${x.rule} @ ${x.where}`));
-        inner.push(...wrap(st.dim(`known values: ${formatKnownSources(r.knownSources)}`), width - 6).slice(0, 3));
+        // Not capped: the "not read" half sits at the end and is the part a narrow terminal would otherwise cut.
+        inner.push(...wrap(st.dim(`known values: ${formatKnownSources(r.knownSources)}`), width - 6));
       }
-      for (const warning of f.preflight.warnings) inner.push(...wrap(st.yellow(`warning: ${warning}`), width - 6).slice(0, 3));
+      for (const warning of f.preflight.warnings) inner.push(...wrap(st.yellow(`warning: ${warning}`), width - 6));
       if (f.alreadyShared) inner.push(st.yellow("this session was already shared once"));
       inner.push("");
       inner.push(
@@ -523,7 +524,7 @@ export class BrowserApp extends Screen {
     else if (f.step === "error") inner.push(st.red("✗ publishing failed:"), ...wrap(f.failure ?? "unknown error", width - 6).slice(0, 6), "", `${st.key("enter")} ${st.dim("back")}  ${st.key("esc")} ${st.dim("close")}`);
     else {
       inner.push(st.green("✓ published"), st.cyan(f.url ?? ""));
-      for (const warning of f.warnings) inner.push(...wrap(st.yellow(`warning: ${warning}`), width - 6).slice(0, 3));
+      for (const warning of f.warnings) inner.push(...wrap(st.yellow(`warning: ${warning}`), width - 6));
       inner.push("", `${st.key("y")} ${st.dim("copy link")}  ${st.key("enter")} ${st.dim("close")}`);
     }
     return box("Publish", inner, width);

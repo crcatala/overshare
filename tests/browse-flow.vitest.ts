@@ -112,6 +112,25 @@ describe("publish dialog", () => {
     expect(text).toContain("not read: credential files, gh auth token (disabled)");
   });
 
+  it("keeps the whole known-sources line, including what was not read, on a narrow terminal", async () => {
+    const knownSources = [
+      { id: "env" as const, enabled: true, count: 14 },
+      { id: "projectEnv" as const, enabled: true, count: 12 },
+      { id: "credentialFiles" as const, enabled: false, count: 0 },
+      { id: "ghToken" as const, enabled: false, count: 0 },
+      { id: "secrets-file" as const, enabled: true, count: 3 },
+    ];
+    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], knownSources, redactions: 0, bytes: 1000 }) });
+    await d.press("p");
+    for (const width of [60, 44, 36]) {
+      // Only the dialog's own rows: on a narrow screen the list behind it shows through right of the border.
+      const lines = d.text(width, 40).split("\n");
+      const dialog = lines.slice(lines.findIndex((l) => l.includes("╭─ Publish")), lines.findIndex((l) => l.includes("╰")));
+      const text = dialog.map((l) => /^\s*│ ([^│]*)│/.exec(l)?.[1] ?? "").join(" ").replace(/\s+/g, " ");
+      expect(text, `width ${width}`).toContain("known values: env (14), project .env (12), secrets file (3); not read: credential files, gh auth token (disabled)");
+    }
+  });
+
   it("cannot continue when publishing is not configured, and says why", async () => {
     const d = drive({ preflight: () => ({ error: "R2 credentials missing: set AGENT_SHARE_R2_ACCESS_KEY_ID", warnings: [] }) });
     await d.press("p");

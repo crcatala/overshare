@@ -41,9 +41,17 @@ export function detectHarness(raw: string): HarnessName | undefined {
   return undefined;
 }
 
+/** The transcript is not in a format we read. The message is fixed text: it never quotes the transcript. */
+export class UnrecognizedFormatError extends Error {
+  constructor() {
+    super("Could not detect the transcript format (supported: claude-code, pi)");
+    this.name = "UnrecognizedFormatError";
+  }
+}
+
 export function parseSession(raw: string, harness?: HarnessName, options?: AdapterOptions): AdapterResult {
   const name = harness ?? detectHarness(raw);
   const adapter = ADAPTERS.find((a) => a.name === name);
-  if (!adapter) throw new Error("Could not detect the transcript format (supported: claude-code, pi)");
+  if (!adapter) throw new UnrecognizedFormatError();
   return adapter.parse(raw, options);
 }

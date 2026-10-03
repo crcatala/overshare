@@ -75,6 +75,34 @@ describe("every screen fits the terminal", () => {
     }
   });
 
+  describe("while a session is read or scanned in the background", () => {
+    const never = () => new Promise<never>(() => {});
+    const LOADING: Array<[string, Parameters<typeof drive>[0], (d: Driver) => Promise<void>]> = [
+      ["viewer reading the session", { view: never, review: never }, async (d) => void (await d.press(KEY.enter))],
+      ["viewer reading, keys pressed meanwhile", { view: never, review: never }, async (d) => void (await d.press(KEY.enter, "j", "v"))],
+      ["viewer waiting for the redaction check", { review: never }, async (d) => void (await d.press(KEY.enter))],
+      ["viewer waiting for the check, everything level", { review: never }, async (d) => void (await d.press(KEY.enter, "v"))],
+      ["publish dialog scanning", { review: never }, async (d) => void (await d.press("p"))],
+      ["publish dialog scanning another mode", { review: never }, async (d) => void (await d.press("p", "1"))],
+      ["publish dialog over a loading viewer", { view: never, review: never }, async (d) => void (await d.press(KEY.enter, "p"))],
+    ];
+    for (const [name, opts, setup] of LOADING) {
+      it(name, async () => {
+        const d = drive(opts);
+        await setup(d);
+        for (const [width, height] of SIZES) {
+          d.app.attach(() => height, () => {});
+          const lines = d.app.draw(width, height);
+          expect(lines, `${name} @ ${width}x${height}`).toHaveLength(height);
+          expect(lines.map((l) => visibleWidth(l)).filter((n) => n > width), `${name} @ ${width}x${height} has over-wide lines`).toEqual([]);
+          const rendered = d.app.render(width);
+          expect(rendered, `${name} @ ${width}x${height} render`).toHaveLength(height);
+          expect(Math.max(...rendered.map(visibleWidth))).toBeLessThanOrEqual(width);
+        }
+      });
+    }
+  });
+
   it("render never exceeds the width even in a tiny terminal", async () => {
     const d = drive();
     await d.press("p");

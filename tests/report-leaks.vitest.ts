@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { summarizeShare } from "../src/browse/source.js";
+import { summarizeShare } from "../src/browse/job.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { prepareShare, type PrepareOptions } from "../src/pipeline.js";
 import { Redactor } from "../src/redact/index.js";

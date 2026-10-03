@@ -1,0 +1,8 @@
+# Fake credentials only. These files plant secret-shaped fakes on purpose (the redaction pipeline's leak tests and the
+# false-positive measurement). Scoped to the files, not to tests/, so a real credential pasted into any other test is still flagged.
+version: 2
+secret:
+  ignored-paths:
+    - tests/secret-leaks.vitest.ts
+    - tests/fragment-backstop.vitest.ts
+    - scripts/measure-fragment-fp.ts

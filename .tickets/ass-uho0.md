@@ -1,7 +1,7 @@
 ---
 id: ass-uho0
 status: open
-deps: []
+deps: [ass-7x3c]
 links: []
 created: 2026-10-03T17:57:51Z
 type: task
@@ -17,3 +17,9 @@ Defense in depth for the ass-ahh1 class (a truncated secret matches no rule). Id
 
 Check lands with a measured false-positive rate on the fixture sessions, or is dropped with the measurement recorded.
 
+
+## Notes
+
+**2026-10-03T19:05:09Z**
+
+DECISION (user, 2026-10-03): do this LAST, after ass-7x3c, and only as a defense-in-depth backstop, never as the primary guard for truncation. Do not ship a check that can block ordinary shares: measure the false-positive rate first (fixture sessions, then counts-only dry runs), and if it cannot be made quiet, drop it and record the measurement here instead. Never expose the raw value (matcher method on SecretValue only).

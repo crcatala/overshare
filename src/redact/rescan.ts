@@ -3,6 +3,7 @@ import { OWN_SESSION_FIELDS, OWN_STEP_FIELDS, OWN_TURN_FIELDS, describeStep, tur
 import type { KnownSecret } from "./known-values.js";
 import { safeLabel, withSafeLabels } from "./labels.js";
 import { findSecretPatterns } from "./patterns.js";
+import type { FragmentPolicy } from "./secret-value.js";
 
 /** What the re-scan found, never the value: not a fragment, not a hash. The length is the only detail. */
 export interface RescanIssue {
@@ -34,6 +35,14 @@ export interface RescanResult {
 }
 
 /**
+ * What counts as a leaked fragment of a secret. Chosen from the measurement in ass-uho0: no would-block case on the
+ * fixture sessions in any mode, on values shaped like URLs, DSNs, webhooks, ARNs and JWTs whose ordinary start and end
+ * the transcript repeats, or on this machine's own recent sessions, while a long prefix or suffix of a random token
+ * (github, anthropic, stripe, age, hex, base64) is still found. The bounds are the filters; see `FragmentPolicy`.
+ */
+export const FRAGMENT_POLICY: FragmentPolicy = { minValueLength: 24, ratio: 0.5, minFragment: 20, maxFragment: 32, minRun: 16, minEntropy: 3, maxWordRatio: 0.4 };
+
+/**
  * Final safety net over the exact bytes that would be uploaded. Anything in `issues` slipped past redaction,
  * so publishing is blocked until it is allowlisted or fixed. `suspicious` holds what the heuristics flagged at
  * medium confidence and that is still in the payload. The Redactor replaces every medium match in the strings it
@@ -46,19 +55,40 @@ export interface RescanResult {
  */
 export function rescanPayload(
   payload: string,
-  opts: { knownSecrets?: KnownSecret[]; homeDir?: string; allowlist?: string[] } = {},
+  opts: { knownSecrets?: KnownSecret[]; /** Values the patterns matched (`Redactor.matchedSecrets`); only their fragments are looked for. */ matchedSecrets?: KnownSecret[]; homeDir?: string; allowlist?: string[] } = {},
 ): RescanResult {
   const issues: RescanIssue[] = [];
   const suspicious: SuspiciousItem[] = [];
   const allow = new Set(opts.allowlist ?? []);
-  for (const k of withSafeLabels(opts.knownSecrets ?? [])) {
-    if (!k.value.inSet(allow) && k.value.isIn(payload)) issues.push({ rule: `known-secret:${k.label}`, length: k.value.length });
+  const known = withSafeLabels(opts.knownSecrets ?? []);
+  const whole = new Set<KnownSecret>();
+  for (const k of known) {
+    if (!k.value.inSet(allow) && k.value.isIn(payload)) {
+      issues.push({ rule: `known-secret:${k.label}`, length: k.value.length });
+      whole.add(k);
+    }
   }
   const texts: Visit[] = [];
   try {
     collectStrings(JSON.parse(payload), texts);
   } catch {
     texts.push(...payload.split("\n").map((text) => ({ text, location: "payload", meta: false })));
+  }
+  // Defense in depth, never the guard for a truncation: a long prefix or suffix of a secret that survived because the
+  // secret was cut in two before redaction matches no rule of its own. The whole value is already gone, so only a
+  // fragment can be left. A known value blocks (it can be allowlisted); a value a pattern matched only asks for a
+  // confirmation, because its measured rate on real sessions is not zero and the allowlist cannot name it (ass-uho0).
+  const haystack = texts.map((t) => t.text).join("\n");
+  for (const k of known) {
+    if (whole.has(k) || k.value.inSet(allow)) continue;
+    const end = k.value.hasFragmentIn(haystack, FRAGMENT_POLICY);
+    if (end) issues.push({ rule: `secret-${end}:${k.label}`, length: k.value.fragmentLength(FRAGMENT_POLICY) });
+  }
+  for (const k of withSafeLabels(opts.matchedSecrets ?? [])) {
+    const end = k.value.hasFragmentIn(haystack, FRAGMENT_POLICY);
+    if (!end) continue;
+    const where = texts.filter((t) => k.value.hasFragmentIn(t.text, FRAGMENT_POLICY));
+    suspicious.push({ rule: `secret-${end}:${k.label}`, length: k.value.fragmentLength(FRAGMENT_POLICY), location: where[0]?.location ?? "payload", occurrences: Math.max(1, where.length) });
   }
   const seen = new Map<string, SuspiciousItem>();
   const seenHigh = new Set<string>();

@@ -1,5 +1,5 @@
 import type { NormalizedSession } from "../schema.js";
-import type { KnownSecret } from "./known-values.js";
+import { knownSecret, type KnownSecret } from "./known-values.js";
 import { safeLabel, withSafeLabels } from "./labels.js";
 import { SENSITIVE_KEY, findSecretPatterns, isLiteralSecretValue } from "./patterns.js";
 
@@ -67,12 +67,17 @@ export const OWN_SESSION_FIELDS: ReadonlySet<string> = new Set([
   "responses.timestamp",
 ]);
 
+/** Distinct pattern-matched values kept for the fragment check: each costs a scan of the payload. */
+const MAX_MATCHED = 200;
+
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export class Redactor {
   readonly counts: Partial<Record<RedactionCategory, number>> = {};
   readonly findings: RedactionFinding[] = [];
   private readonly known: KnownSecret[];
+  /** High-confidence pattern matches, kept only as `SecretValue`s for the re-scan's fragment check; never reported. */
+  private readonly matched = new Map<string, KnownSecret>();
   private readonly allow: Set<string>;
   private readonly deny: RegExp[];
   private readonly homeRes: RegExp[];
@@ -106,6 +111,11 @@ export class Redactor {
     this.counts[category] = (this.counts[category] ?? 0) + n;
   }
 
+  /** The values high-confidence patterns matched so far, for the final re-scan to look for their fragments (see `rescanPayload`). */
+  matchedSecrets(): KnownSecret[] {
+    return [...this.matched.values()];
+  }
+
   /** Redact one string. `where` labels findings for the report. */
   redactText(text: string, where = ""): string {
     if (!text) return text;
@@ -133,6 +143,10 @@ export class Redactor {
       let pos = 0;
       for (const m of matches) {
         pieces.push(out.slice(pos, m.start), `[REDACTED:${m.rule}]`);
+        if (m.confidence === "high" && this.matched.size < MAX_MATCHED) {
+          const value = out.slice(m.start, m.end);
+          if (!this.matched.has(value)) this.matched.set(value, knownSecret(value, m.rule, "pattern"));
+        }
         pos = m.end;
         this.count("secret-pattern");
         this.findings.push({ category: "secret-pattern", rule: `${m.rule} (${m.confidence})`, where });

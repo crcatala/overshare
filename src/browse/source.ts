@@ -23,6 +23,19 @@ import { abortError, workerRunner, type JobRunner } from "./runner.js";
 
 export type ViewKind = "user" | "assistant" | "tool" | "thinking" | "subagent" | "event";
 
+/**
+ * A piece of a message the right pane draws with its own formatting (see render.ts). Plain data, so it crosses the
+ * worker boundary; all text is already stripped of control sequences and capped.
+ */
+export type ViewBlock =
+  | { type: "markdown"; text: string }
+  | { type: "text"; text: string; style?: "dim" | "error" }
+  /** A small heading for the part that follows ("result", "error"). */
+  | { type: "label"; text: string; style?: "error" }
+  | { type: "code"; text: string; lang?: string }
+  /** One or more replacements in a file, drawn as a diff. */
+  | { type: "edit"; path?: string; edits: Array<{ old: string; new: string }> };
+
 /** One row of the viewer's message list, with its full content for the right pane. */
 export interface ViewItem {
   kind: ViewKind;
@@ -30,8 +43,10 @@ export interface ViewItem {
   turn: number;
   /** One line for the list. */
   label: string;
-  /** Full content (truncated for huge tool input/output). */
+  /** Full content (truncated for huge tool input/output). Plain text: what `y` copies, and what the pane shows when there are no `blocks`. */
   body: string;
+  /** The same content cut into formatted pieces, for tool calls and subagents; other kinds are drawn from `body` by kind. */
+  blocks?: ViewBlock[];
   /** Short qualifier for the content title: tool name, event kind, model. */
   meta?: string;
   error?: boolean;

@@ -17,7 +17,7 @@ import type { SessionSummary } from "../sessions/summary.js";
 import { plural, shortModel } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { cut, fit, frame, isKey, padLines, pagingKey, st, wrap } from "./kit.js";
-import type { SettingsStore } from "./settings.js";
+import { SAVE_FAILED_MESSAGE, type SettingsStore } from "./settings.js";
 import type { ShareSummary, SessionView, Source, ViewItem, ViewKind } from "./source.js";
 
 export const LEVELS = [
@@ -40,6 +40,8 @@ const INDENT = 2;
 
 export interface ViewerHooks {
   settings: SettingsStore;
+  /** Show a short message in the footer until the next key. */
+  notify(message: string): void;
   requestRender(): void;
   openDialog(d: RadioDialog): void;
   closeDialog(): void;
@@ -195,7 +197,7 @@ export class SessionViewer {
       items: yesNo,
       current: () => this.hooks.settings.get().viewer[key],
       apply: (v) => {
-        this.hooks.settings.update({ viewer: { [key]: v as boolean } });
+        if (!this.hooks.settings.update({ viewer: { [key]: v as boolean } })) this.hooks.notify(SAVE_FAILED_MESSAGE);
       },
     });
     return new RadioDialog(

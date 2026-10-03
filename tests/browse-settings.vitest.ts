@@ -77,6 +77,42 @@ describe("fileSettings", () => {
     expect(store.get().dateFormat).toBe("relative");
   });
 
+  it("applies a change on top of the file as it is now, so a second browser's other settings survive", () => {
+    const path = join(dir, "browse.json");
+    const first = fileSettings(path);
+    const second = fileSettings(path); // both opened before either changed anything
+    first.update({ confirmQuit: false });
+    second.update({ dateFormat: "short" });
+    expect(loadSettings(path)).toEqual({ ...DEFAULT_SETTINGS, confirmQuit: false, dateFormat: "short" });
+    expect(second.get().confirmQuit).toBe(false); // and it now reflects the other's change
+    second.update({ viewer: { indentReplies: true } });
+    first.update({ viewer: { indentTools: true } });
+    expect(loadSettings(path).viewer).toEqual({ indentReplies: true, indentTools: true });
+  });
+
+  it("falls back to its own state when the file is gone or corrupt at the time of a change", () => {
+    const path = join(dir, "browse.json");
+    const store = fileSettings(path);
+    store.update({ confirmQuit: false });
+    rmSync(path);
+    store.update({ dateFormat: "date" });
+    expect(loadSettings(path)).toEqual({ ...DEFAULT_SETTINGS, confirmQuit: false, dateFormat: "date" });
+    writeFileSync(path, "{ not json");
+    store.update({ viewer: { indentTools: true } });
+    expect(loadSettings(path)).toEqual({ ...DEFAULT_SETTINGS, confirmQuit: false, dateFormat: "date", viewer: { indentReplies: false, indentTools: true } });
+  });
+
+  it("keeps changes it could not save and writes them with the next successful save", () => {
+    const blocker = join(dir, "blocked");
+    writeFileSync(blocker, "x");
+    const path = join(blocker, "browse.json"); // unwritable while `blocked` is a file
+    const store = fileSettings(path);
+    expect(store.update({ confirmQuit: false })).toBe(false);
+    rmSync(blocker);
+    expect(store.update({ dateFormat: "short" })).toBe(true);
+    expect(loadSettings(path)).toEqual({ ...DEFAULT_SETTINGS, confirmQuit: false, dateFormat: "short" });
+  });
+
   it("reports a failed save but keeps the change for this run", () => {
     const blocker = join(dir, "file");
     writeFileSync(blocker, "x");

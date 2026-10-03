@@ -188,6 +188,22 @@ describe("view options (V)", () => {
     expect(settings.get().viewer).toEqual({ indentReplies: true, indentTools: false });
   });
 
+  it("says so in the footer when a layout option could not be saved, and still applies it for this run", async () => {
+    const settings = { ...memorySettings(), update: () => false };
+    const d = await open({ settings });
+    // The dialog cursor starts on the current level; two steps down is "yes" under "Indent assistant replies".
+    await d.press("V", KEY.down, KEY.down, KEY.space);
+    expect(d.lines().at(-1)).toContain("could not save settings");
+    await d.press(KEY.down); // the next key clears the message
+    expect(d.lines().at(-1)).not.toContain("could not save settings");
+  });
+
+  it("shows no warning when the layout option was saved", async () => {
+    const d = await open({ settings: memorySettings() });
+    await d.press("V", KEY.down, KEY.down, KEY.space);
+    expect(d.text()).not.toContain("could not save settings");
+  });
+
   it("applies to the next session you open too", async () => {
     const settings = memorySettings({ viewer: { indentReplies: true } });
     const d = await open({ settings });

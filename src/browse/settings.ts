@@ -76,28 +76,44 @@ export function memorySettings(initial: SettingsPatch = {}): SettingsStore {
   };
 }
 
-export function loadSettings(path = settingsPath()): BrowseSettings {
+/** What the footer says when a preference could not be written (it still applies until the browser closes). */
+export const SAVE_FAILED_MESSAGE = "could not save settings; they apply until you quit";
+
+/** The file's settings, or undefined when it is missing or not valid JSON. */
+function readSettings(path: string): BrowseSettings | undefined {
   try {
     return normalizeSettings(JSON.parse(readFileSync(path, "utf8")));
   } catch {
-    return normalizeSettings(undefined);
+    return undefined;
   }
 }
 
-/** Settings backed by a JSON file (atomic write). Reads once; this process is the only writer while the browser runs. */
+export function loadSettings(path = settingsPath()): BrowseSettings {
+  return readSettings(path) ?? normalizeSettings(undefined);
+}
+
+/**
+ * Settings backed by a JSON file (atomic write). Each change is applied on top of what the file holds *now*, not on
+ * what it held at startup, so a second browser open at the same time does not get its other settings overwritten
+ * with stale values. (Two writes in the same instant can still race; for preferences that is not worth a lock.)
+ */
 export function fileSettings(path = settingsPath()): SettingsStore {
   let value = loadSettings(path);
+  // After a failed write memory is ahead of the file: keep building on memory until a write succeeds.
+  let unsaved = false;
   return {
     get: () => value,
     update(patch) {
-      value = merge(value, patch);
+      value = merge((!unsaved && readSettings(path)) || value, patch);
       try {
         mkdirSync(dirname(path), { recursive: true });
         const tmp = `${path}.${process.pid}.tmp`;
         writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
         renameSync(tmp, path);
+        unsaved = false;
         return true;
       } catch {
+        unsaved = true;
         return false;
       }
     },

@@ -19,7 +19,7 @@ import { ago, DATE_FORMATS, dateFormat, dayBucket, durationMs, plural, sessionDu
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { copyToClipboard, MODE_HINT, PublishFlow } from "./flow.js";
 import { box, columns, composite, cut, fit, hr, isKey, isPlain, isShift, padLines, pagingKey, Screen, st, w, wrap, type PageMove } from "./kit.js";
-import { memorySettings, type SettingsPatch, type SettingsStore } from "./settings.js";
+import { memorySettings, SAVE_FAILED_MESSAGE, type SettingsPatch, type SettingsStore } from "./settings.js";
 import type { Source } from "./source.js";
 import { SessionViewer } from "./viewer.js";
 
@@ -288,7 +288,7 @@ export class BrowserApp extends Screen {
   /** `,`: preferences that persist across runs (see settings.ts). */
   private settingsDialog(): RadioDialog {
     const save = (patch: SettingsPatch) => {
-      if (!this.settings.update(patch)) this.message = "could not save settings; they apply until you quit";
+      if (!this.settings.update(patch)) this.message = SAVE_FAILED_MESSAGE;
     };
     const sections: DialogSection[] = [
       {
@@ -427,6 +427,9 @@ export class BrowserApp extends Screen {
   private openViewer(s: SessionSummary): void {
     this.viewer = new SessionViewer(s, this.source, {
       settings: this.settings,
+      notify: (message) => {
+        this.message = message;
+      },
       requestRender: () => this.requestRender(),
       openDialog: (d) => {
         this.dialog = d;

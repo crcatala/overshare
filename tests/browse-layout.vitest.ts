@@ -57,6 +57,7 @@ describe("every screen fits the terminal", () => {
       ["searching, partial results", async (d) => void (await d.press("/", ..."invoice"))],
       ["grouped by repo, sorted by title", async (d) => void (await d.press("g", "g", "o", "o"))],
       ["opening a row that is not read", async (d) => void (await d.press(KEY.enter))],
+      ["repo picker open while rows arrive", async (d) => void (await d.press("R"), ["s1", "s2", "s3"].forEach((id) => d.source.fill(id)))],
       ["quit prompt", async (d) => void (await d.press("q"))],
       ["empty search", async (d) => void (await d.press("/", ..."zzzzqqq"))],
     ];

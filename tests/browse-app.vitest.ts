@@ -583,6 +583,32 @@ describe("while the index is still running", () => {
     expect(d.text()).toBe(before);
   });
 
+  it("an open repo picker follows the index: repos and counts appear, and the cursor stays on its item", async () => {
+    const d = drive({ pending: ALL });
+    await d.press("R");
+    expect(d.text()).toContain("Repo (0)"); // nothing is known about repos before the first rows are read
+    for (const id of ["s1", "s2", "s3"]) d.source.fill(id);
+    expect(d.text()).toContain("Repo (2)");
+    expect(d.text()).toMatch(/billing\s+2/);
+    await d.press("j", "j"); // billing, then web
+    for (const id of ["s6", "s5", "s7"]) d.source.fill(id); // web 2, infra 2: infra now sorts in front of web
+    expect(d.text()).toContain("Repo (3)");
+    expect(d.text()).toMatch(/infra\s+2/);
+    await d.press(KEY.enter); // still on web, though web moved down a row
+    expect(d.text()).toContain("repo: web");
+  });
+
+  it("an open repo picker keeps its filter while rows arrive", async () => {
+    const d = drive({ pending: ALL });
+    await d.press("R", "/");
+    await d.type("inf");
+    expect(d.text()).toContain("no matches");
+    d.source.fill("s5");
+    d.source.fill("s7");
+    expect(d.text()).toMatch(/infra\s+2/);
+    expect(d.text()).not.toMatch(/billing\s/);
+  });
+
   it("quitting mid-index stops the index so the cache keeps what was read", async () => {
     const dir = mkdtempSync(join(tmpdir(), "browse-quit-"));
     const claude = join(dir, "claude");

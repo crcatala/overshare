@@ -114,6 +114,7 @@ export class BrowserApp extends Screen {
     this.unsubscribeIndex = source.index?.subscribe(() => {
       this.topProjects = this.computeTopProjects();
       this.refilter(this.current);
+      this.dialog?.refresh();
       this.requestRender();
     });
   }
@@ -213,20 +214,21 @@ export class BrowserApp extends Screen {
 
   // ── dialogs ──
   private dialogFor(kind: "harness" | "repo" | "time" | "shared" | "group" | "sort"): RadioDialog {
-    const all = this.source.sessions.filter((s) => !s.worker);
+    // Read through `all()` on every draw: rows are still being read while the index runs, so repos, counts and workers change.
+    const all = () => this.source.sessions.filter((s) => !s.worker);
     const onClose = () => {
       this.dialog = undefined;
     };
     const keep = this.current;
-    const count = (p: (s: SessionSummary) => boolean) => all.filter(p).length;
-    const single = (title: string, items: DialogSection["items"], current: () => unknown, apply: (v: unknown) => void, searchable = false) =>
-      new RadioDialog(title, [{ items, current, apply }], { searchable, onClose });
+    const count = (p: (s: SessionSummary) => boolean) => all().filter(p).length;
+    const single = (title: string | (() => string), items: () => DialogSection["items"], current: () => unknown, apply: (v: unknown) => void, searchable = false) =>
+      new RadioDialog(title, [{ get items() { return items(); }, current, apply }], { searchable, onClose });
     switch (kind) {
       case "harness":
         return single(
           "Harness",
-          [
-            { label: "any", value: undefined, count: all.length },
+          () => [
+            { label: "any", value: undefined, count: all().length },
             { label: "Claude Code", value: "claude-code", count: count((s) => s.harness === "claude-code") },
             { label: "pi", value: "pi", count: count((s) => s.harness === "pi") },
           ],
@@ -237,10 +239,10 @@ export class BrowserApp extends Screen {
           },
         );
       case "repo": {
-        const repos = facet(all, (s) => s.project);
+        const repos = () => facet(all(), (s) => s.project);
         return single(
-          `Repo (${repos.length})`,
-          [{ label: "any", value: undefined, count: all.length }, ...repos.map((r) => ({ label: r.value, value: r.value, count: r.count }))],
+          () => `Repo (${repos().length})`,
+          () => [{ label: "any", value: undefined, count: all().length }, ...repos().map((r) => ({ label: r.value, value: r.value, count: r.count }))],
           () => this.project,
           (v) => {
             this.project = v as string | undefined;
@@ -252,7 +254,7 @@ export class BrowserApp extends Screen {
       case "time":
         return single(
           "Updated",
-          [{ label: "any time", value: undefined }, { label: "last 24 hours", value: "24h" }, { label: "last 7 days", value: "7d" }, { label: "last 30 days", value: "30d" }],
+          () => [{ label: "any time", value: undefined }, { label: "last 24 hours", value: "24h" }, { label: "last 7 days", value: "7d" }, { label: "last 30 days", value: "30d" }],
           () => this.time,
           (v) => {
             this.time = v as TimeFilter;
@@ -262,7 +264,7 @@ export class BrowserApp extends Screen {
       case "shared":
         return single(
           "Shared",
-          [{ label: "any", value: undefined }, { label: "not shared yet", value: false }, { label: "already shared", value: true }],
+          () => [{ label: "any", value: undefined }, { label: "not shared yet", value: false }, { label: "already shared", value: true }],
           () => this.shared,
           (v) => {
             this.shared = v as SharedFilter;
@@ -272,7 +274,7 @@ export class BrowserApp extends Screen {
       case "group":
         return single(
           "Group by",
-          GROUPS.map((g) => ({ label: g.label, value: g.id, hint: g.hint })),
+          () => GROUPS.map((g) => ({ label: g.label, value: g.id, hint: g.hint })),
           () => this.group,
           (v) => {
             this.group = v as GroupBy;

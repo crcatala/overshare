@@ -337,6 +337,28 @@ describe("IndexJob (incremental index)", () => {
     expect(job.progress()).toBeUndefined();
   });
 
+  it("reads the globally newest sessions first, whichever harness they belong to", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "idx-job-mixed-"));
+    const claude = join(dir, "claude", "-home-x");
+    const pi = join(dir, "pi", "--home-x--");
+    mkdirSync(claude, { recursive: true });
+    mkdirSync(pi, { recursive: true });
+    // Oldest to newest: claude-0, claude-1, claude-2, pi-0 (newest of all), so pi must not wait behind the Claude files.
+    const at = (minutes: number) => new Date(2026, 0, 1, 12, minutes);
+    const put = (file: string, text: string, minutes: number) => {
+      writeFileSync(file, text);
+      utimesSync(file, at(minutes), at(minutes));
+    };
+    for (let i = 0; i < 3; i++) put(join(claude, `claude-${i}.jsonl`), new ClaudeTranscript(`claude-${i}`, "/home/tester/work/demo").user("hi").toJsonl(), i);
+    put(join(pi, "2026-01-01T12-30-00-000Z_pi-0.jsonl"), new PiTranscript("pi-0").toJsonl(), 30);
+    const job = new IndexJob({ roots: { "claude-code": join(dir, "claude"), pi: join(dir, "pi") }, cachePath: join(dir, "cache.json"), sliceMs: 0 });
+    expect(job.sessions.map((x) => x.id)).toEqual(["pi-0", "claude-2", "claude-1", "claude-0"]);
+    await slices(1);
+    expect(job.sessions.filter((x) => !x.pending).map((x) => x.id)).toEqual(["pi-0"]);
+    await vi.runAllTimersAsync();
+    expect(job.sessions.some((x) => x.pending)).toBe(false);
+  });
+
   it("reads several files per slice while the time budget allows, and notifies once per slice", async () => {
     const { roots, cachePath } = setup(4);
     let t = 0;

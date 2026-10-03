@@ -62,10 +62,11 @@ export interface IndexOptions {
   onProgress?: (p: RefreshProgress, latest?: SessionSummary) => void;
 }
 
-/** Stat-only listing (instant): what a UI can show before any file is read. */
+/** Stat-only listing (instant): what a UI can show before any file is read. Newest first across harnesses. */
 export function listRefs(opts: IndexOptions = {}) {
   const roots = opts.roots ?? defaultRoots();
-  return (opts.harnesses ?? (["claude-code", "pi"] as const)).flatMap((h) => listSessions(h, roots));
+  // Each harness's list is sorted on its own; merge them so the newest sessions are also the first to be read.
+  return (opts.harnesses ?? (["claude-code", "pi"] as const)).flatMap((h) => listSessions(h, roots)).sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
 /** Cache hits, plus the files that still have to be read. Shared by the blocking and the incremental index. */

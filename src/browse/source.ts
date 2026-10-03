@@ -74,8 +74,23 @@ export interface Preflight {
   warnings: string[];
 }
 
+/** An index that is still being filled in: `Source.sessions` changes under the browser, and this says when. */
+export interface IndexFeed {
+  /** Rows read so far and the total; undefined once every session has been read. */
+  progress(): { done: number; total: number } | undefined;
+  /** Called after `Source.sessions` changed (rows filled in or dropped). Returns the unsubscribe. */
+  subscribe(listener: () => void): () => void;
+  /** Stop reading and persist what has been read. */
+  stop(): void;
+}
+
 export interface Source {
+  /**
+   * Newest first. While `index` is set, rows not yet read are placeholders (`pending`) and the array is updated in place,
+   * so read it again after each notification instead of holding on to it.
+   */
   sessions: SessionSummary[];
+  index?: IndexFeed;
   /** Live view of shares.json; updated after a successful publish. */
   shares: SharesFile;
   /** Where a publish will go, for confirmation text. */
@@ -183,6 +198,8 @@ export const destinationLabel = (target: ShareTarget): string => (target === "gi
 export interface SourceOptions {
   config: AgentShareConfig;
   sessions: SessionSummary[];
+  /** The job filling `sessions` in, if indexing is still running. */
+  index?: IndexFeed;
   target?: ShareTarget;
   /** Keep this many reviewed payloads so the publish sends exactly what was reviewed. */
   keepPrepared?: number;
@@ -211,6 +228,7 @@ export function createSource(opts: SourceOptions): Source {
 
   return {
     sessions,
+    index: opts.index,
     shares,
     destination: destinationLabel(target),
     view: loadView,

@@ -16,6 +16,7 @@ export interface DialogItem {
 
 export interface DialogSection {
   title?: string;
+  /** Read on every draw and key, so a section may be a getter over data that changes while the dialog is open. */
   items: DialogItem[];
   /** Read on every draw so the dot follows the live state. */
   current: () => unknown;
@@ -29,9 +30,11 @@ export class RadioDialog {
   private cursor = 0;
   private filter = "";
   private filtering = false;
+  /** The item under the cursor, so `refresh` can put the cursor back on it when the items change. */
+  private on?: { section: DialogSection; value: unknown };
 
   constructor(
-    readonly title: string,
+    private readonly heading: string | (() => string),
     readonly sections: DialogSection[],
     readonly opts: { searchable?: boolean; onClose: () => void },
   ) {
@@ -39,6 +42,24 @@ export class RadioDialog {
     const first = sections[0];
     const i = first ? this.selectable().findIndex((l) => l.section === first && l.item.value === first.current()) : -1;
     this.cursor = Math.max(0, i);
+    this.remember();
+  }
+
+  get title(): string {
+    return typeof this.heading === "function" ? this.heading() : this.heading;
+  }
+
+  private remember(): void {
+    const sel = this.selectable()[this.cursor];
+    this.on = sel && { section: sel.section, value: sel.item.value };
+  }
+
+  /** The items changed underneath the dialog (rows arriving while indexing): keep the cursor on the same item. */
+  refresh(): void {
+    const items = this.selectable();
+    const at = this.on ? items.findIndex((l) => l.section === this.on!.section && l.item.value === this.on!.value) : -1;
+    this.cursor = at >= 0 ? at : Math.min(this.cursor, Math.max(0, items.length - 1));
+    this.remember();
   }
 
   private lines(): Line[] {
@@ -58,6 +79,11 @@ export class RadioDialog {
   }
 
   onKey(data: string): void {
+    this.handleKey(data);
+    this.remember();
+  }
+
+  private handleKey(data: string): void {
     const items = this.selectable();
     if (this.filtering) {
       if (isKey(data, "escape")) {

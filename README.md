@@ -111,7 +111,10 @@ field, falls back to its default.
 
 - **Index.** Session summaries (title, repo, models, first/last prompts, tool counts) are cached in
   `~/.cache/agent-share-session/index.json` (`AGENT_SHARE_INDEX` overrides), keyed by path, mtime and size. The first run reads
-  every transcript (about 5 s for ~500 sessions); later runs only `stat` the files. The cache and `shares.json` are written
+  every transcript (a couple of seconds for ~500 sessions); later runs only `stat` the files. The list appears at once, with
+  `reading…` rows that fill in (newest first) while a counter shows progress; keys work meanwhile, search and the repo filter
+  cover only the sessions read so far, and a row cannot be opened or published until it has been read. The cache is saved
+  as it goes, so quitting midway keeps what was read. The cache and `shares.json` are written
   readable by you only (0600), since they hold prompt text and unlisted share links.
 - **Shared marks.** Every successful `publish` (CLI or browser) is recorded in `~/.local/state/agent-share-session/shares.json`
   (`AGENT_SHARE_SHARES` overrides). The browser shows a ✓ on those sessions and can filter by them.

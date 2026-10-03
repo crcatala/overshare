@@ -96,6 +96,22 @@ export function box(title: string, inner: string[], width: number): string[] {
   return [top, ...body, st.gray(`╰${"─".repeat(Math.max(0, width - 2))}╯`)];
 }
 
+/**
+ * A rounded panel exactly `width` columns wide, with `title` set into the top border and an optional right-aligned
+ * `bottom` label in the bottom border (lazygit/lazydocker style). The active panel draws a bright border and a bold
+ * title; an inactive one is gray. `inner` lines are fitted to the inside (`width - 2` columns), so callers add their own padding.
+ */
+export function frame(title: string, inner: string[], width: number, opts: { active: boolean; bottom?: string }): string[] {
+  const edge = opts.active ? st.cyan : st.gray;
+  const iw = Math.max(0, width - 2);
+  const t = title ? ` ${cut(title, Math.max(0, iw - 3))} ` : "";
+  const top = `${edge("╭─")}${opts.active ? st.bold(t) : t}${edge(`${"─".repeat(Math.max(0, iw - 1 - w(t)))}╮`)}`;
+  const body = inner.map((l) => `${edge("│")}${fit(l, iw)}${edge("│")}`);
+  const b = opts.bottom ? ` ${cut(opts.bottom, Math.max(0, iw - 3))} ` : "";
+  const bottom = edge(`╰${"─".repeat(Math.max(0, iw - 1 - w(b)))}`) + (opts.active ? b : st.dim(b)) + edge("─╯");
+  return [top, ...body, bottom];
+}
+
 /** Paint `overlay` lines centred over `base`, dimming everything behind so it reads as modal. */
 export function composite(base: string[], overlay: string[], width: number): string[] {
   const ow = Math.min(width, Math.max(...overlay.map(w)));

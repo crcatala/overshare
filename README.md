@@ -81,8 +81,8 @@ The filter chips under the title double as a key legend: the hotkey letter in ea
 and scrolls to it; grouping keeps the selection where it is.
 
 In the viewer the left pane lists messages and the right pane shows the selected one in full; the header has the
-tool-call breakdown and whether a `brief` share would be clean. One pane has the focus at a time (the list at first; the
-selected row dims when the content has it). `enter`, `tab`, `l` or `→` move the focus to the content pane; `esc`, `tab`,
+tool-call breakdown and whether a `brief` share would be clean. Each pane is a rounded panel (the message heading sits in the content panel's top border), and the one with the focus
+has the bright border while the other is gray; the list's selected row dims when the content has the focus. `enter`, `tab`, `l` or `→` move the focus to the content pane; `esc`, `tab`,
 `h`, `←` or `q` bring it back, and from the list `esc`/`q`/`h`/`←` leave the viewer. Both panes take the same keys as the
 session list: `j`/`k` or the arrows move (a message in the list, a line in the content), `space`/`PgDn`/`ctrl-f` and
 `b`/`PgUp`/`ctrl-b` page, `ctrl-d`/`ctrl-u` half a page, `g`/`G` first/last. `v` cycles the list between your prompts, the

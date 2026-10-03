@@ -192,3 +192,12 @@ export function selectedNumber(lines: string[]): number | undefined {
   const m = listColumn(lines).find((l) => l.includes("▌"))?.match(/Session number (\d+)/);
   return m ? Number(m[1]) : undefined;
 }
+
+/** The viewer's two panels, side by side: each screen line split at the gap between their borders. */
+export function viewerPanes(lines: string[]): { left: string[]; right: string[] } {
+  const split = lines.map((l) => {
+    const m = l.match(/[│╮╯] [│╭╰]/);
+    return m ? [l.slice(0, m.index! + 1), l.slice(m.index! + 2)] : [l, ""];
+  });
+  return { left: split.map((x) => x[0]!), right: split.map((x) => x[1]!) };
+}

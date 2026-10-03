@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ViewItem } from "../src/browse/source.js";
-import { drive, KEY, listColumn, sampleView } from "./browse-helpers.js";
+import { drive, KEY, sampleView, viewerPanes } from "./browse-helpers.js";
 import { memorySettings } from "../src/browse/settings.js";
 
 beforeEach(() => vi.useFakeTimers());
@@ -120,9 +120,9 @@ describe("session viewer", () => {
 describe("view options (V)", () => {
   /** Columns between the list's cursor column and a row's icon, for the first row containing `text`. */
   const indentOf = (d: Awaited<ReturnType<typeof open>>, text: string): number => {
-    const row = listColumn(d.lines()).find((l) => l.includes(text))!;
+    const row = viewerPanes(d.lines()).left.find((l) => l.includes(text))!;
     const icon = row.search(/[❯◆⚙…⛭⚑]/u);
-    return icon - 1; // minus the cursor column
+    return icon - 2; // minus the panel border and the cursor column
   };
 
   it("lists the layout options below the list level, all on one dialog", async () => {
@@ -203,8 +203,8 @@ describe("pane focus", () => {
     items: Array.from({ length: n }, (_, i): ViewItem => ({ kind: i % 2 ? "assistant" : "user", turn: i + 1, label: `message ${String(i).padStart(2, "0")}`, body: i === 0 ? longBody : `body ${i}` })),
   });
   const SIZE: [number, number] = [120, 30]; // the list shows 30 − 5 header lines − rule − footer rows
-  const selected = (d: Awaited<ReturnType<typeof open>>) => listColumn(d.lines(...SIZE)).find((l) => l.includes("▌"))?.match(/message (\d+)/)?.[1];
-  const contentHas = (d: Awaited<ReturnType<typeof open>>, text: string) => d.lines(...SIZE).some((l) => l.split(" │ ")[1]?.includes(text));
+  const selected = (d: Awaited<ReturnType<typeof open>>) => viewerPanes(d.lines(...SIZE)).left.find((l) => l.includes("▌"))?.match(/message (\d+)/)?.[1];
+  const contentHas = (d: Awaited<ReturnType<typeof open>>, text: string) => viewerPanes(d.lines(...SIZE)).right.some((l) => l.includes(text));
 
   it("starts on the list; enter moves to the content pane, esc goes back, a second esc leaves the viewer", async () => {
     const d = await open();
@@ -243,8 +243,8 @@ describe("pane focus", () => {
   });
 
   /** The first body line of the content pane that is on screen (the pane's title and blank line scroll off first). */
-  const firstLine = (d: Awaited<ReturnType<typeof open>>) => Number(d.lines(...SIZE).map((l) => l.split(" │ ")[1]?.match(/line (\d{3})/)?.[1]).find(Boolean));
-  const atTop = (d: Awaited<ReturnType<typeof open>>) => contentHas(d, "turn 1");
+  const firstLine = (d: Awaited<ReturnType<typeof open>>) => Number(viewerPanes(d.lines(...SIZE)).right.map((l) => l.match(/line (\d{3})/)?.[1]).find(Boolean));
+  const atTop = (d: Awaited<ReturnType<typeof open>>) => contentHas(d, "line 001");
 
   it("the list pane pages with space / b, PgDn / PgUp, ctrl-f / ctrl-b and half pages with ctrl-d / ctrl-u", async () => {
     const d = await open({ view: () => longView() }); // the default level lists every message of this view
@@ -272,13 +272,13 @@ describe("pane focus", () => {
     d.lines(...SIZE);
     await d.press(KEY.enter);
     expect(atTop(d)).toBe(true);
-    await d.press("j", KEY.down, "j"); // three lines: past the title and the blank line, onto the second body line
+    await d.press("j");
     expect(atTop(d)).toBe(false);
     expect(firstLine(d)).toBe(2);
-    await d.press("j", "j");
+    await d.press(KEY.down, "j");
     expect(firstLine(d)).toBe(4);
     await d.press("k", KEY.up, "k", "k", "k");
-    expect(atTop(d)).toBe(true); // clamped at the top
+    expect(atTop(d)).toBe(true); // clamped at the top (more k presses than there was scroll)
     await d.press(KEY.space);
     expect(firstLine(d)).toBeGreaterThan(15); // a page, not a line
     await d.press("G");
@@ -323,7 +323,31 @@ describe("pane focus", () => {
     expect(d.app.flow).toBeDefined();
   });
 
-  it("shows which pane has the focus: the selected row dims, the rule and the footer change", async () => {
+  it("draws each pane as a rounded panel, with the message heading in the content panel's top border", async () => {
+    const d = await open({ view: () => longView() });
+    const lines = d.lines(...SIZE);
+    const top = lines.find((l) => l.includes("╭─"))!;
+    expect(top.match(/╭─/g)).toHaveLength(2); // one panel per pane
+    expect(top).toMatch(/╭─ user \+ assistant · 60 of 60 .*╮ ╭─ prompt  turn 1 .*╮/);
+    const bottom = lines.find((l) => l.includes("╰"))!;
+    expect(bottom).toMatch(/╰─+ 1\/60 ─╯ ╰─+ ↓ \d+ more lines · enter to read ─╯/);
+    expect(lines.filter((l) => l.startsWith("│")).length).toBeGreaterThan(10); // both panels' sides
+    // Nothing leaves the panels' rows: every one is a left panel, a gap and a right panel.
+    for (const l of lines.filter((l) => l.startsWith("│"))) expect(l).toMatch(/^│.*│ │.*│$/);
+  });
+
+  it("the active panel has the bright border and the other one is gray", async () => {
+    const d = await open({ view: () => longView() });
+    const raw = () => d.app.render(120).find((l) => l.includes("╭─") && l.includes("prompt"))!;
+    const edges = () => [...raw().matchAll(/\x1b\[(36|90)m╭─/g)].map((m) => m[1]);
+    expect(edges()).toEqual(["36", "90"]); // list active
+    await d.press(KEY.enter);
+    expect(edges()).toEqual(["90", "36"]); // content active
+    await d.press("\t");
+    expect(edges()).toEqual(["36", "90"]);
+  });
+
+  it("shows which pane has the focus: the selected row dims, the content panel's border hints at the keys, the footer changes", async () => {
     const d = await open({ view: () => longView() });
     const raw = () => d.app.render(120).join("\n");
     expect(raw()).toContain("\x1b[48;5;238m"); // focused selection
@@ -333,7 +357,8 @@ describe("pane focus", () => {
     await d.press(KEY.enter);
     expect(raw()).toContain("\x1b[48;5;236m"); // dimmed selection while the content has the focus
     expect(raw()).not.toContain("\x1b[48;5;238m");
-    expect(d.text()).toContain("reading · j/k scroll");
+    expect(d.text()).toMatch(/↓ \d+ more lines · j\/k scroll · space\/b page · tab\/esc back/);
+    expect(d.text()).not.toContain("enter to read");
     expect(d.lines().at(-1)).toContain("tab/esc");
   });
 });

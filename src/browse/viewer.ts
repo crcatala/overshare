@@ -1,6 +1,8 @@
 /**
- * Session viewer: the left pane is a navigable list of messages, the right pane is the selected message in
- * full. The header shows stats, the tool-call breakdown and the redaction status of a brief share.
+ * Session viewer: the left panel is a navigable list of messages, the right panel is the selected message in
+ * full, each in its own rounded frame (the message heading sits in the right panel's top border; the panel with
+ * the focus has the bright border). The header shows stats, the tool-call breakdown and the redaction status of
+ * a brief share.
  *
  *   Two panes, one has the focus (the list at first): enter / tab / → / l  read the message (focus the content),
  *   esc / tab / ← / h  back to the list. The same movement keys drive whichever pane is focused:
@@ -14,7 +16,7 @@ import { sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import { plural, shortModel } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
-import { columns, cut, fit, hr, isKey, padLines, pagingKey, st, wrap } from "./kit.js";
+import { cut, fit, frame, isKey, padLines, pagingKey, st, wrap } from "./kit.js";
 import type { SettingsStore } from "./settings.js";
 import type { ShareSummary, SessionView, Source, ViewItem, ViewKind } from "./source.js";
 
@@ -255,45 +257,52 @@ export class SessionViewer {
     if (!this.view) return [...head, "", st.dim("  reading the session…")];
     const items = this.items;
     const shared = sharesFor(this.source.shares, this.session.harness, this.session.id).length > 0;
-    head.push(hr(width, `${LEVELS[this.level]!.label} · ${items.length} of ${this.view.items.length}${shared ? " · shared ✓" : ""}`));
-    const bodyH = Math.max(1, height - head.length - 1);
-    this.bodyHeight = bodyH;
-    const focused = this.pane === "list";
-    const lw = Math.max(20, Math.min(width - 14, Math.floor(width * 0.4)));
-    const rw = Math.max(10, width - lw - 3);
+    // Two rounded panels side by side, one row of border above and below: the active one has the bright border.
+    const total = Math.max(3, height - head.length);
+    const inner = total - 2;
+    this.bodyHeight = inner;
+    const listActive = this.pane === "list";
+    const leftW = Math.max(22, Math.min(width - 17, Math.floor(width * 0.4) + 2));
+    const rightW = Math.max(12, width - leftW - 1);
+    const rowW = leftW - 2;
     this.cursor = Math.min(this.cursor, Math.max(0, items.length - 1));
     if (this.cursor < this.listTop) this.listTop = this.cursor;
-    if (this.cursor >= this.listTop + bodyH) this.listTop = this.cursor - bodyH + 1;
-    const left = items.slice(this.listTop, this.listTop + bodyH).map((it, k) => {
+    if (this.cursor >= this.listTop + inner) this.listTop = this.cursor - inner + 1;
+    const rows = items.slice(this.listTop, this.listTop + inner).map((it, k) => {
       const i = this.listTop + k;
       const turn = it.kind === "user" ? st.dim(`#${it.turn} `) : "";
-      const row = `${i === this.cursor ? (focused ? st.cyan("▌") : st.gray("▌")) : " "}${" ".repeat(this.depth(it.kind) * INDENT)}${ICON[it.kind](`${turn}${it.error ? st.red(it.label) : it.label}`)}`;
-      return i === this.cursor ? (focused ? st.sel : st.selDim)(fit(row, lw)) : row;
+      const row = `${i === this.cursor ? (listActive ? st.cyan("▌") : st.gray("▌")) : " "}${" ".repeat(this.depth(it.kind) * INDENT)}${ICON[it.kind](`${turn}${it.error ? st.red(it.label) : it.label}`)}`;
+      return i === this.cursor ? (listActive ? st.sel : st.selDim)(fit(row, rowW)) : row;
     });
-    const right = this.rightPane(items[this.cursor], rw, bodyH);
-    return [...head, ...columns(padLines(left, bodyH), padLines(right, bodyH), lw, rw).slice(0, bodyH), this.scrollRule(width)];
+    const left = frame(`${LEVELS[this.level]!.label} · ${items.length} of ${this.view.items.length}${shared ? " · shared ✓" : ""}`, padLines(rows, inner), leftW, {
+      active: listActive,
+      bottom: items.length ? `${this.cursor + 1}/${items.length}` : undefined,
+    });
+    const { title, lines, bottom } = this.rightPane(items[this.cursor], rightW - 4, inner);
+    const right = frame(title, padLines(lines.map((l) => ` ${l}`), inner), rightW, { active: !listActive, bottom });
+    return [...head, ...left.map((l, i) => `${l} ${right[i] ?? ""}`)];
   }
 
-  private rightPane(it: ViewItem | undefined, width: number, height: number): string[] {
+  /** The message in full, scrolled, plus the heading and the hint for the border of its panel. */
+  private rightPane(it: ViewItem | undefined, width: number, height: number): { title: string; lines: string[]; bottom?: string } {
     if (!it) {
       this.rightLines = [];
-      return [st.dim("nothing to show")];
+      this.rightHeight = height;
+      return { title: "message", lines: [st.dim("nothing to show")] };
     }
     const title = `${it.kind === "user" ? "prompt" : it.kind}${it.meta ? ` · ${it.meta}` : ""}${it.error ? " · error" : ""}  ${st.dim(`turn ${it.turn}`)}`;
     const dimmed = it.kind === "tool" || it.kind === "thinking";
-    this.rightLines = [st.cyan(title), "", ...it.body.split("\n").flatMap((l) => (l ? wrap(dimmed ? st.gray(l) : l, width) : [""]))];
+    this.rightLines = it.body.split("\n").flatMap((l) => (l ? wrap(dimmed ? st.gray(l) : l, width) : [""]));
     this.rightHeight = height;
-    this.scroll = Math.min(this.scroll, Math.max(0, this.rightLines.length - height));
-    return this.rightLines.slice(this.scroll, this.scroll + height);
+    this.scroll = Math.min(this.scroll, this.maxScroll());
+    return { title, lines: this.rightLines.slice(this.scroll, this.scroll + height), bottom: this.rightHint() };
   }
 
-  /** The rule under the panes says which one has the focus and how to move it. */
-  private scrollRule(width: number): string {
+  /** What the content panel's bottom border says: how much is hidden, and how to move the focus. */
+  private rightHint(): string | undefined {
     const more = this.rightLines.length - this.rightHeight - this.scroll;
-    const left = more > 0 ? `↓ ${more} more lines` : "";
-    // hr() does not truncate its label, and this one is long.
-    const label = (text: string) => hr(width, cut(text, Math.max(0, width - 6)));
-    if (this.pane === "content") return label(["reading", "j/k scroll", "space/b page", "tab/esc back to the list", left].filter(Boolean).join(" · "));
-    return more > 0 ? label(`${left} · enter to read`) : hr(width);
+    const hidden = more > 0 ? `↓ ${more} more lines` : "";
+    if (this.pane === "content") return [hidden, "j/k scroll", "space/b page", "tab/esc back"].filter(Boolean).join(" · ");
+    return more > 0 ? `${hidden} · enter to read` : undefined;
   }
 }

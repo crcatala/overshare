@@ -7,17 +7,18 @@
  *   Two panes, one has the focus (the list at first): enter / tab / → / l  read the message (focus the content),
  *   esc / tab / ← / h  back to the list. The same movement keys drive whichever pane is focused:
  *   j/k ↑/↓ line · space/PgDn/ctrl-f and b/PgUp/ctrl-b page · ctrl-d/u half page · g/G first/last.
- *   Everywhere: J/K next/previous prompt · p publish. From the list, esc / q / ← / h leaves the viewer.
+ *   Everywhere: J/K next/previous prompt · y copy the message · p publish. From the list, esc / q / ← / h leaves the viewer.
  *   v        cycle the list: prompts → conversation → everything           V  as a dialog, plus layout
  *            settings that persist: indent replies under their prompt, and tool calls one level deeper
  */
 import { formatBytes } from "../format.js";
 import { sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
-import { plural, shortModel } from "./display.js";
+import { branchLabel, plural, shortModel } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { cut, fit, frame, isKey, padLines, pagingKey, st, wrap } from "./kit.js";
 import { SAVE_FAILED_MESSAGE, type SettingsStore } from "./settings.js";
+import { renderItem } from "./render.js";
 import { Spinner } from "./spinner.js";
 import type { ShareSummary, SessionView, Source, ViewItem, ViewKind } from "./source.js";
 
@@ -47,6 +48,8 @@ export interface ViewerHooks {
   openDialog(d: RadioDialog): void;
   closeDialog(): void;
   publish(): void;
+  /** Put text on the system clipboard. */
+  copy(text: string): void;
   close(): void;
 }
 
@@ -178,7 +181,15 @@ export class SessionViewer {
       move(i);
     } else if (isKey(data, "v")) this.setLevel((this.level + 1) % LEVELS.length);
     else if (data === "V" || isKey(data, "shift+v")) this.hooks.openDialog(this.viewDialog());
+    else if (isKey(data, "y")) this.copyMessage(items[this.cursor]);
     else if (isKey(data, "p")) this.hooks.publish();
+  }
+
+  /** `y`: the selected message as plain text, the same words the content pane shows (a tool call: its input and result too). */
+  private copyMessage(it: ViewItem | undefined): void {
+    if (!it) return;
+    this.hooks.copy(it.body);
+    this.hooks.notify(`copied the message (${plural(it.body.split("\n").length, "line")}, ${formatBytes(Buffer.byteLength(it.body))})`);
   }
 
   /** The furthest the content pane can scroll, from the last draw. */
@@ -213,15 +224,15 @@ export class SessionViewer {
 
   footerKeys(): Array<[string, string]> {
     return this.pane === "content"
-      ? [["j/k", "scroll"], ["space/b", "page"], ["g/G", "top/bottom"], ["J/K", "prompt"], ["tab/esc", "back to list"], ["p", "publish"]]
-      : [["j/k", "message"], ["space/b", "page"], ["J/K", "prompt"], ["enter/tab", "read"], ["v", "list level"], ["V", "view options"], ["p", "publish"], ["esc", "back"]];
+      ? [["j/k", "scroll"], ["space/b", "page"], ["g/G", "top/bottom"], ["J/K", "prompt"], ["y", "copy"], ["tab/esc", "back to list"], ["p", "publish"]]
+      : [["j/k", "message"], ["space/b", "page"], ["J/K", "prompt"], ["enter/tab", "read"], ["y", "copy"], ["v", "list level"], ["V", "view options"], ["p", "publish"], ["esc", "back"]];
   }
 
   private header(width: number): string[] {
     const s = this.session;
     const v = this.view;
     const lines = [`${st.bold("agent-share")}  ${st.dim("›")}  ${st.bold(cut(s.title ?? "(untitled)", width - 20))}`];
-    lines.push(cut(st.dim([s.harness === "pi" ? "pi" : "Claude Code", s.project, s.branch, s.models.map(shortModel).join(", ")].filter(Boolean).join(" · ")), width));
+    lines.push(cut(st.dim([s.harness === "pi" ? "pi" : "Claude Code", s.project, branchLabel(s), s.models.map(shortModel).join(", ")].filter(Boolean).join(" · ")), width));
     if (!v) return lines;
     const d = v.stats;
     lines.push(
@@ -293,8 +304,7 @@ export class SessionViewer {
       return { title: "message", lines: [st.dim("nothing to show")] };
     }
     const title = `${it.kind === "user" ? "prompt" : it.kind}${it.meta ? ` · ${it.meta}` : ""}${it.error ? " · error" : ""}  ${st.dim(`turn ${it.turn}`)}`;
-    const dimmed = it.kind === "tool" || it.kind === "thinking";
-    this.rightLines = it.body.split("\n").flatMap((l) => (l ? wrap(dimmed ? st.gray(l) : l, width) : [""]));
+    this.rightLines = renderItem(it, width);
     this.rightHeight = height;
     this.scroll = Math.min(this.scroll, this.maxScroll());
     return { title, lines: this.rightLines.slice(this.scroll, this.scroll + height), bottom: this.rightHint() };
@@ -304,7 +314,7 @@ export class SessionViewer {
   private rightHint(): string | undefined {
     const more = this.rightLines.length - this.rightHeight - this.scroll;
     const hidden = more > 0 ? `↓ ${more} more lines` : "";
-    if (this.pane === "content") return [hidden, "j/k scroll", "space/b page", "tab/esc back"].filter(Boolean).join(" · ");
+    if (this.pane === "content") return [hidden, "j/k scroll", "space/b page", "y copy", "tab/esc back"].filter(Boolean).join(" · ");
     return more > 0 ? `${hidden} · enter to read` : undefined;
   }
 }

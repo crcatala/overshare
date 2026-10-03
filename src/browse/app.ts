@@ -17,7 +17,7 @@ import { SHARE_MODES, type HarnessName } from "../schema.js";
 import { facet, parseQuery, searchSessions } from "../sessions/query.js";
 import { sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
-import { ago, DATE_FORMATS, dateFormat, dayBucket, durationMs, plural, sessionDuration, shortModel, toolSummary, type DateFormatId } from "./display.js";
+import { ago, branchLabel, DATE_FORMATS, dateFormat, dayBucket, durationMs, plural, sessionDuration, shortModel, toolSummary, type DateFormatId } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { copyToClipboard, MODE_HINT, PublishFlow } from "./flow.js";
 import { box, columns, composite, cut, fit, hr, isKey, isPlain, isShift, padLines, pagingKey, Screen, st, w, wrap, type PageMove } from "./kit.js";
@@ -62,6 +62,10 @@ const SORT_KEY: Record<SortField, (s: SessionSummary) => number | string> = {
   duration: durationMs,
 };
 
+/** Width of the list's branch column, and the narrowest title the list keeps to make room for it. */
+const BRANCH_COL = 16;
+const MIN_TITLE = 28;
+
 const cycle = <T>(list: T[], current: T): T => list[(list.indexOf(current) + 1) % list.length]!;
 
 type Entry = { header: string } | { idx: number };
@@ -74,6 +78,8 @@ export interface BrowserOptions {
   now?: () => number;
   /** Preferences (confirm-on-quit, date format, viewer layout). In memory unless the caller passes a file-backed store. */
   settings?: SettingsStore;
+  /** Where `y` in the viewer sends the selected message; the system clipboard (OSC 52) unless a test says otherwise. */
+  copy?: (text: string) => void;
 }
 
 export class BrowserApp extends Screen {
@@ -97,6 +103,7 @@ export class BrowserApp extends Screen {
   private topProjects: string[];
   private now: () => number;
   private settings: SettingsStore;
+  private copyText: (text: string) => void;
   private unsubscribeIndex?: () => void;
 
   constructor(
@@ -106,6 +113,7 @@ export class BrowserApp extends Screen {
     super();
     this.now = opts.now ?? Date.now;
     this.settings = opts.settings ?? memorySettings();
+    this.copyText = opts.copy ?? ((text) => copyToClipboard(text));
     this.query = opts.query ?? "";
     this.harness = opts.harness;
     this.topProjects = this.computeTopProjects();
@@ -466,6 +474,7 @@ export class BrowserApp extends Screen {
         this.dialog = undefined;
       },
       publish: () => this.openFlow(s),
+      copy: (text) => this.copyText(text),
       close: () => {
         this.viewer?.dispose();
         this.viewer = undefined;
@@ -528,7 +537,7 @@ export class BrowserApp extends Screen {
     let out = base;
     if (this.quitPrompt) out = composite(base, this.drawQuit(Math.min(44, width - 4)), width);
     else if (this.flow) out = composite(base, this.drawFlow(Math.min(74, width - 4)), width);
-    else if (this.dialog) out = composite(base, this.dialog.draw(Math.min(64, width - 4), height), width);
+    else if (this.dialog) out = composite(base, this.dialog.draw(Math.min(72, width - 4), height), width);
     else if (this.help) out = composite(base, this.drawHelp(Math.min(78, width - 4)), width);
     return padLines(out, height).slice(0, height);
   }
@@ -607,7 +616,7 @@ export class BrowserApp extends Screen {
       rows.push("header" in e ? st.dim(`── ${e.header} ${"─".repeat(Math.max(0, lw - w(e.header) - 4))}`) : this.row(this.view[e.idx]!, e.idx === this.cursor, lw));
     }
     const preview = this.current ? this.preview(this.current, rw) : [];
-    return [...head, ...columns(padLines(rows, bodyH), padLines(preview, bodyH), lw, rw), hr(width), this.footer(width)];
+    return [...head, ...columns(padLines(rows, bodyH), padLines(preview.slice(0, bodyH), bodyH), lw, rw), hr(width), this.footer(width)];
   }
 
   private row(s: SessionSummary, selected: boolean, width: number): string {
@@ -615,9 +624,13 @@ export class BrowserApp extends Screen {
     const harness = s.harness === "pi" ? st.magenta("π ") : st.yellow("CC");
     const fmt = dateFormat(this.settings.get().dateFormat);
     const fixed = 1 + (fmt.width + 1) + 3 + 15 + 3;
+    // The branch column only appears when the title keeps a useful width without it.
+    const branchW = width - fixed - BRANCH_COL - 1 >= MIN_TITLE ? BRANCH_COL : 0;
     const project = s.pending ? "…" : (s.project ?? "?");
     const title = s.pending ? st.dim("reading…") : (s.title ?? "(untitled)");
-    const cells = `${selected ? st.cyan("▌") : " "}${fit(fmt.format(s.mtimeMs, this.now()), fmt.width + 1)}${harness} ${fit(st.dim(project), 14)} ${fit(title, width - fixed)} ${shared ? st.green("✓") : " "}`;
+    // A guessed branch (from the repo's reflog, not the transcript) is marked with ~.
+    const branch = branchW ? `${fit(s.branch ? st.dim(`${s.branchGuess ? "~" : ""}${s.branch}`) : "", branchW)} ` : "";
+    const cells = `${selected ? st.cyan("▌") : " "}${fit(fmt.format(s.mtimeMs, this.now()), fmt.width + 1)}${harness} ${fit(st.dim(project), 14)} ${branch}${fit(title, width - fixed - (branchW ? branchW + 1 : 0))} ${shared ? st.green("✓") : " "}`;
     return selected ? st.sel(fit(cells, width)) : cells;
   }
 
@@ -625,7 +638,7 @@ export class BrowserApp extends Screen {
     if (s.pending) return [st.dim(s.harness === "pi" ? "pi" : "Claude Code"), st.dim(formatBytes(s.size)), "", st.dim("reading this session…")];
     const out: string[] = [];
     out.push(...wrap(st.bold(s.title ?? "(untitled)"), width).slice(0, 2));
-    out.push(st.dim([s.harness === "pi" ? "pi" : "Claude Code", s.models.map(shortModel).join(", "), s.branch, sessionDuration(s)].filter(Boolean).join(" · ")));
+    out.push(st.dim([s.harness === "pi" ? "pi" : "Claude Code", s.models.map(shortModel).join(", "), branchLabel(s), sessionDuration(s)].filter(Boolean).join(" · ")));
     out.push(st.dim(`${plural(s.prompts, "prompt")} · ${plural(s.calls, "model call")} · ${formatBytes(s.size)}${s.subagents ? ` · ${plural(s.subagents, "subagent")}` : ""}`));
     const tools = toolSummary(s.tools);
     if (tools) out.push(st.dim(tools));
@@ -633,6 +646,7 @@ export class BrowserApp extends Screen {
     if (last) out.push(st.green(`✓ shared ${ago(Date.parse(last.sharedAt), this.now())} (${last.mode})`));
     out.push("", st.cyan("first prompt"), ...wrap(s.firstPrompt ?? "", width).slice(0, 4).map((l) => st.dim(l)));
     if (s.lastPrompt && s.lastPrompt !== s.firstPrompt) out.push("", st.cyan("latest prompt"), ...wrap(s.lastPrompt, width).slice(0, 3).map((l) => st.dim(l)));
+    if (s.lastReply) out.push("", st.cyan("last reply"), ...wrap(s.lastReply, width).slice(0, 5).map((l) => st.dim(l)));
     if (s.promptHead.length > 2) {
       out.push("", st.cyan(`prompts (${s.prompts})`));
       s.promptHead.slice(0, 6).forEach((p, i) => out.push(`${st.dim(`${i + 1}.`)} ${cut(p, width - 3)}`));
@@ -718,6 +732,7 @@ export class BrowserApp extends Screen {
         row("enter  tab", "read the message: focus the content pane (l / → too)"),
         row("esc  tab", "back to the list from the content pane (h / ← / q too)"),
         row("space  b", "page down / up in whichever pane has the focus; g/G top/bottom"),
+        row("y", "copy the selected message to the clipboard"),
         row("v  V", "cycle prompts → conversation → everything · dialog + layout"),
         "",
         st.dim("any key closes this"),

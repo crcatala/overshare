@@ -1,3 +1,4 @@
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ViewItem } from "../src/browse/source.js";
 import { drive, KEY, sampleView, viewerPanes } from "./browse-helpers.js";
@@ -373,8 +374,79 @@ describe("pane focus", () => {
     await d.press(KEY.enter);
     expect(raw()).toContain("\x1b[48;5;236m"); // dimmed selection while the content has the focus
     expect(raw()).not.toContain("\x1b[48;5;238m");
-    expect(d.text()).toMatch(/↓ \d+ more lines · j\/k scroll · space\/b page · tab\/esc back/);
+    expect(d.text()).toMatch(/↓ \d+ more lines · j\/k scroll · space\/b page · y copy · tab\/esc back/);
     expect(d.text()).not.toContain("enter to read");
     expect(d.lines().at(-1)).toContain("tab/esc");
+  });
+});
+
+describe("copying the selected message (y)", () => {
+  const copying = async () => {
+    const copied: string[] = [];
+    const d = await open({ copy: (t: string) => void copied.push(t) });
+    return { d, copied };
+  };
+
+  it("y copies the message in the list pane and says so", async () => {
+    const { d, copied } = await copying();
+    await d.press("y");
+    expect(copied).toEqual(["fix the bug in the invoice handler"]);
+    expect(d.text()).toMatch(/copied the message \(1 line, 34 B\)/);
+  });
+
+  it("copies whichever message is selected, from the content pane too, as plain text", async () => {
+    const { d, copied } = await copying();
+    await d.press("v", KEY.down, KEY.down, KEY.enter, "y"); // everything: the Bash call, focus on the content
+    expect(copied).toEqual(["npm test\n\n── result ──\n12 passed"]);
+    expect(copied[0]).not.toContain("\x1b");
+  });
+
+  it("does nothing when there is no message", async () => {
+    const copied: string[] = [];
+    const d = await open({ copy: (t: string) => void copied.push(t), view: () => ({ ...sampleView(), items: [] }) });
+    await d.press("y");
+    expect(copied).toEqual([]);
+  });
+
+  it("is listed in the footer and in the help", async () => {
+    const { d } = await copying();
+    expect(d.lines().at(-1)).toContain("y copy");
+    await d.press(KEY.esc, "?"); // the help is a list-level screen; it lists the viewer's keys too
+    expect(d.text()).toContain("copy the selected message");
+  });
+});
+
+describe("formatted messages fit their panel", () => {
+  const rich = (): ViewItem[] => [
+    { kind: "user", turn: 1, label: "go", body: "run the tests and fix them" },
+    { kind: "assistant", turn: 1, label: "Here is the plan", body: "## Plan\n\n1. run `npm test`\n2. fix **failures**\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```ts\nconst x: number = 1; // " + "long ".repeat(40) + "\n```" },
+    { kind: "tool", turn: 1, label: "Bash  npm test", meta: "Bash", body: "npm test", blocks: [{ type: "code", text: "npm test -- --run " + "--flag ".repeat(30), lang: "bash" }, { type: "label", text: "result" }, { type: "code", text: "x".repeat(300) }] },
+    { kind: "tool", turn: 1, label: "Edit  src/a.ts", meta: "Edit", body: "src/a.ts", blocks: [{ type: "edit", path: "src/a.ts", edits: [{ old: "const a = 1;\n" + "y".repeat(200), new: "const a = 2;\n" + "z".repeat(200) }] }] },
+  ];
+  const SIZES: Array<[number, number]> = [[40, 12], [60, 14], [80, 24], [132, 40], [200, 60]];
+
+  it("never draws a line wider than the terminal, at any size, for every kind of block", async () => {
+    const d = await open({ view: () => ({ ...sampleView(), items: rich() }) });
+    await d.press("v"); // conversation → everything
+    for (let i = 0; i < 4; i++) {
+      await d.press(KEY.enter); // content pane
+      for (const [width, height] of SIZES) {
+        d.app.attach(() => height, () => {});
+        const lines = d.app.draw(width, height);
+        expect(lines, `message ${i} @ ${width}x${height}`).toHaveLength(height);
+        expect(lines.filter((l) => visibleWidth(l) > width), `message ${i} @ ${width}x${height}`).toEqual([]);
+      }
+      await d.press(KEY.esc, "j");
+    }
+  });
+
+  it("draws the assistant message as markdown and the edit as a diff in the panel", async () => {
+    const d = await open({ view: () => ({ ...sampleView(), items: rich() }) });
+    await d.press("v", "j");
+    expect(d.text()).toContain("Plan");
+    expect(d.text()).not.toContain("## Plan");
+    expect(d.text()).toContain("┌");
+    await d.press("j", "j");
+    expect(d.text()).toContain("src/a.ts  +2 −2");
   });
 });

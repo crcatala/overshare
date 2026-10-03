@@ -66,7 +66,7 @@ agent-share  7/7
 | `j` `k` / arrows | move (`home`/`end`) | |
 | `space` `b` | page down / up (also `PgDn`/`PgUp` and `ctrl-f`/`ctrl-b`; `ctrl-d`/`ctrl-u` move half a page) | |
 | `/` | search: free words plus `harness:pi repo:x branch:y model:opus tool:Bash since:7d before:2026-09-01 shared:no workers:yes` | |
-| `h` `r` `t` `s` | cycle harness · repo · time · shared | `H` `R` `T` `S`: pick from a dialog (`/` filters the repo list) |
+| `h` `r` `t` `s` | cycle harness · repo · time · shared | `H` `R` `T` `S`: pick from a dialog (`/` filters the repo list; a long list scrolls in a fixed 10-row window with a row of dots for your position, and `PgUp`/`PgDn` page it) |
 | `g` | cycle grouping: none → date → repo → harness | `G`: dialog |
 | `o` | cycle sort field (size, title, repo, prompts, calls, duration, updated); selects the first session | `O`: dialog with field and direction |
 | `x` | clear search and filters (grouping and sort stay); shown in the footer while there is something to clear | |
@@ -86,9 +86,21 @@ has the bright border while the other is gray; the list's selected row dims when
 `h`, `←` or `q` bring it back, and from the list `esc`/`q`/`h`/`←` leave the viewer. Both panes take the same keys as the
 session list: `j`/`k` or the arrows move (a message in the list, a line in the content), `space`/`PgDn`/`ctrl-f` and
 `b`/`PgUp`/`ctrl-b` page, `ctrl-d`/`ctrl-u` half a page, `g`/`G` first/last. `v` cycles the list between your prompts, the
-conversation, and everything (tool calls, thinking, subagents, skills); `J`/`K` jump between prompts from either pane. `V` opens the same
+conversation, and everything (tool calls, thinking, subagents, skills); `J`/`K` jump between prompts from either pane. `y` copies the
+selected message to the clipboard (OSC 52, like the share link) as plain text: for a tool call, its input and result too. `V` opens the same
 choice as a dialog and adds two layout options that are saved and apply at every level: indent assistant replies under
 their prompt, and indent tool calls (with thinking, subagents and events) one level further.
+
+The content pane formats what it shows: an assistant reply as markdown (headings, lists, tables, quotes, highlighted code
+fences); a prompt as you typed it (not markdown); a `Bash` call as highlighted shell with its output below; an `Edit` (Claude
+Code's, `MultiEdit`, or pi's `edit`) as a red/green diff with unchanged stretches collapsed; a `Write` as the file's code; any other tool as its JSON
+input, then its result.
+
+The list's preview also shows the **last reply** (the last thing the assistant said in words), and each session's **branch**: the one
+the transcript recorded (Claude Code) or, where there is none (pi), a best guess marked `~` in the list and "(guess)" in the preview. The guess comes from the repo's own
+files, with no `git` process: HEAD's reflog says which branch was checked out when the session ended, and a repo that never switched is on its
+current branch. It is wrong when the reflog has expired (90 days), the branch was deleted or renamed, or the working directory is gone. The list
+shows a branch column only when the terminal is wide enough to leave the titles room (about 140 columns); `branch:name` searches both kinds.
 
 ### Browser settings
 
@@ -109,7 +121,7 @@ field, falls back to its default.
 
 `ctrl-c` always quits immediately, without asking.
 
-- **Index.** Session summaries (title, repo, models, first/last prompts, tool counts) are cached in
+- **Index.** Session summaries (title, repo, branch, models, first/last prompts, last reply, tool counts) are cached in
   `~/.cache/agent-share-session/index.json` (`AGENT_SHARE_INDEX` overrides), keyed by path, mtime and size. The first run reads
   every transcript (a couple of seconds for ~500 sessions); later runs only `stat` the files. The list appears at once, with
   `reading…` rows that fill in (newest first) while a counter shows progress; keys work meanwhile, search and the repo filter

@@ -244,7 +244,7 @@ export interface Driver {
 /** A browser over a fake source with a frozen clock (call `vi.useFakeTimers()` in the test file). */
 export function drive(opts: FakeSourceOptions & BrowserOptions = {}): Driver {
   const source = fakeSource(opts);
-  const app = new BrowserApp(source, { now: () => NOW, query: opts.query, harness: opts.harness, settings: opts.settings });
+  const app = new BrowserApp(source, { now: () => NOW, query: opts.query, harness: opts.harness, settings: opts.settings, copy: opts.copy });
   app.attach(() => 34, () => {});
   const lines = (width = 130, height = 34) => {
     app.attach(() => height, () => {});

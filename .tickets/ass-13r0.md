@@ -1,6 +1,6 @@
 ---
 id: ass-13r0
-status: open
+status: closed
 deps: []
 links: [ass-azwt, ass-iugy, ass-5qv5, ass-8w1o]
 created: 2026-10-02T19:40:50Z
@@ -43,3 +43,9 @@ Today every publish silently harvests exact secret values from the machine (`col
 ## Context
 Decision record (2026-10-02): keep machine-secret harvesting as a deliberate tradeoff, but narrow and make the sensitive sources opt-in. Related: wrapper ticket, mask-fragment ticket, middle-tier ticket (`ass-iugy`; it does NOT compensate for lost recall on unformatted secrets, so there is no ordering dependency between the two; see its note), and ass-azwt, which is blocked on this ticket and must be re-assessed afterwards (a smaller default source set may make the cache unnecessary).
 
+
+## Notes
+
+**2026-10-03T01:29:42Z**
+
+Defaults confirmed by the user (2026-10-02): env + project .env* ON; credential files (pi/Claude/Codex auth JSON, gh hosts.yml, ~/.npmrc, ~/.netrc) and the gh auth token call OFF (opt-in). Config shape: redact.knownSources { env, projectEnv, credentialFiles, ghToken }, one boolean each; unknown keys / non-booleans are config errors. Report shape: ShareReport.knownSecretCount replaced by knownSources [{id, enabled, count}] (also in report --json and the browse ShareSummary); share payload schema (agentshare/2) unchanged, so no SCHEMA_VERSION bump. Docs: README 'What this tool reads and why' + CLI --help footer. Follow-up for ass-azwt: default collection now opens only env + project .env* and spawns no gh, so re-measure cost before building a cache.

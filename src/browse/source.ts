@@ -14,6 +14,7 @@ import { prepareShare, type PreparedShare } from "../pipeline.js";
 import { stripControls } from "../sanitize.js";
 import { createPublisher, preflightWarnings, publishPrepared } from "../publish/index.js";
 import type { Publisher } from "../publish/types.js";
+import type { KnownSourceUse } from "../redact/known-values.js";
 import { totalTokens, type NormalizedSession, type ShareMode } from "../schema.js";
 import { shareKey, type SharesFile, loadShares } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
@@ -59,6 +60,8 @@ export interface ShareSummary {
   /** The final re-scan found unredacted secrets: publishing must be refused. */
   blocked: boolean;
   findings: Array<{ rule: string; where: string }>;
+  /** Which machine sources supplied known secret values (counts only). */
+  knownSources: KnownSourceUse[];
   redactions: number;
   bytes: number;
 }
@@ -165,6 +168,7 @@ export function summarizeShare(prepared: PreparedShare): ShareSummary {
     clean: report.clean,
     blocked: report.blocked,
     findings: report.findings.map((f) => ({ rule: stripControls(f.rule), where: stripControls(f.where) })),
+    knownSources: report.knownSources,
     redactions: Object.values(report.counts).reduce((a, b) => a + b, 0),
     bytes: report.bytes,
   };

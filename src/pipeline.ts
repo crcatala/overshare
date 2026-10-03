@@ -3,7 +3,7 @@ import { parseSession } from "./adapters/index.js";
 import type { DropCounts, SubagentFileInput } from "./adapters/shared.js";
 import type { AgentShareConfig } from "./config.js";
 import { projectSession } from "./modes.js";
-import { collectKnownSecrets, type KnownSecret } from "./redact/known-values.js";
+import { collectKnownSecrets, type KnownSecret, type KnownSourceUse } from "./redact/known-values.js";
 import { Redactor, SECRET_CATEGORIES, redactSession, type RedactionFinding } from "./redact/index.js";
 import { rescanPayload, type RescanIssue } from "./redact/rescan.js";
 import type { HarnessName, NormalizedSession, SessionStats, ShareMode } from "./schema.js";
@@ -36,7 +36,8 @@ export interface ShareReport {
   counts: Record<string, number>;
   findings: RedactionFinding[];
   rescan: RescanIssue[];
-  knownSecretCount: number;
+  /** Where known values came from and how many each contributed (counts only), including sources that were switched off. */
+  knownSources: KnownSourceUse[];
   bytes: number;
   /** No secrets were found and the final payload re-scan is clean. */
   clean: boolean;
@@ -67,11 +68,13 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
     username: opts.machine?.username ?? safeUsername(),
     hostname: opts.machine?.hostname ?? osHostname(),
   };
-  const knownSecrets = [
-    ...(opts.knownSecrets ?? collectKnownSecrets({ home: machine.homeDir, projectDir: full.project?.cwd })),
-    ...(opts.extraKnownSecrets ?? []),
-  ].sort((a, b) => b.value.length - a.value.length);
   const { redact } = opts.config;
+  const collected = opts.knownSecrets
+    ? { secrets: opts.knownSecrets, sources: [{ id: "provided" as const, enabled: true, count: opts.knownSecrets.length }] }
+    : collectKnownSecrets({ home: machine.homeDir, projectDir: full.project?.cwd, enabled: redact.knownSources });
+  const extra = opts.extraKnownSecrets ?? [];
+  const knownSources: KnownSourceUse[] = extra.length ? [...collected.sources, { id: "secrets-file", enabled: true, count: extra.length }] : collected.sources;
+  const knownSecrets = [...collected.secrets, ...extra].sort((a, b) => b.value.length - a.value.length);
   const redactor = new Redactor({
     ...machine,
     redactEmails: redact.emails,
@@ -109,7 +112,7 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
       counts,
       findings: redactor.findings,
       rescan,
-      knownSecretCount: knownSecrets.length,
+      knownSources,
       bytes: Buffer.byteLength(json),
       clean: !secretsFound && rescan.length === 0,
       blocked: rescan.length > 0,

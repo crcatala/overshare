@@ -21,15 +21,51 @@ export function knownSecret(value: string, label: string, source: string): Known
   return { value: new SecretValue(value), label, source };
 }
 
+/**
+ * Where exact secret values are harvested from. Each source is a switch in `redact.knownSources`:
+ * `env` and `projectEnv` are on by default (the session very likely touched them); the rest read
+ * credential stores the user may not expect a share tool to open, so they are opt-in.
+ */
+export const KNOWN_SOURCES = ["env", "projectEnv", "credentialFiles", "ghToken"] as const;
+export type KnownSourceId = (typeof KNOWN_SOURCES)[number];
+export type KnownSourceSettings = Record<KnownSourceId, boolean>;
+
+export const DEFAULT_KNOWN_SOURCES: KnownSourceSettings = { env: true, projectEnv: true, credentialFiles: false, ghToken: false };
+
+/** Short names for reports. `credentialFiles` covers pi/Claude/Codex auth JSON, `gh hosts.yml`, `~/.npmrc` and `~/.netrc`. */
+export const KNOWN_SOURCE_LABELS: Record<KnownSourceId | "secrets-file" | "provided", string> = {
+  env: "env",
+  projectEnv: "project .env",
+  credentialFiles: "credential files",
+  ghToken: "gh auth token",
+  "secrets-file": "secrets file",
+  provided: "provided",
+};
+
+/** What one source contributed to a publish. Counts only: values never appear here. */
+export interface KnownSourceUse {
+  id: KnownSourceId | "secrets-file" | "provided";
+  /** Switched on in config (always true for the ids that are not switches). */
+  enabled: boolean;
+  /** Distinct values this source added. */
+  count: number;
+}
+
 export interface KnownValueSources {
   env?: NodeJS.ProcessEnv;
   home?: string;
   /** Directory whose `.env*` files are read (usually the session's cwd). */
   projectDir?: string;
-  /** Run `gh auth token`; disabled in tests. */
-  ghToken?: boolean;
-  /** Extra JSON credential files to read (tests). Defaults to known agent/CLI locations. */
-  credentialFiles?: string[];
+  /** Which sources to read; unset ones follow `DEFAULT_KNOWN_SOURCES`. */
+  enabled?: Partial<KnownSourceSettings>;
+  /** JSON credential files to read instead of the pi/Claude/Codex locations (tests). */
+  jsonCredentialFiles?: string[];
+}
+
+export interface CollectedKnownSecrets {
+  secrets: KnownSecret[];
+  /** One entry per switchable source, in `KNOWN_SOURCES` order. */
+  sources: KnownSourceUse[];
 }
 
 const ENV_NAME = /(KEY|TOKEN|SECRET|PASS(WORD|WD)?|CREDENTIAL|AUTH|PRIVATE|DSN|COOKIE|WEBHOOK)/i;
@@ -45,49 +81,60 @@ function acceptable(value: string): boolean {
   return true;
 }
 
-export function collectKnownSecrets(sources: KnownValueSources = {}): KnownSecret[] {
+export function collectKnownSecrets(sources: KnownValueSources = {}): CollectedKnownSecrets {
   const env = sources.env ?? process.env;
   const home = sources.home ?? homedir();
+  const enabled: KnownSourceSettings = { ...DEFAULT_KNOWN_SOURCES, ...sources.enabled };
   const out = new Map<string, { value: string; label: string; source: string }>();
-  const add = (value: unknown, label: string, source: string) => {
+  const counts: Record<KnownSourceId, number> = { env: 0, projectEnv: 0, credentialFiles: 0, ghToken: 0 };
+  const adder = (id: KnownSourceId) => (value: unknown, label: string, source: string) => {
     if (typeof value !== "string" || !acceptable(value)) return;
     const v = value.trim();
-    if (!out.has(v)) out.set(v, { value: v, label, source });
+    if (out.has(v)) return;
+    out.set(v, { value: v, label, source });
+    counts[id]++;
   };
 
-  for (const [name, value] of Object.entries(env)) {
-    if (value && ENV_NAME.test(name) && !ENV_NAME_IGNORE.test(name)) add(value, name, "env");
+  if (enabled.env) {
+    const add = adder("env");
+    for (const [name, value] of Object.entries(env)) {
+      if (value && ENV_NAME.test(name) && !ENV_NAME_IGNORE.test(name)) add(value, name, "env");
+    }
   }
 
-  const credentialFiles = sources.credentialFiles ?? [
-    join(env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), "auth.json"),
-    join(env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), ".credentials.json"),
-    join(home, ".codex", "auth.json"),
-  ];
-  for (const file of credentialFiles) {
-    const json = readJson(file);
-    if (json !== undefined) walkJson(json, [], (path, value) => add(value, path.join(".") || "value", file.replace(home, "~")));
+  if (enabled.credentialFiles) {
+    const add = adder("credentialFiles");
+    const jsonFiles = sources.jsonCredentialFiles ?? [
+      join(env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), "auth.json"),
+      join(env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), ".credentials.json"),
+      join(home, ".codex", "auth.json"),
+    ];
+    for (const file of jsonFiles) {
+      const json = readJson(file);
+      if (json !== undefined) walkJson(json, [], (path, value) => add(value, path.join(".") || "value", file.replace(home, "~")));
+    }
+
+    for (const [file, re] of [
+      [join(home, ".config", "gh", "hosts.yml"), /oauth_token:\s*(\S+)/g],
+      [join(home, ".npmrc"), /_authToken=(\S+)/g],
+      [join(home, ".netrc"), /password\s+(\S+)/g],
+    ] as const) {
+      const text = readText(file);
+      if (text) for (const m of text.matchAll(re)) add(m[1], "token", file.replace(home, "~"));
+    }
   }
 
-  for (const [file, re] of [
-    [join(home, ".config", "gh", "hosts.yml"), /oauth_token:\s*(\S+)/g],
-    [join(home, ".npmrc"), /_authToken=(\S+)/g],
-    [join(home, ".netrc"), /password\s+(\S+)/g],
-  ] as const) {
-    const text = readText(file);
-    if (text) for (const m of text.matchAll(re)) add(m[1], "token", file.replace(home, "~"));
-  }
-
-  if (sources.ghToken !== false) {
+  if (enabled.ghToken) {
     try {
       const token = execFileSync("gh", ["auth", "token"], { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] });
-      add(token, "GH_TOKEN", "gh auth token");
+      adder("ghToken")(token, "GH_TOKEN", "gh auth token");
     } catch {
       // gh missing or logged out
     }
   }
 
-  if (sources.projectDir && existsSync(sources.projectDir)) {
+  if (enabled.projectEnv && sources.projectDir && existsSync(sources.projectDir)) {
+    const add = adder("projectEnv");
     let names: string[] = [];
     try {
       names = readdirSync(sources.projectDir).filter((n) => /^\.env(\..+)?$/.test(n) && !/\.(example|sample|template)$/.test(n));
@@ -106,7 +153,10 @@ export function collectKnownSecrets(sources: KnownValueSources = {}): KnownSecre
       }
     }
   }
-  return [...out.values()].map((k) => knownSecret(k.value, k.label, k.source)).sort((a, b) => b.value.length - a.value.length);
+  return {
+    secrets: [...out.values()].map((k) => knownSecret(k.value, k.label, k.source)).sort((a, b) => b.value.length - a.value.length),
+    sources: KNOWN_SOURCES.map((id) => ({ id, enabled: enabled[id], count: counts[id] })),
+  };
 }
 
 /** Values shorter than this would redact common substrings everywhere, so they are skipped. */

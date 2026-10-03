@@ -1,6 +1,6 @@
 ---
 id: ass-mpbn
-status: in_progress
+status: closed
 deps: []
 links: [ass-azwt, ass-1rgj, ass-oayq, ass-pifw]
 created: 2026-10-01T01:15:13Z
@@ -61,3 +61,22 @@ Known limitations of (a), not fixed here: a pi subagent-worker session shows as 
 **2026-10-03T16:41:55Z**
 
 Decision (2026-10-03): part (b) will be done as its own follow-up PR on this ticket, not folded into the part (a) PR (#30). ass-mpbn stays open until (b) merges and is closed by that PR.
+
+**2026-10-03T17:22:19Z**
+
+Part (b) shipped on branch feat/ass-mpbn-async-view-review (PR pending). With (a) this completes the ticket.
+
+Mechanism: one worker thread per request (node:worker_threads), not an async/chunked main-thread approach. Parse + project + redact + re-scan are single synchronous calls inside the adapters/pipeline, so they cannot be sliced without rewriting them; a worker needs no changes to them. Source.view(s, signal) and Source.review(s, mode, signal) are async and cancellable (abort = worker.terminate(), so the CPU work really stops). Code: src/browse/job.ts (the work, shared by worker and tests), worker.ts (entry), runner.ts (workerRunner / inlineRunner), source.ts (cache, shared in-flight scans, review ids). Works from src (tsx/vitest, loads tsx in the worker) and from dist (verified: built CLI opens and reviews a fixture session in a PTY).
+
+Security shape: only plain data crosses the boundary (view, review = rule/length/location, payload bytes transferred not copied). Known secrets are collected inside the worker from the same config and env. Errors cross as SafeError with fixed text (prompts-unavailable keeps its own count message; fs errors keep the errno code only; everything else keeps only its class name); a worker crash/exit is a fixed 'background reader stopped unexpectedly'. Each review has an id and publish(s, mode, {reviewId}) uploads only that review's payload (also checked against the reviewed byte size), so what is on screen == what is uploaded even if a second scan of the same session/mode lands in between.
+
+Measurements (counts and timings only; real sessions, 507 total, node dist build, 16 cores, 3 runs each; main-thread blocked time = longest gap between two event-loop turns, probed with a 1 ms timer):
+- largest session 43.4 MB: open (view) before 139-144 ms blocked, after 1-2 ms (wall 175-189 ms). review full before 559-610, after 1-2 (wall 605-631). brief before 240-244, after 1-2 (wall 292-295). minimal before 201-206, after 1-2 (wall 247-251). prompts before 182, after 1-2 (wall 228-230).
+- 33.7 MB: view 109 -> 1-2 ms; full 757-762 -> 1-2; brief 284-287 -> 1-2; minimal 204-207 -> 1-2; prompts 169-171 -> 1-2.
+- 31.0 MB: view 91-93 -> 1-2; full 749-762 -> 1-2; brief 222-223 -> 1-2; minimal 169-170 -> 1-2; prompts 145-146 -> 1-2.
+- median 0.5 MB pi session: view 2-4 ms -> 1-2 ms blocked, but wall time rises to ~37 ms (worker start-up, ~35 ms): small sessions open ~35 ms later than before, off the main thread. review brief 10-12 -> 55 ms wall.
+- So the longest gap between two event-loop turns while loading dropped from 91-762 ms to 1-2 ms in every case (keypress latency during a load is now bounded by one render).
+- PTY on a 35 MB FAKE fixture (130x40, built CLI, 3 runs): esc pressed 50 ms after opening a session is handled before 125-133 ms (main) vs 12-17 ms; a mode key pressed while a full-mode scan runs is handled after 8766-8797 ms (main; that fixture's full scan takes ~8.8 s) vs 4-6 ms. 'reading the session' is on screen 4-5 ms after enter before and 6 ms after.
+- Not in scope, observed: scan cost scales with the number of strings and the payload, not only bytes (a synthetic 3.6k-turn session takes 4 s in brief and 24 s in full); it no longer blocks the UI and can be cancelled.
+
+Found, out of scope: ass-ahh1 (a secret split by the 80-char title cut leaves a long prefix in session.title, pre-existing on main).

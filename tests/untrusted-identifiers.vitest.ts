@@ -140,6 +140,12 @@ describe("the report echoes no transcript-supplied identifier that fails the ide
     expect(out).toEqual({ "claude-opus-5-5": 1, "model-1": 2, "model-2": 3, "gpt-6.1-sol": 4 });
   });
 
+  it("safeKeys never overwrites a value: a replacement skips a genuine key of the same name, in either order", () => {
+    const bad = fake.github();
+    expect(safeKeys({ [bad]: 1, "model-1": 2 }, "model")).toEqual({ "model-2": 1, "model-1": 2 });
+    expect(safeKeys({ "model-1": 2, [bad]: 1 }, "model")).toEqual({ "model-1": 2, "model-2": 1 });
+  });
+
   it("a project .env file named like a secret is reported as '.env', an ordinary one by name", () => {
     const dir = mkdtempSync(join(tmpdir(), "ids-env-"));
     const planted = fake.github();

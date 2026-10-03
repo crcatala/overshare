@@ -8,7 +8,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createSource, summarizeShare } from "../src/browse/source.js";
+import { summarizeShare } from "../src/browse/job.js";
+import { createSource } from "../src/browse/source.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { prepareShare, type PrepareOptions } from "../src/pipeline.js";
 import { findSecretPatterns } from "../src/redact/patterns.js";
@@ -298,15 +299,15 @@ describe("browse source", () => {
     const sessions = indexed(value);
     const publisher = recordingPublisher();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher });
-    const review = source.review(sessions[0]!, "full");
+    const review = await source.review(sessions[0]!, "full", new AbortController().signal);
     expect(review.blocked).toBe(false);
     expect(review.suspicious).toEqual([{ rule: "secret-assignment", length: value.length, location: "turn 3 · Bash · input (object key)", occurrences: 1 }]);
     expect(leaked(JSON.stringify(review), value, "")).toEqual([]);
 
-    await expect(source.publish(sessions[0]!, "full")).rejects.toThrow(/suspicious values .* not confirmed/);
+    await expect(source.publish(sessions[0]!, "full", { reviewId: review.id })).rejects.toThrow(/suspicious values .* not confirmed/);
     expect(publisher.payloads).toEqual([]);
     // Refusing must not have thrown the reviewed payload away: confirming now uploads exactly that payload.
-    await source.publish(sessions[0]!, "full", { suspiciousConfirmed: true });
+    await source.publish(sessions[0]!, "full", { reviewId: review.id, suspiciousConfirmed: true });
     expect(publisher.payloads).toHaveLength(1);
   });
 });

@@ -3,9 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseSession } from "../src/adapters/index.js";
-import { createSource, viewFromSession } from "../src/browse/source.js";
+import { viewFromSession } from "../src/browse/job.js";
+import type { JobRequest } from "../src/browse/job.js";
+import { inlineRunner, isAbort, type JobRunner } from "../src/browse/runner.js";
+import { createSource } from "../src/browse/source.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { PromptsUnavailableError } from "../src/modes.js";
+import type { ShareMode } from "../src/schema.js";
 import { publishPrepared } from "../src/publish/index.js";
 import type { Publisher, PublishPayload } from "../src/publish/types.js";
 import { buildIndex } from "../src/sessions/index.js";
@@ -51,6 +55,13 @@ function indexed(secret?: string) {
   writeFileSync(file, t.toJsonl());
   const sessions = buildIndex({ roots: { "claude-code": projects, pi: join(dir, "pi") }, cachePath: join(dir, "index.json") });
   return { file, sessions, session: sessions[0]! };
+}
+
+const live = new AbortController();
+/** Review and then publish exactly that review, the way the browser's flow does. */
+async function reviewAndPublish(source: ReturnType<typeof createSource>, session: Parameters<typeof source.view>[0], mode: ShareMode, opts: { suspiciousConfirmed?: boolean } = {}) {
+  const review = await source.review(session, mode, live.signal);
+  return { review, out: await source.publish(session, mode, { reviewId: review.id, ...opts }) };
 }
 
 /** Anything but tab and newline: the terminal must never be handed these. */
@@ -115,33 +126,33 @@ describe("viewFromSession", () => {
 });
 
 describe("createSource", () => {
-  it("reviews with the real pipeline: secrets are found, redacted, and never in the summary", () => {
+  it("reviews with the real pipeline: secrets are found, redacted, and never in the summary", async () => {
     const secret = fake.github();
     const { sessions, session } = indexed(secret);
     const source = createSource({ config: DEFAULT_CONFIG, sessions });
-    const review = source.review(session, "full");
+    const review = await source.review(session, "full", live.signal);
     expect(review.clean).toBe(false);
     expect(review.findings.length).toBeGreaterThan(0);
     expect(JSON.stringify(review)).not.toContain(secret);
-    expect(source.review(indexed().session, "full").clean).toBe(true);
+    expect((await source.review(indexed().session, "full", live.signal)).clean).toBe(true);
   });
 
   it("publishes exactly the payload that was reviewed, even if the session file changes afterwards", async () => {
     const { file, sessions, session } = indexed();
     const publisher = recordingPublisher();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher });
-    source.review(session, "brief");
+    const first = await source.review(session, "brief", live.signal);
     // The session keeps growing (or is edited) after the user looked at the review.
     writeFileSync(file, `${readFileSync(file, "utf8")}${JSON.stringify({ type: "user", uuid: "late", parentUuid: null, sessionId: "sess-1", timestamp: "2026-01-02T00:00:00Z", message: { role: "user", content: "a late prompt nobody reviewed" } })}\n`);
-    await source.publish(session, "brief");
+    await source.publish(session, "brief", { reviewId: first.id });
     expect(publisher.payloads).toHaveLength(1);
     expect(publisher.payloads[0]!.content).not.toContain("a late prompt nobody reviewed");
+    expect(Buffer.byteLength(publisher.payloads[0]!.content)).toBe(first.bytes);
     // The reviewed payload is spent. A second publish must not quietly re-scan the (changed) file and upload
     // content nobody looked at: it has to be reviewed again first.
-    await expect(source.publish(session, "brief")).rejects.toThrow(/review it again/);
+    await expect(source.publish(session, "brief", { reviewId: first.id })).rejects.toThrow(/review it again/);
     expect(publisher.payloads).toHaveLength(1);
-    source.review(session, "brief");
-    await source.publish(session, "brief");
+    await reviewAndPublish(source, session, "brief");
     expect(publisher.payloads[1]!.content).toContain("a late prompt nobody reviewed");
   });
 
@@ -149,10 +160,10 @@ describe("createSource", () => {
     const { file, sessions, session } = indexed();
     const publisher = recordingPublisher();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher, keepPrepared: 1 });
-    source.review(session, "brief");
-    source.review(session, "full"); // evicts the brief review
+    const brief = await source.review(session, "brief", live.signal);
+    await source.review(session, "full", live.signal); // evicts the brief review
     writeFileSync(file, `${readFileSync(file, "utf8")}${JSON.stringify({ type: "user", uuid: "late", parentUuid: null, sessionId: "sess-1", timestamp: "2026-01-02T00:00:00Z", message: { role: "user", content: "unreviewed late prompt" } })}\n`);
-    await expect(source.publish(session, "brief")).rejects.toThrow(/review it again/);
+    await expect(source.publish(session, "brief", { reviewId: brief.id })).rejects.toThrow(/review it again/);
     expect(publisher.payloads).toEqual([]);
   });
 
@@ -160,7 +171,7 @@ describe("createSource", () => {
     const { sessions, session } = indexed();
     const publisher = recordingPublisher();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher });
-    await expect(source.publish(session, "brief")).rejects.toThrow(/review it again/);
+    await expect(source.publish(session, "brief", { reviewId: "never-reviewed" })).rejects.toThrow(/review it again/);
     expect(publisher.payloads).toEqual([]);
   });
 
@@ -169,8 +180,7 @@ describe("createSource", () => {
     const { sessions, session } = indexed(secret);
     const publisher = recordingPublisher();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher });
-    source.review(session, "full");
-    await source.publish(session, "full");
+    await reviewAndPublish(source, session, "full");
     expect(publisher.payloads[0]!.content).not.toContain(secret);
     expect(publisher.payloads[0]!.description).toContain("agent-share:");
   });
@@ -179,8 +189,7 @@ describe("createSource", () => {
     const { sessions, session } = indexed();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => recordingPublisher() });
     expect(sharesFor(source.shares, "claude-code", "sess-1")).toHaveLength(0);
-    source.review(session, "brief");
-    const out = await source.publish(session, "brief");
+    const { out } = await reviewAndPublish(source, session, "brief");
     expect(out.url).toBe("https://viewer.example/#abc123");
     expect(sharesFor(source.shares, "claude-code", "sess-1").map((r) => r.url)).toEqual(["https://viewer.example/#abc123"]);
     const onDisk = loadShares();
@@ -193,22 +202,21 @@ describe("createSource", () => {
     writeFileSync(join(dir, "blocker"), "a file, not a directory");
     process.env.AGENT_SHARE_SHARES = join(dir, "blocker", "shares.json");
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => recordingPublisher() });
-    source.review(session, "brief");
-    const out = await source.publish(session, "brief");
+    const { out } = await reviewAndPublish(source, session, "brief");
     expect(out.url).toBe("https://viewer.example/#abc123");
     expect(out.warnings.join(" ")).toContain("could not record this share");
     expect(sharesFor(source.shares, "claude-code", "sess-1")).toHaveLength(1); // still marked in this run
   });
 
-  it("refuses prompts mode for a legacy pi session instead of guessing", () => {
+  it("refuses prompts mode for a legacy pi session instead of guessing", async () => {
     const pi = join(dir, "pi", "--home-me-work-app--");
     mkdirSync(pi, { recursive: true });
     const t = new PiTranscript("01a0aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee", "/home/me/work/app").user("a prompt with no recorded authored input");
     writeFileSync(join(pi, "2026-01-01T00-00-00-000Z_01a0aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee.jsonl"), t.toJsonl());
     const sessions = buildIndex({ roots: { "claude-code": join(dir, "none"), pi: join(dir, "pi") }, cachePath: join(dir, "index.json") });
     const source = createSource({ config: DEFAULT_CONFIG, sessions });
-    expect(() => source.review(sessions[0]!, "prompts")).toThrow(PromptsUnavailableError);
-    expect(source.review(sessions[0]!, "brief").mode).toBe("brief"); // other modes are unaffected
+    await expect(source.review(sessions[0]!, "prompts", live.signal)).rejects.toThrow(PromptsUnavailableError);
+    expect((await source.review(sessions[0]!, "brief", live.signal)).mode).toBe("brief"); // other modes are unaffected
   });
 
   it("reports unusable publish targets before anything is scanned or sent", () => {
@@ -223,11 +231,148 @@ describe("createSource", () => {
     expect(gist.destination).toContain("gist");
   });
 
-  it("view reads the local transcript", () => {
+  it("view reads the local transcript", async () => {
     const { sessions, session } = indexed();
-    const view = createSource({ config: DEFAULT_CONFIG, sessions }).view(session);
+    const view = await createSource({ config: DEFAULT_CONFIG, sessions }).view(session, live.signal);
     expect(view.items[0]).toMatchObject({ kind: "user", label: "deploy the app" });
     expect(view.tools).toEqual({ Bash: 1 });
+  });
+});
+
+describe("review requests", () => {
+  /** A runner whose jobs finish when the test says so; it records each job's signal and whether it was cancelled. */
+  function heldRunner() {
+    const jobs: Array<{ req: JobRequest; signal: AbortSignal; finish(): void }> = [];
+    const inner = inlineRunner;
+    const runner: JobRunner = {
+      run(req, signal) {
+        return new Promise((resolve, reject) => {
+          const job = { req, signal, finish: () => inner.run(req, new AbortController().signal).then(resolve, reject) };
+          jobs.push(job);
+          signal.addEventListener("abort", () => reject(Object.assign(new Error("cancelled"), { name: "AbortError" })), { once: true });
+        });
+      },
+      close() {},
+    };
+    return { runner, jobs };
+  }
+
+  it("callers waiting for the same review share one scan; it stops only when nobody is waiting", async () => {
+    const { sessions, session } = indexed();
+    const { runner, jobs } = heldRunner();
+    const source = createSource({ config: DEFAULT_CONFIG, sessions, runner });
+    const a = new AbortController();
+    const b = new AbortController();
+    const first = source.review(session, "brief", a.signal).catch((e: unknown) => e);
+    const second = source.review(session, "brief", b.signal);
+    expect(jobs).toHaveLength(1);
+    a.abort();
+    expect(isAbort(await first)).toBe(true);
+    expect(jobs[0]!.signal.aborted).toBe(false); // b still wants it
+    jobs[0]!.finish();
+    const review = await second;
+    expect(review.mode).toBe("brief");
+    // Done: the same review again is the cached one, same id, no new scan.
+    expect((await source.review(session, "brief", live.signal)).id).toBe(review.id);
+    expect(jobs).toHaveLength(1);
+
+    const c = new AbortController();
+    const abandoned = source.review(session, "full", c.signal).catch((e: unknown) => e);
+    c.abort();
+    expect(isAbort(await abandoned)).toBe(true);
+    expect(jobs[1]!.signal.aborted).toBe(true); // nobody left waiting: the scan is cancelled
+  });
+
+  it("a review that finishes after every waiter left is not shown to anyone, and a later review starts fresh when it was cancelled", async () => {
+    const { sessions, session } = indexed();
+    const { runner, jobs } = heldRunner();
+    const source = createSource({ config: DEFAULT_CONFIG, sessions, runner });
+    const c = new AbortController();
+    const gone = source.review(session, "brief", c.signal).catch((e: unknown) => e);
+    c.abort();
+    expect(isAbort(await gone)).toBe(true);
+    const again = source.review(session, "brief", live.signal);
+    expect(jobs).toHaveLength(2); // the cancelled scan is not reused
+    jobs[1]!.finish();
+    expect((await again).mode).toBe("brief");
+  });
+
+  it("a retry made in the same tick as the abort starts a fresh scan instead of joining the cancelled one", async () => {
+    const { sessions, session } = indexed();
+    const { runner, jobs } = heldRunner();
+    const source = createSource({ config: DEFAULT_CONFIG, sessions, runner });
+    const a = new AbortController();
+    const cancelled = source.review(session, "brief", a.signal).catch((e: unknown) => e);
+    a.abort();
+    const retry = source.review(session, "brief", live.signal); // no await in between: the cancelled scan has not settled yet
+    expect(jobs).toHaveLength(2);
+    expect(jobs[0]!.signal.aborted).toBe(true);
+    expect(jobs[1]!.signal.aborted).toBe(false);
+    jobs[1]!.finish();
+    expect((await retry).mode).toBe("brief");
+    expect(isAbort(await cancelled)).toBe(true);
+  });
+
+  it("a caller whose signal is already aborted starts nothing and leaves nothing waiting", async () => {
+    const { sessions, session } = indexed();
+    const { runner, jobs } = heldRunner();
+    const source = createSource({ config: DEFAULT_CONFIG, sessions, runner });
+    const dead = new AbortController();
+    dead.abort();
+    expect(isAbort(await source.review(session, "brief", dead.signal).catch((e: unknown) => e))).toBe(true);
+    expect(jobs).toHaveLength(0);
+    // It must not have counted as a waiter of a later scan either: when that scan's only real caller leaves, it stops.
+    const b = new AbortController();
+    const waiting = source.review(session, "brief", b.signal).catch((e: unknown) => e);
+    const alsoDead = source.review(session, "brief", dead.signal).catch((e: unknown) => e);
+    b.abort();
+    expect(isAbort(await waiting)).toBe(true);
+    expect(isAbort(await alsoDead)).toBe(true);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.signal.aborted).toBe(true);
+  });
+
+  it("publish takes the id of the review it was shown: another review's id, or another mode's, uploads nothing", async () => {
+    const { sessions, session } = indexed();
+    const publisher = recordingPublisher();
+    const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher });
+    const brief = await source.review(session, "brief", live.signal);
+    const full = await source.review(session, "full", live.signal);
+    expect(brief.id).not.toBe(full.id);
+    await expect(source.publish(session, "brief", { reviewId: full.id })).rejects.toThrow(/review it again/);
+    await expect(source.publish(session, "full", { reviewId: brief.id })).rejects.toThrow(/review it again/);
+    expect(publisher.payloads).toEqual([]);
+    await source.publish(session, "brief", { reviewId: brief.id });
+    expect(publisher.payloads).toHaveLength(1);
+    expect(JSON.parse(publisher.payloads[0]!.content).mode).toBe("brief");
+  });
+
+  it("close() cancels every read and scan in flight", async () => {
+    const { sessions, session } = indexed();
+    const { runner, jobs } = heldRunner();
+    const source = createSource({ config: DEFAULT_CONFIG, sessions, runner });
+    const settled = [source.view(session, live.signal), source.review(session, "brief", live.signal)].map((p) => p.catch((e: unknown) => e));
+    source.close();
+    expect((await Promise.all(settled)).every(isAbort)).toBe(true);
+    expect(jobs.every((j) => j.signal.aborted)).toBe(true);
+  });
+
+  it("never uploads bytes that differ from the review: the payload is checked against the reviewed size", async () => {
+    const { sessions, session } = indexed();
+    const publisher = recordingPublisher();
+    const real = inlineRunner;
+    // A runner that corrupts the payload after the scan (as a bug in the transfer would).
+    const corrupting: JobRunner = {
+      close() {},
+      async run(req, signal) {
+        const result = await real.run(req, signal);
+        return result.kind === "review" ? { ...result, payload: new TextEncoder().encode(`${new TextDecoder().decode(result.payload)} tampered`) } : result;
+      },
+    };
+    const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher, runner: corrupting });
+    const review = await source.review(session, "brief", live.signal);
+    await expect(source.publish(session, "brief", { reviewId: review.id })).rejects.toThrow(/does not match its review/);
+    expect(publisher.payloads).toEqual([]);
   });
 });
 
@@ -254,7 +399,7 @@ describe("subagent transcripts (parity with the CLI)", () => {
     return { sessions, session: session! };
   };
 
-  it("the viewer shows what the subagent files add, like the CLI", () => {
+  it("the viewer shows what the subagent files add, like the CLI", async () => {
     const { sessions, session } = sessionWithSubagents();
     const raw = readFileSync(session.path, "utf8");
     const withFiles = parseSession(raw, "claude-code", { subagentFiles: loadSubagentFiles(session.path) }).session;
@@ -263,16 +408,16 @@ describe("subagent transcripts (parity with the CLI)", () => {
     // fill the parallel results that the main transcript's sibling chain hid, which is now read from the main file).
     expect(JSON.stringify(withFiles.turns)).not.toBe(JSON.stringify(without.turns)); // the fixture really exercises the loader
     expect(viewFromSession(withFiles)).toEqual(viewFromSession(without));
-    expect(createSource({ config: DEFAULT_CONFIG, sessions }).view(session)).toEqual(viewFromSession(withFiles));
+    expect(await createSource({ config: DEFAULT_CONFIG, sessions }).view(session, live.signal)).toEqual(viewFromSession(withFiles));
   });
 
-  it("the reviewed payload is byte-for-byte what `agent-share publish` would prepare", () => {
+  it("the reviewed payload is byte-for-byte what `agent-share publish` would prepare", async () => {
     const { sessions, session } = sessionWithSubagents();
     const raw = readFileSync(session.path, "utf8");
     const cli = prepareShare(raw, { mode: "full", config: DEFAULT_CONFIG, harness: "claude-code", subagentFiles: loadSubagentFiles(session.path) });
     const withoutSubagents = prepareShare(raw, { mode: "full", config: DEFAULT_CONFIG, harness: "claude-code" });
     expect(Buffer.byteLength(cli.json)).not.toBe(Buffer.byteLength(withoutSubagents.json)); // the fixture really exercises the loader
-    const review = createSource({ config: DEFAULT_CONFIG, sessions }).review(session, "full");
+    const review = await createSource({ config: DEFAULT_CONFIG, sessions }).review(session, "full", live.signal);
     expect(review.bytes).toBe(Buffer.byteLength(cli.json));
   });
 });

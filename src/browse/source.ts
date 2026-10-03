@@ -5,21 +5,21 @@
  *   view     the session as a local message list (parse only, unredacted: it is the user's own machine)
  *   review   the real publish pipeline for one share mode: redaction findings, final re-scan, payload size
  *   publish  upload exactly what `review` showed (cached), then remember it in shares.json
+ *
+ * `view` and `review` are asynchronous and cancellable: the heavy work runs on a worker thread (see `runner.ts`),
+ * so the UI keeps drawing and handling keys. A caller that no longer wants the answer aborts its signal, and must
+ * ignore a result that arrives anyway.
  */
-import { readFileSync } from "node:fs";
-import { parseSession } from "../adapters/index.js";
+import { randomUUID } from "node:crypto";
 import type { AgentShareConfig, ShareTarget } from "../config.js";
-import { formatDuration, formatSessionCost, formatTokens, plural } from "../format.js";
-import { prepareShare, type PreparedShare } from "../pipeline.js";
-import { stripControls } from "../sanitize.js";
 import { createPublisher, preflightWarnings, publishPrepared } from "../publish/index.js";
 import type { Publisher } from "../publish/types.js";
 import type { KnownSourceUse } from "../redact/known-values.js";
-import { totalTokens, type NormalizedSession, type ShareMode } from "../schema.js";
+import type { ShareMode } from "../schema.js";
 import { shareKey, type SharesFile, loadShares } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
-import { computeStats } from "../stats.js";
-import { loadSubagentFiles } from "../subagent-files.js";
+import type { PublishSession } from "./job.js";
+import { abortError, workerRunner, type JobRunner } from "./runner.js";
 
 export type ViewKind = "user" | "assistant" | "tool" | "thinking" | "subagent" | "event";
 
@@ -54,7 +54,7 @@ export interface SessionView {
   stats: SessionStatsLine;
 }
 
-export interface ShareSummary {
+export interface ShareReview {
   mode: ShareMode;
   clean: boolean;
   /** The final re-scan found unredacted secrets: publishing must be refused. */
@@ -66,6 +66,14 @@ export interface ShareSummary {
   knownSources: KnownSourceUse[];
   redactions: number;
   bytes: number;
+}
+
+/**
+ * A review as the browser holds it. `id` names this exact scan: `publish` uploads only the payload of the review
+ * with the id it is given, so what is on screen and what is uploaded cannot drift apart.
+ */
+export interface ShareSummary extends ShareReview {
+  id: string;
 }
 
 export interface Preflight {
@@ -95,102 +103,18 @@ export interface Source {
   shares: SharesFile;
   /** Where a publish will go, for confirmation text. */
   destination: string;
-  view(s: SessionSummary): SessionView;
-  /** May throw (e.g. `PromptsUnavailableError` for legacy pi sessions in prompts mode). */
-  review(s: SessionSummary, mode: ShareMode): ShareSummary;
+  /** Rejects with an `AbortError` once `signal` aborts. */
+  view(s: SessionSummary, signal: AbortSignal): Promise<SessionView>;
+  /** Rejects with an `AbortError` once `signal` aborts, or e.g. `PromptsUnavailableError` for legacy pi sessions in prompts mode. */
+  review(s: SessionSummary, mode: ShareMode, signal: AbortSignal): Promise<ShareSummary>;
   preflight(): Preflight;
-  /** `suspiciousConfirmed`: the user has seen the suspicious values of the reviewed payload and chose to publish anyway. */
-  publish(s: SessionSummary, mode: ShareMode, opts?: { suspiciousConfirmed?: boolean }): Promise<{ url: string; warnings: string[] }>;
-}
-
-// ── view ───────────────────────────────────────────────────────────────────────────────
-
-const cap = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}\n… (+${text.length - max} more characters)` : text);
-const stripPasteTags = (s: string): string => s.replace(/<\/?pasted_content[^>]*>/g, "").trim();
-const firstLine = (text: string): string => stripPasteTags(text).split("\n", 1)[0]!.replace(/\s+/g, " ");
-
-export function viewFromSession(session: NormalizedSession): SessionView {
-  const stats = computeStats(session);
-  const items: ViewItem[] = [];
-  session.turns.forEach((t, i) => {
-    const turn = i + 1;
-    if (t.user) {
-      const text = t.user.command ? `${t.user.command.name}${t.user.command.args ? ` ${t.user.command.args}` : ""}` : t.user.text;
-      items.push({ kind: "user", turn, label: firstLine(text), body: cap(stripPasteTags(text), 20_000), meta: t.user.command ? "command" : undefined });
-    }
-    for (const step of t.steps) {
-      if (step.kind === "text") {
-        items.push({ kind: "assistant", turn, label: firstLine(step.text), body: cap(stripPasteTags(step.text), 20_000), meta: step.model });
-      } else if (step.kind === "thinking") {
-        items.push({ kind: "thinking", turn, label: `thinking (${plural(step.chars, "char")})`, body: step.text ? cap(step.text, 8_000) : "(thinking text was not stored)" });
-      } else if (step.kind === "tool") {
-        const input = step.input === undefined ? "" : cap(JSON.stringify(step.input, null, 2), 3_000);
-        const result = step.result ? cap(step.result.text, 4_000) : "(no result recorded)";
-        items.push({
-          kind: "tool",
-          turn,
-          label: `${step.name}  ${step.summary}`,
-          meta: step.name,
-          error: step.isError,
-          body: `${step.summary}\n\n── input ──\n${input}\n\n── result${step.isError ? " (error)" : ""} ──\n${result}`,
-        });
-      } else if (step.kind === "subagent") {
-        items.push({
-          kind: "subagent",
-          turn,
-          label: `${step.tool}  ${step.agents.join(", ")} ${step.description ?? ""}`.trim(),
-          meta: step.tool,
-          error: step.isError,
-          body: `${step.description ?? ""}\n\n${step.result ? cap(step.result.text, 4_000) : "(no result recorded)"}`,
-        });
-      } else if (step.kind === "event") {
-        items.push({ kind: "event", turn, label: `${step.event}: ${firstLine(step.text)}`, meta: step.event, error: step.event === "error", body: cap([step.text, step.detail].filter(Boolean).join("\n\n"), 6_000) });
-      }
-    }
-  });
-  // Transcript text is untrusted: no terminal control sequences may reach the screen.
-  for (const it of items) {
-    it.label = stripControls(it.label);
-    it.body = stripControls(it.body);
-    if (it.meta) it.meta = stripControls(it.meta);
-  }
-  const duration = session.startedAt && session.endedAt ? Math.max(0, Date.parse(session.endedAt) - Date.parse(session.startedAt)) : session.durationMs;
-  return {
-    items,
-    turns: session.turns.length,
-    tools: Object.fromEntries(Object.entries(stats.tools).map(([name, n]) => [stripControls(name), n])),
-    stats: {
-      cost: formatSessionCost(stats),
-      tokens: formatTokens(totalTokens(stats.tokens)),
-      duration: duration !== undefined && Number.isFinite(duration) ? formatDuration(duration) : undefined,
-      toolCalls: stats.toolCalls,
-      subagents: stats.subagents,
-      files: stats.files,
-    },
-  };
-}
-
-/** Claude Code keeps subagent transcripts beside the session; the CLI reads them too, so the browser must. */
-const subagentFilesFor = (s: Pick<SessionSummary, "path" | "harness">) => (s.harness === "claude-code" ? loadSubagentFiles(s.path) : undefined);
-
-export function loadView(s: Pick<SessionSummary, "path" | "harness">): SessionView {
-  return viewFromSession(parseSession(readFileSync(s.path, "utf8"), s.harness, { subagentFiles: subagentFilesFor(s) }).session);
-}
-
-// ── review / publish ───────────────────────────────────────────────────────────────────
-
-export function summarizeShare(prepared: PreparedShare): ShareSummary {
-  const { report } = prepared;
-  return {
-    mode: report.mode,
-    clean: report.clean,
-    blocked: report.blocked,
-    findings: report.findings.map((f) => ({ rule: stripControls(f.rule), where: stripControls(f.where) })),
-    suspicious: report.suspicious.map((i) => ({ rule: stripControls(i.rule), length: i.length, location: stripControls(i.location), occurrences: i.occurrences })),
-    knownSources: report.knownSources,
-    redactions: Object.values(report.counts).reduce((a, b) => a + b, 0),
-    bytes: report.bytes,
-  };
+  /**
+   * Uploads the payload of the review `reviewId` named, and nothing else: a payload that is gone or was replaced by a
+   * newer review is refused. `suspiciousConfirmed`: the user has seen the suspicious values of that payload and chose to publish anyway.
+   */
+  publish(s: SessionSummary, mode: ShareMode, opts: { reviewId: string; suspiciousConfirmed?: boolean }): Promise<{ url: string; warnings: string[] }>;
+  /** The browser is closing: stop all background work. */
+  close(): void;
 }
 
 export const destinationLabel = (target: ShareTarget): string => (target === "gist" ? "a secret (unlisted) gist" : "the public R2 bucket (unlisted id)");
@@ -205,25 +129,65 @@ export interface SourceOptions {
   keepPrepared?: number;
   /** Publisher factory, injectable for tests. */
   publisher?: (config: AgentShareConfig, target: ShareTarget) => Publisher;
+  /** Where view and review jobs run; worker threads unless a test says otherwise. */
+  runner?: JobRunner;
+}
+
+/** A reviewed payload, kept so the publish sends exactly it. */
+interface Reviewed {
+  summary: ShareSummary;
+  /** The scanned bytes, as the worker produced them. */
+  payload: Uint8Array;
+  session: PublishSession;
+}
+
+/** A review that is running; several callers (the viewer's redaction check, the publish dialog) may wait on the same one. */
+interface Flight {
+  done: Promise<Reviewed>;
+  waiters: number;
+  abort(): void;
 }
 
 export function createSource(opts: SourceOptions): Source {
   const { config, sessions } = opts;
   const target = opts.target ?? config.target;
   const shares = loadShares();
-  const prepared = new Map<string, PreparedShare>();
+  const runner = opts.runner ?? workerRunner();
+  const prepared = new Map<string, Reviewed>();
+  const flights = new Map<string, Flight>();
   const keep = opts.keepPrepared ?? 4;
   const makePublisher = opts.publisher ?? createPublisher;
+  const everything = new AbortController();
 
   const key = (s: SessionSummary, mode: ShareMode) => `${s.path}|${s.mtimeMs}|${s.size}|${mode}`;
-  const prepare = (s: SessionSummary, mode: ShareMode): PreparedShare => {
+
+  /** Reject as soon as `signal` aborts, whatever the underlying job is doing. */
+  const until = <T>(signal: AbortSignal, work: Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const abort = () => reject(abortError());
+      if (signal.aborted) return abort();
+      signal.addEventListener("abort", abort, { once: true });
+      work.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+    });
+
+  const start = (s: SessionSummary, mode: ShareMode): Flight => {
     const k = key(s, mode);
-    const hit = prepared.get(k);
-    if (hit) return hit;
-    const fresh = prepareShare(readFileSync(s.path, "utf8"), { mode, config, harness: s.harness, subagentFiles: subagentFilesFor(s) });
-    prepared.set(k, fresh);
-    while (prepared.size > keep) prepared.delete(prepared.keys().next().value!);
-    return fresh;
+    const ctl = new AbortController();
+    const flight: Flight = {
+      waiters: 0,
+      abort: () => ctl.abort(),
+      done: runner.run({ kind: "review", path: s.path, harness: s.harness, mode, config }, AbortSignal.any([ctl.signal, everything.signal])).then((result) => {
+        if (result.kind !== "review") throw new Error("unexpected job result");
+        const entry: Reviewed = { summary: { id: randomUUID(), ...result.review }, payload: result.payload, session: result.session };
+        prepared.set(k, entry);
+        while (prepared.size > keep) prepared.delete(prepared.keys().next().value!);
+        return entry;
+      }),
+    };
+    flights.set(k, flight);
+    const forget = () => void (flights.get(k) === flight && flights.delete(k));
+    flight.done.then(forget, forget);
+    return flight;
   };
 
   return {
@@ -231,8 +195,33 @@ export function createSource(opts: SourceOptions): Source {
     index: opts.index,
     shares,
     destination: destinationLabel(target),
-    view: loadView,
-    review: (s, mode) => summarizeShare(prepare(s, mode)),
+    async view(s, signal) {
+      const result = await runner.run({ kind: "view", path: s.path, harness: s.harness }, AbortSignal.any([signal, everything.signal]));
+      if (result.kind !== "view") throw new Error("unexpected job result");
+      return result.view;
+    },
+    async review(s, mode, signal) {
+      // A caller that is already gone must not start (or join) a scan: its abort listener would never fire.
+      if (signal.aborted) throw abortError();
+      const k = key(s, mode);
+      const hit = prepared.get(k);
+      if (hit) return hit.summary;
+      const flight = flights.get(k) ?? start(s, mode);
+      flight.waiters++;
+      // The scan stops once nobody is waiting for it any more, and is forgotten at once so that a retry made
+      // right away starts a fresh scan instead of joining the cancelled one.
+      const release = () => {
+        if (--flight.waiters > 0) return;
+        flight.abort();
+        if (flights.get(k) === flight) flights.delete(k);
+      };
+      signal.addEventListener("abort", release, { once: true });
+      try {
+        return (await until(signal, flight.done)).summary;
+      } finally {
+        signal.removeEventListener("abort", release);
+      }
+    },
     preflight() {
       const warnings = preflightWarnings(config, target);
       try {
@@ -243,14 +232,16 @@ export function createSource(opts: SourceOptions): Source {
       }
     },
     async publish(s, mode, opts) {
-      // Only ever upload a payload that `review` produced. If it has been evicted, re-preparing here would
-      // upload content nobody looked at, so make the user review again.
+      // Only ever upload the payload of the review the user was shown. If it has been evicted or replaced, re-preparing
+      // here would upload content nobody looked at, so make the user review again.
       const share = prepared.get(key(s, mode));
-      if (!share) throw new Error("The reviewed payload is no longer available; go back and review it again before publishing.");
-      if (share.report.blocked) throw new Error("Refusing to publish: the final re-scan found unredacted secrets.");
-      if (share.report.suspicious.length && !opts?.suspiciousConfirmed) throw new Error("Refusing to publish: suspicious values are still in the payload and were not confirmed.");
+      if (!share || share.summary.id !== opts.reviewId) throw new Error("The reviewed payload is no longer available; go back and review it again before publishing.");
+      if (share.summary.blocked) throw new Error("Refusing to publish: the final re-scan found unredacted secrets.");
+      if (share.summary.suspicious.length && !opts.suspiciousConfirmed) throw new Error("Refusing to publish: suspicious values are still in the payload and were not confirmed.");
+      const json = new TextDecoder("utf-8", { fatal: true }).decode(share.payload);
+      if (Buffer.byteLength(json) !== share.summary.bytes) throw new Error("The reviewed payload does not match its review; go back and review it again before publishing.");
       const publisher = makePublisher(config, target);
-      const { result, warnings } = await publishPrepared(publisher, config, target, share);
+      const { result, warnings } = await publishPrepared(publisher, config, target, { json, session: share.session });
       prepared.delete(key(s, mode));
       // Mirror shares.json in memory so the list marks it as shared right away.
       const fresh = loadShares();
@@ -259,6 +250,10 @@ export function createSource(opts: SourceOptions): Source {
       const k = shareKey(s.harness, s.id);
       if (!(shares[k] ?? []).some((r) => r.url === result.viewerUrl)) (shares[k] ??= []).push({ url: result.viewerUrl, mode, target, sharedAt: new Date().toISOString() });
       return { url: result.viewerUrl, warnings };
+    },
+    close() {
+      everything.abort();
+      runner.close();
     },
   };
 }

@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { format, inspect } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { summarizeShare } from "../src/browse/source.js";
+import { summarizeShare } from "../src/browse/job.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { prepareShare } from "../src/pipeline.js";
 import { GistPublisher } from "../src/publish/gist.js";

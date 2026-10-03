@@ -4,7 +4,7 @@ process.env.TZ = "UTC"; // day buckets ("Today", "Yesterday") depend on the loca
 import { vi } from "vitest";
 import { BrowserApp, type BrowserOptions } from "../src/browse/app.js";
 import { plainText } from "../src/browse/kit.js";
-import type { IndexFeed, Preflight, SessionView, ShareSummary, Source, ViewItem } from "../src/browse/source.js";
+import type { IndexFeed, Preflight, SessionView, ShareReview, ShareSummary, Source, ViewItem } from "../src/browse/source.js";
 import type { ShareMode } from "../src/schema.js";
 import type { SharesFile } from "../src/sessions/shares.js";
 import { shareKey } from "../src/sessions/shares.js";
@@ -85,11 +85,34 @@ export function sampleView(): SessionView {
   return { items, turns: 2, tools: { Bash: 12, Edit: 3, Read: 7 }, stats: { cost: "$1.20", tokens: "2.1M", duration: "32m 0s", toolCalls: 22, subagents: 0, files: { read: 7, edited: 3, written: 1 } } };
 }
 
-const clean = (mode: ShareMode): ShareSummary => ({ mode, clean: true, blocked: false, findings: [], suspicious: [], knownSources: [], redactions: 0, bytes: 12_345 });
+const clean = (mode: ShareMode): ShareReview => ({ mode, clean: true, blocked: false, findings: [], suspicious: [], knownSources: [], redactions: 0, bytes: 12_345 });
 
 /** What the list has for a session before its file is read: the stat fields only (see `IndexJob`). */
 export function placeholderOf(s: SessionSummary): SessionSummary {
   return { harness: s.harness, id: s.id, path: s.path, mtimeMs: s.mtimeMs, size: s.size, models: [], prompts: 0, calls: 0, tools: {}, subagents: 0, worker: false, promptHead: [], promptTail: [], searchText: "", pending: true };
+}
+
+/** A promise the test settles by hand, to hold a view or review "in flight". */
+export function deferred<T>(): { promise: Promise<T>; resolve(value: T): void; reject(err: unknown): void } {
+  let resolve!: (value: T) => void;
+  let reject!: (err: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+/** What a cancellable source call does: settle with `work`, or reject at once when `signal` aborts (the work may still finish). */
+function abortable<T>(signal: AbortSignal, work: () => Promise<T>, ignoreAbort = false): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(Object.assign(new Error("cancelled"), { name: "AbortError" }));
+    if (!ignoreAbort) {
+      if (signal.aborted) return abort();
+      signal.addEventListener("abort", abort, { once: true });
+    }
+    work().then(resolve, reject);
+  });
 }
 
 export interface FakeSourceOptions {
@@ -99,8 +122,12 @@ export interface FakeSourceOptions {
   /** Use this index feed (e.g. a real `IndexJob` whose `sessions` are passed too) instead of the fake one. */
   index?: IndexFeed;
   shares?: SharesFile;
-  view?: (s: SessionSummary) => SessionView;
-  review?: (s: SessionSummary, mode: ShareMode) => ShareSummary;
+  /** A source that keeps going after its signal aborts and delivers the answer anyway: the browser must drop it itself. */
+  ignoreAbort?: boolean;
+  /** May return a promise that the test settles later (`deferred()`); may throw. */
+  view?: (s: SessionSummary, signal: AbortSignal) => SessionView | Promise<SessionView>;
+  /** May return a promise that the test settles later (`deferred()`); may throw (a refusal). */
+  review?: (s: SessionSummary, mode: ShareMode, signal: AbortSignal) => ShareReview | Promise<ShareReview>;
   preflight?: () => Preflight;
   publish?: (s: SessionSummary, mode: ShareMode) => Promise<{ url: string; warnings: string[] }>;
 }
@@ -109,7 +136,15 @@ export interface FakeSource extends Source {
   published: Array<{ id: string; mode: ShareMode }>;
   /** `suspiciousConfirmed` as passed to each `publish`, in order. */
   suspiciousConfirmed: Array<boolean | undefined>;
+  /** The id of the review each `publish` was given, in order. */
+  publishedReviewIds: string[];
+  /** Every `review` call, with the signal the caller can abort. */
   reviewed: Array<{ id: string; mode: ShareMode }>;
+  reviewSignals: AbortSignal[];
+  /** Every `view` call's session id and signal. */
+  viewed: Array<{ id: string; signal: AbortSignal }>;
+  /** `close` was called (the browser quit). */
+  closed: boolean;
   /** The index finished reading `id`: swap in its full summary and notify the browser. */
   fill(id: string): void;
   /** Whether the browser told the index to stop (it quit). */
@@ -121,6 +156,12 @@ export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
   const published: FakeSource["published"] = [];
   const reviewed: FakeSource["reviewed"] = [];
   const suspiciousConfirmed: FakeSource["suspiciousConfirmed"] = [];
+  const publishedReviewIds: string[] = [];
+  const reviewSignals: AbortSignal[] = [];
+  const viewed: FakeSource["viewed"] = [];
+  /** The review each (session, mode) was last given, like the real source's cache: older ones cannot be published. */
+  const latest = new Map<string, string>();
+  let reviewCount = 0;
   const full = opts.sessions ?? sampleSessions();
   const sessions = full.map((s) => (opts.pending?.includes(s.id) ? placeholderOf(s) : s));
   const listeners = new Set<() => void>();
@@ -152,16 +193,34 @@ export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
     destination: "a secret (unlisted) gist",
     published,
     suspiciousConfirmed,
+    publishedReviewIds,
     reviewed,
-    view: opts.view ?? (() => sampleView()),
-    review(s, mode) {
+    reviewSignals,
+    viewed,
+    closed: false,
+    view(s, signal) {
+      viewed.push({ id: s.id, signal });
+      return abortable(signal, async () => (opts.view ?? (() => sampleView()))(s, signal), opts.ignoreAbort);
+    },
+    review(s, mode, signal) {
       reviewed.push({ id: s.id, mode });
-      return (opts.review ?? ((_, m) => clean(m)))(s, mode);
+      reviewSignals.push(signal);
+      return abortable(signal, async () => {
+        const review = await (opts.review ?? ((_, m) => clean(m)))(s, mode, signal);
+        const id = `review-${++reviewCount}`;
+        latest.set(`${s.id}|${mode}`, id);
+        return { id, ...review };
+      }, opts.ignoreAbort);
     },
     preflight: opts.preflight ?? (() => ({ warnings: [] })),
+    close() {
+      source.closed = true;
+    },
     async publish(s, mode, publishOpts) {
+      publishedReviewIds.push(publishOpts.reviewId);
+      if (latest.get(`${s.id}|${mode}`) !== publishOpts.reviewId) throw new Error("The reviewed payload is no longer available; go back and review it again before publishing.");
       published.push({ id: s.id, mode });
-      suspiciousConfirmed.push(publishOpts?.suspiciousConfirmed);
+      suspiciousConfirmed.push(publishOpts.suspiciousConfirmed);
       const out = await (opts.publish ?? (async () => ({ url: `https://viewer.example/#${s.id}`, warnings: [] })))(s, mode);
       (shares[shareKey(s.harness, s.id)] ??= []).push({ url: out.url, mode, target: "gist", sharedAt: new Date(NOW).toISOString() });
       return out;

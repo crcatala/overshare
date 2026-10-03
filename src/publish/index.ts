@@ -1,7 +1,6 @@
 import type { AgentShareConfig, ShareTarget } from "../config.js";
 import { formatTokens } from "../format.js";
-import type { PreparedShare } from "../pipeline.js";
-import { totalTokens } from "../schema.js";
+import { totalTokens, type HarnessName, type SessionStats, type ShareMode } from "../schema.js";
 import { recordShare, removeShares } from "../sessions/shares.js";
 import { GistPublisher } from "./gist.js";
 import { R2Publisher, checkPublicAccess, r2CredentialsFromEnv, r2PublicUrl } from "./r2.js";
@@ -40,6 +39,15 @@ export async function accessWarnings(config: AgentShareConfig, target: ShareTarg
 }
 
 /**
+ * What an upload needs of a prepared share: the exact payload and the few fields of the session that name and
+ * record it. `PreparedShare` satisfies this; the browser's background reader sends only this, not the session.
+ */
+export interface PublishInput {
+  json: string;
+  session: { title?: string; source: { sessionId: string }; harness: { name: HarnessName }; mode: ShareMode; stats: { tokens: SessionStats["tokens"] } };
+}
+
+/**
  * Upload a prepared (redacted, re-scanned) share and remember it in `shares.json`.
  * Shared by `agent-share publish` and the `browse` TUI, so both publish exactly the same way.
  * Refusing blocked or unconfirmed shares is the caller's job; this only uploads.
@@ -48,7 +56,7 @@ export async function publishPrepared(
   publisher: Publisher,
   config: AgentShareConfig,
   target: ShareTarget,
-  prepared: PreparedShare,
+  prepared: PublishInput,
 ): Promise<{ result: PublishResult; warnings: string[] }> {
   const s = prepared.session;
   const result = await publisher.publish({

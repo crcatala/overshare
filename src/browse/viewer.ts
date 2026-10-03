@@ -18,6 +18,7 @@ import { plural, shortModel } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { cut, fit, frame, isKey, padLines, pagingKey, st, wrap } from "./kit.js";
 import { SAVE_FAILED_MESSAGE, type SettingsStore } from "./settings.js";
+import { Spinner } from "./spinner.js";
 import type { ShareSummary, SessionView, Source, ViewItem, ViewKind } from "./source.js";
 
 export const LEVELS = [
@@ -68,39 +69,38 @@ export class SessionViewer {
   private rightHeight = 1;
   /** Rows both panes showed on the last draw: the size of a page. */
   private bodyHeight = 10;
-  private timers: Array<ReturnType<typeof setTimeout>> = [];
+  /** Aborted when the viewer closes: the reads still running stop, and what they would have delivered is dropped. */
+  private readonly loading = new AbortController();
+  private spinner = new Spinner();
 
   constructor(
     readonly session: SessionSummary,
     private source: Source,
     private hooks: ViewerHooks,
   ) {
-    // Parsing is synchronous and takes up to ~1 s on very large sessions: paint "reading…" first.
-    this.later(10, () => {
-      try {
-        this.view = source.view(session);
-      } catch (err) {
-        this.loadError = message(err);
-      }
+    // Both reads run on worker threads, side by side: the list below paints "reading…" at once and the keys keep working.
+    const { signal } = this.loading;
+    let waiting = 2;
+    const arrived = (record: () => void) => {
+      if (signal.aborted) return;
+      record();
+      if (--waiting === 0) this.spinner.stop();
       hooks.requestRender();
-      // The redaction scan is a second pass: run it once the viewer is usable.
-      this.later(30, () => {
-        try {
-          this.report = source.review(session, "brief");
-        } catch (err) {
-          this.reportError = message(err);
-        }
-        hooks.requestRender();
-      });
-    });
-  }
-
-  private later(ms: number, fn: () => void): void {
-    this.timers.push(setTimeout(fn, ms));
+    };
+    this.spinner.start(() => hooks.requestRender());
+    source.view(session, signal).then(
+      (view) => arrived(() => void (this.view = view)),
+      (err: unknown) => arrived(() => void (this.loadError = message(err))),
+    );
+    source.review(session, "brief", signal).then(
+      (report) => arrived(() => void (this.report = report)),
+      (err: unknown) => arrived(() => void (this.reportError = message(err))),
+    );
   }
 
   dispose(): void {
-    for (const t of this.timers) clearTimeout(t);
+    this.loading.abort();
+    this.spinner.stop();
   }
 
   /** Tree depth of a row under the persisted layout settings: prompts at 0, replies at 1, tool calls one deeper. */
@@ -243,7 +243,7 @@ export class SessionViewer {
       this.reportError
         ? st.yellow(`redaction check unavailable: ${cut(this.reportError, width - 30)}`)
         : !r
-          ? st.dim("checking redaction…")
+          ? st.dim(`${this.spinner.frame} checking redaction…`)
           : r.blocked
             ? st.red("✗ publishing would be blocked: final re-scan found unredacted secrets")
             : r.clean
@@ -256,7 +256,7 @@ export class SessionViewer {
   draw(width: number, height: number): string[] {
     const head = this.header(width);
     if (this.loadError) return [...head, "", st.red(`could not read this session: ${this.loadError}`), st.dim("esc to go back")];
-    if (!this.view) return [...head, "", st.dim("  reading the session…")];
+    if (!this.view) return [...head, "", st.dim(`  ${this.spinner.frame} reading the session…  (esc to cancel)`)];
     const items = this.items;
     const shared = sharesFor(this.source.shares, this.session.harness, this.session.id).length > 0;
     // Two rounded panels side by side, one row of border above and below: the active one has the bright border.

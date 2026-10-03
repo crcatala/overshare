@@ -8,7 +8,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { summarizeShare } from "../src/browse/source.js";
+import { summarizeShare } from "../src/browse/job.js";
 import { DEFAULT_CONFIG, type AgentShareConfig } from "../src/config.js";
 import { prepareShare } from "../src/pipeline.js";
 import { knownSecret } from "../src/redact/known-values.js";

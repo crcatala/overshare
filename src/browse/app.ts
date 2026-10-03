@@ -127,6 +127,10 @@ export class BrowserApp extends Screen {
   override quit(): void {
     this.unsubscribeIndex?.();
     this.source.index?.stop();
+    // Stop whatever is still being read or scanned in the background.
+    this.viewer?.dispose();
+    this.flow?.dispose();
+    this.source.close();
     super.quit();
   }
 
@@ -662,7 +666,7 @@ export class BrowserApp extends Screen {
       if (f.preflight.error) inner.push(st.red("✗ cannot publish:"), ...wrap(st.dim(f.preflight.error), width - 6).slice(0, 4));
       else if (f.refusal) {
         inner.push(st.red(`✗ ${f.mode} mode is not available for this session:`), ...wrap(st.dim(f.refusal.replace(/^Cannot use \w+ mode: /, "")), width - 6).slice(0, 5), st.dim("pick another mode"));
-      } else if (f.loading || !r) inner.push(st.dim("scanning for secrets…"));
+      } else if (f.loading || !r) inner.push(st.dim(`${f.spinnerFrame} scanning for secrets…`));
       else {
         inner.push(`${formatBytes(r.bytes)} payload · ${plural(r.redactions, "redaction")}`);
         if (r.blocked) inner.push(st.red("✗ blocked: unredacted secrets remain"));

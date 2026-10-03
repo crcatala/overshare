@@ -4,9 +4,11 @@
  * A payload that still holds suspicious values gets one more step ("suspicious") before the final confirm: the
  * user sees where to look in the transcript and must press `c` to go on; the confirmation is passed to `publish`.
  *
- * Reviews are the real pipeline's (redaction + final re-scan for that mode) and are what gets uploaded:
- * `Source.publish` reuses the reviewed payload. A mode the pipeline refuses (e.g. prompts mode on a legacy pi
- * session) is reported on that mode only; it never crashes the flow.
+ * Reviews are the real pipeline's (redaction + final re-scan for that mode), run in the background, and are what
+ * gets uploaded: `Source.publish` reuses the reviewed payload, named by the review's id. A review that arrives
+ * for a mode the user has left, or after the dialog closed, is dropped (each request has its own abort signal),
+ * and the confirm step cannot be reached until the review of the mode on screen has arrived. A mode the pipeline
+ * refuses (e.g. prompts mode on a legacy pi session) is reported on that mode only; it never crashes the flow.
  */
 import { stripControls } from "../sanitize.js";
 import type { ShareMode } from "../schema.js";
@@ -14,6 +16,7 @@ import { SHARE_MODES } from "../schema.js";
 import type { Preflight, ShareSummary, Source } from "./source.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import { sharesFor } from "../sessions/shares.js";
+import { Spinner } from "./spinner.js";
 
 export type FlowStep = "mode" | "suspicious" | "confirm" | "busy" | "done" | "error";
 
@@ -42,6 +45,9 @@ export class PublishFlow {
   /** A mode the pipeline refused, by mode. */
   private refused = new Map<ShareMode, string>();
   private timer?: ReturnType<typeof setTimeout>;
+  /** The request whose answer is wanted: aborted when the mode changes or the flow closes. */
+  private inflight?: AbortController;
+  private spinner = new Spinner();
 
   constructor(
     private source: Source,
@@ -52,6 +58,11 @@ export class PublishFlow {
   ) {
     this.preflight = source.preflight();
     this.scan();
+  }
+
+  /** Frame of the "scanning…" spinner. */
+  get spinnerFrame(): string {
+    return this.spinner.frame;
   }
 
   get mode(): ShareMode {
@@ -74,22 +85,37 @@ export class PublishFlow {
 
   private scan(): void {
     const mode = this.mode;
+    // Whatever was being scanned for another mode is not wanted any more.
+    this.inflight?.abort();
+    this.inflight = undefined;
+    clearTimeout(this.timer);
     if (this.reviews.has(mode) || this.refused.has(mode)) {
       this.loading = false;
+      this.spinner.stop();
       return;
     }
     this.loading = true;
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      try {
-        this.reviews.set(mode, this.source.review(this.session, mode));
-      } catch (err) {
-        this.refused.set(mode, stripControls(err instanceof Error ? err.message : String(err)));
-      }
-      this.loading = false;
-      this.redraw();
-    }, SCAN_DEBOUNCE_MS);
+    this.spinner.start(this.redraw);
+    this.timer = setTimeout(() => this.request(mode), SCAN_DEBOUNCE_MS);
     this.redraw();
+  }
+
+  private request(mode: ShareMode): void {
+    const ctl = new AbortController();
+    this.inflight = ctl;
+    // An answer counts only while its request is still the current one.
+    const arrive = (record: () => void) => {
+      if (ctl.signal.aborted || this.inflight !== ctl) return;
+      this.inflight = undefined;
+      record();
+      this.loading = false;
+      this.spinner.stop();
+      this.redraw();
+    };
+    this.source.review(this.session, mode, ctl.signal).then(
+      (review) => arrive(() => this.reviews.set(mode, review)),
+      (err: unknown) => arrive(() => this.refused.set(mode, stripControls(err instanceof Error ? err.message : String(err)))),
+    );
   }
 
   setMode(i: number): void {
@@ -120,9 +146,11 @@ export class PublishFlow {
       this.suspiciousConfirmed = true;
       this.step = "confirm";
     } else if (this.step === "confirm") {
+      // Only the review on screen can be published; without one there is nothing to confirm.
+      const review = this.review;
+      if (!review) return;
       this.step = "busy";
-      const mode = this.mode;
-      this.source.publish(this.session, mode, { suspiciousConfirmed: this.suspiciousConfirmed }).then(
+      this.source.publish(this.session, this.mode, { reviewId: review.id, suspiciousConfirmed: this.suspiciousConfirmed }).then(
         ({ url, warnings }) => {
           this.url = url;
           this.warnings = warnings;
@@ -153,6 +181,9 @@ export class PublishFlow {
 
   dispose(): void {
     clearTimeout(this.timer);
+    this.inflight?.abort();
+    this.inflight = undefined;
+    this.spinner.stop();
   }
 }
 

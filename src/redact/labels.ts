@@ -38,6 +38,6 @@ export function safeLabel(label: string, fallback: string): string {
 export function withSafeLabels(known: readonly KnownSecret[]): KnownSecret[] {
   return known.map((k) => {
     const label = safeLabel(k.label, "secret");
-    return known.some((other) => other.value.includes(label)) ? { ...k, label: "secret" } : { ...k, label };
+    return known.some((other) => other.value.contains(label)) ? { ...k, label: "secret" } : { ...k, label };
   });
 }

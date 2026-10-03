@@ -11,7 +11,7 @@ import { summarizeShare } from "../src/browse/source.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { prepareShare, type PrepareOptions } from "../src/pipeline.js";
 import { Redactor } from "../src/redact/index.js";
-import { readSecretsFile } from "../src/redact/known-values.js";
+import { knownSecret, readSecretsFile } from "../src/redact/known-values.js";
 import { rescanPayload } from "../src/redact/rescan.js";
 import { safeLabel } from "../src/redact/labels.js";
 import { formatReport } from "../src/report.js";
@@ -67,7 +67,7 @@ describe("final re-scan issues carry no secret content", () => {
 
   it("a known secret in the payload is identified by label, with no value characters", () => {
     const value = fake.envValue();
-    const known = [{ value, label: "GH_TOKEN", source: "env" }];
+    const known = [knownSecret(value, "GH_TOKEN", "env")];
     const prepared = prepare(transcript({ command: "run", [value]: 1 }), { knownSecrets: known });
     expect(prepared.report.rescan[0]).toMatchObject({ rule: "known-secret:GH_TOKEN", length: value.length });
     expect(formatReport(prepared.report)).toContain("known-secret:GH_TOKEN");
@@ -109,7 +109,7 @@ describe("findings carry no surrounding text", () => {
 
   it("does not print the unredacted neighbor of a redacted known secret", () => {
     const value = fake.envValue();
-    const known = [{ value, label: "DB_PASS", source: "env" }];
+    const known = [knownSecret(value, "DB_PASS", "env")];
     const raw = transcript({ command: "cat .env" }, `DB_PASS=${value} and the root pw is ${neighbor}`);
     const prepared = prepare(raw, { knownSecrets: known });
     // The test is only meaningful if the neighbor really slipped through every layer.
@@ -163,7 +163,7 @@ describe("data-derived labels", () => {
     const value = fake.envValue();
     const label = fake.anthropic();
     const raw = transcript({ command: "cat" }, `out ${value}`);
-    const prepared = prepare(raw, { knownSecrets: [{ value, label, source: "env" }] });
+    const prepared = prepare(raw, { knownSecrets: [knownSecret(value, label, "env")] });
     expect(prepared.json).toContain("[REDACTED:secret]");
     for (const [name, text] of Object.entries({ ...surfaces(prepared), payload: prepared.json })) expect(text, name).not.toContain(label);
   });
@@ -201,7 +201,7 @@ describe("known-secret labels that are part of a known value", () => {
   });
 
   it("the Redactor never uses a label that appears inside a known value, whatever produced it", () => {
-    const known = [{ value: tail, label: prefix, source: "secrets-file" }, { value: `${prefix}=${tail}`, label: "secret", source: "secrets-file" }];
+    const known = [knownSecret(tail, prefix, "secrets-file"), knownSecret(`${prefix}=${tail}`, "secret", "secrets-file")];
     const r = new Redactor({ ...machine, knownSecrets: known });
     const out = r.redactText(`only the tail: ${tail} here`, "t");
     expect(out).toBe("only the tail: [REDACTED:secret] here");
@@ -209,7 +209,7 @@ describe("known-secret labels that are part of a known value", () => {
   });
 
   it("the re-scan does not name a known secret by a label that is part of a known value", () => {
-    const known = [{ value: tail, label: prefix, source: "secrets-file" }, { value: `${prefix}=${tail}`, label: "secret", source: "secrets-file" }];
+    const known = [knownSecret(tail, prefix, "secrets-file"), knownSecret(`${prefix}=${tail}`, "secret", "secrets-file")];
     const issues = rescanPayload(JSON.stringify({ a: tail }), { knownSecrets: known });
     expect(issues.map((i) => i.rule)).toEqual(["known-secret:secret"]);
   });

@@ -54,7 +54,7 @@ export class Redactor {
 
   constructor(private readonly opts: RedactorOptions = {}) {
     this.allow = new Set(opts.allowlist ?? []);
-    this.known = withSafeLabels((opts.knownSecrets ?? []).filter((k) => !this.allow.has(k.value))).sort((a, b) => b.value.length - a.value.length);
+    this.known = withSafeLabels((opts.knownSecrets ?? []).filter((k) => !k.value.inSet(this.allow))).sort((a, b) => b.value.length - a.value.length);
     this.deny = (opts.denylist ?? []).filter((d) => d.trim()).map((d) => new RegExp(escapeRe(d), "gi"));
     const home = opts.homeDir?.replace(/[\\/]+$/, "");
     this.homeRes = [];
@@ -85,10 +85,9 @@ export class Redactor {
     let out = text;
 
     for (const k of this.known) {
-      if (!out.includes(k.value)) continue;
-      const token = `[REDACTED:${k.label}]`;
-      const n = out.split(k.value).length - 1;
-      out = out.split(k.value).join(token);
+      const n = k.value.countIn(out);
+      if (n === 0) continue;
+      out = k.value.replaceIn(out, `[REDACTED:${k.label}]`);
       this.count("known-secret", n);
       this.findings.push({ category: "known-secret", rule: `${k.label} (${k.source})`, where });
     }

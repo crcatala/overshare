@@ -56,9 +56,15 @@ export interface PreparedShare {
 export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
   const { session: full, dropped } = parseSession(raw, opts.harness, { leafId: opts.leafId, subagentFiles: opts.subagentFiles });
   full.stats = computeStats(full);
+  // A missing title is the first line of the first prompt. It stays whole until it has been redacted and is cut
+  // afterwards: cut first, a secret that straddles the cut leaves a half that no rule recognises (ass-ahh1).
+  let derivedTitle = false;
   if (!full.title) {
     const first = full.turns.find((t) => t.user?.text)?.user?.text.split("\n", 1)[0]?.trim();
-    if (first) full.title = first.length > 80 ? `${first.slice(0, 79)}…` : first;
+    if (first) {
+      full.title = first;
+      derivedTitle = true;
+    }
   }
   if (full.startedAt && full.endedAt) {
     const ms = Date.parse(full.endedAt) - Date.parse(full.startedAt);
@@ -90,6 +96,7 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
   // Project first so only content that will actually be published is redacted and reported.
   const projected = projectSession(full, opts.mode, { maxToolChars: opts.config.maxToolChars });
   const session = redactSession(projected, redactor);
+  if (derivedTitle && session.title) session.title = capTitle(session.title);
   const counts = Object.fromEntries(Object.entries(redactor.counts).filter(([, n]) => (n ?? 0) > 0)) as Record<string, number>;
   session.redaction = {
     total: Object.values(counts).reduce((a, b) => a + b, 0),
@@ -121,6 +128,20 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
       blocked: rescan.length > 0,
     },
   };
+}
+
+const TITLE_MAX = 80;
+/** Replacement tokens the Redactor writes (`[REDACTED:rule]`, `[email]`, ...): one is never cut in half. */
+const TOKEN = /\[[^\]\s]*\]/g;
+
+/** Cap an already redacted title at `TITLE_MAX` characters, the last being an ellipsis. */
+export function capTitle(title: string): string {
+  if (title.length <= TITLE_MAX) return title;
+  let cut = TITLE_MAX - 1;
+  for (const m of title.matchAll(TOKEN)) {
+    if (m.index < cut && m.index + m[0].length > cut) cut = m.index;
+  }
+  return `${title.slice(0, cut).trimEnd()}…`;
 }
 
 function safeUsername(): string | undefined {

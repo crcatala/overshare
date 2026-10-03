@@ -293,6 +293,8 @@ export function summarizeRaw(ref: SummarizeInput, raw: string): SessionSummary {
   const project = projectNameFromCwd(c.cwd);
   // Without a recorded title, name the session after what was asked; a bare slash command ("/model") says little.
   const asked = c.promptHead.find((p) => !p.startsWith("/")) ?? c.first;
+  // Raw prompt text, cut at 80: local display only (the list, the preview, the cache file), never published. The share
+  // title is derived again from the redacted prompt in `prepareShare` (ass-ahh1); do not feed this one into a share.
   const title = c.title ?? (asked ? oneLine(asked, 80) : undefined);
   return sanitized({
     harness: ref.harness,

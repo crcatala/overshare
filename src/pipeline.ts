@@ -5,9 +5,10 @@ import type { AgentShareConfig } from "./config.js";
 import { capRedacted } from "./cap.js";
 import { capToolText, projectSession } from "./modes.js";
 import { collectKnownSecrets, type KnownSecret, type KnownSourceUse } from "./redact/known-values.js";
+import { safeKeys, safeLabel } from "./redact/labels.js";
 import { Redactor, SECRET_CATEGORIES, redactSession, type RedactionFinding } from "./redact/index.js";
 import { rescanPayload, type RescanIssue, type SuspiciousItem } from "./redact/rescan.js";
-import type { HarnessName, NormalizedSession, SessionStats, ShareMode, Step } from "./schema.js";
+import type { HarnessName, NormalizedSession, SessionStats, ShareMode, Step, SubagentTotals } from "./schema.js";
 import { computeStats } from "./stats.js";
 import { TOOL_NAME, TOOL_VERSION } from "./version.js";
 
@@ -116,10 +117,10 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
     json,
     report: {
       harness: session.harness.name,
-      sessionId: session.source.sessionId,
+      sessionId: safeLabel(session.source.sessionId, "unknown"),
       title: session.title,
       mode: session.mode,
-      stats: session.stats,
+      stats: reportStats(session.stats),
       dropped,
       counts,
       findings: redactor.findings,
@@ -130,6 +131,20 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
       clean: !secretsFound && rescan.length === 0 && suspicious.length === 0,
       blocked: rescan.length > 0,
     },
+  };
+}
+
+/**
+ * The stats as the report shows them. Model ids used as keys come from the transcript (tool names are already
+ * `safeLabel`ed in `computeStats`), so each must pass the identifier check; a key that does not is replaced. The published payload keeps `session.stats` as it is.
+ */
+function reportStats(stats: SessionStats): SessionStats {
+  const totals = <T extends SubagentTotals>(t: T): T => ({ ...t, byModel: safeKeys(t.byModel, "model") });
+  const sub = stats.subagentUsage;
+  return {
+    ...stats,
+    ...(stats.rates ? { rates: safeKeys(stats.rates, "model") } : {}),
+    ...(sub ? { subagentUsage: { ...totals(sub), ...(sub.unlinked ? { unlinked: totals(sub.unlinked) } : {}) } } : {}),
   };
 }
 

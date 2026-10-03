@@ -215,8 +215,10 @@ Findings and final re-scan issues (terminal, `--json` and the browse dialog) sho
 counts and a length, never a secret value, a fragment of one, or the text around a finding: an
 unredacted secret next to a caught one would otherwise be printed into your terminal and CI logs.
 Names taken from the data (env/JSON key names, tool names) appear only if they look like plain
-identifiers, otherwise as `secret`, `key` or `tool`. Other strings the report echoes from the
-transcript or machine (such as the session id) are not yet sanitized (ass-1c07).
+identifiers, otherwise as `secret`, `key` or `tool`. The same check applies to the session id, model ids
+and the name of a project `.env` file. Tool call ids and response ids that the transcript supplies
+go through the exact-value and secret-pattern rules before they are uploaded (not the email and path
+rules, which could mangle an id); a secret in one that no pattern recognises is only caught by the final re-scan.
 
 ### What this tool reads and why
 

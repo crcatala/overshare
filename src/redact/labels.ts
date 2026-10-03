@@ -41,3 +41,24 @@ export function withSafeLabels(known: readonly KnownSecret[]): KnownSecret[] {
     return known.some((other) => other.value.contains(label)) ? { ...k, label: "secret" } : { ...k, label };
   });
 }
+
+/**
+ * A record keyed by data (tool names, model ids) with every key passed through `safeLabel`. Keys that fail get
+ * `<fallback>-<n>`, numbered and never equal to a key that passed (whatever the order), so no value is overwritten.
+ */
+export function safeKeys<V>(record: Record<string, V>, fallback: string): Record<string, V> {
+  const entries = Object.entries(record);
+  const taken = new Set(entries.map(([key]) => key).filter(isSafe));
+  const out: Record<string, V> = {};
+  let n = 0;
+  for (const [key, value] of entries) {
+    let name = key;
+    if (!taken.has(key)) {
+      do name = `${fallback}-${++n}`;
+      while (taken.has(name));
+      taken.add(name);
+    }
+    out[name] = value;
+  }
+  return out;
+}

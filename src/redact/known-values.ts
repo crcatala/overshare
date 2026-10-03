@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { safeLabel } from "./labels.js";
 import { SENSITIVE_KEY, isLiteralSecretValue, looksLikeSecret } from "./patterns.js";
 import { SecretValue } from "./secret-value.js";
 
@@ -149,7 +150,7 @@ export function collectKnownSecrets(sources: KnownValueSources = {}): CollectedK
         if (!m) continue;
         const key = m[1] ?? "";
         const value = (m[2] ?? "").trim().replace(/^(['"])(.*)\1$/, "$2");
-        if (ENV_NAME.test(key) || looksLikeSecret(value)) add(value, key, name);
+        if (ENV_NAME.test(key) || looksLikeSecret(value)) add(value, key, safeLabel(name, ".env"));
       }
     }
   }

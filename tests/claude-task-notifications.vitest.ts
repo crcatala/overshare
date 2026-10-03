@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseClaudeCode } from "../src/adapters/claude-code.js";
-import { SUBAGENT_RESULT_CHARS } from "../src/adapters/shared.js";
-import { projectSession } from "../src/modes.js";
+import { SUBAGENT_RESULT_CHARS, capToolText, projectSession } from "../src/modes.js";
 import { computeStats } from "../src/stats.js";
 import type { SubagentStep } from "../src/schema.js";
 import { ClaudeTranscript, ccUsage } from "./helpers.js";
@@ -98,12 +97,13 @@ describe("claude background-subagent task notifications", () => {
     expect(b!.result?.text).toContain("Async agent launched");
   });
 
-  it("bound the answer they attach", () => {
+  it("attach the answer whole; the share pipeline bounds it after redaction (ass-yyg0)", () => {
     const t = asyncSession();
     t.lines = t.lines.filter((l) => l.origin === undefined);
     t.user(notification("tu_a", "x".repeat(SUBAGENT_RESULT_CHARS + 500)), { origin: NOTIFICATION_ORIGIN });
     const { session } = parseClaudeCode(t.toJsonl());
-    const result = subagents(session.turns[0]!.steps)[0]!.result!;
+    expect(subagents(session.turns[0]!.steps)[0]!.result).toEqual({ text: "x".repeat(SUBAGENT_RESULT_CHARS + 500) });
+    const result = subagents(capToolText(session).turns[0]!.steps)[0]!.result!;
     expect(result.truncatedFrom).toBe(SUBAGENT_RESULT_CHARS + 500);
     expect(result.text.length).toBeLessThan(SUBAGENT_RESULT_CHARS + 60);
   });

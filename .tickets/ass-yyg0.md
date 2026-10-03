@@ -1,6 +1,6 @@
 ---
 id: ass-yyg0
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-10-03T19:33:17Z
@@ -17,3 +17,9 @@ Same class as ass-ahh1 and ass-7x3c, found while fixing ass-7x3c (out of its sco
 
 No fragment of a planted secret in the payload or any report string when it straddles the subagent answer cut; existing leak/own-fields/suspicious/truncate-before-redact tests unchanged.
 
+
+## Notes
+
+**2026-10-03T19:58:41Z**
+
+Fixed: the adapter keeps a background subagent's answer whole (completeSubagent, setSubagentSummary); capToolText caps it at min(maxToolChars, SUBAGENT_RESULT_CHARS=4000) on redacted text for async steps, so cutPoint never splits a [REDACTED:..] token. SUBAGENT_RESULT_CHARS moved from adapters/shared.ts to modes.ts. Regression: tests/subagent-answer-cut.vitest.ts (both entry points x 4 modes x 6 positions x 4 secrets; 11 fail on the old adapter cut). pi has no background-answer entry point; its foreground subagent result is already covered in truncate-before-redact. Memory: no new cost class, adapters already hold whole tool results. Edge left as is: setSubagentSummary on a non-async step with no result is capped at maxToolChars, not 4000.

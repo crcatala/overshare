@@ -263,11 +263,11 @@ export class TurnBuilder {
   setSubagentSummary(step: SubagentStep, text: string): void {
     if (this.answered.has(step) || (step.result && !step.async)) return;
     const body = text.trim();
-    if (body) step.result = boundedResult(body, SUBAGENT_RESULT_CHARS);
+    if (body) step.result = { text: body };
   }
 
   /**
-   * A background subagent finished: attach its (bounded) final answer to the step that launched
+   * A background subagent finished: attach its final answer, whole (the share pipeline bounds it after redaction) to the step that launched
    * it, replacing the "launched" acknowledgement. The launch is found by tool call id, else by agent
    * id; the notification names both, so the agent id is also remembered for linking its transcript
    * file when the launch's own tool result is not on the branch. Returns false when no launch is known.
@@ -279,7 +279,7 @@ export class TurnBuilder {
     step.async = true;
     const body = text.trim();
     if (body) {
-      step.result = boundedResult(body, SUBAGENT_RESULT_CHARS);
+      step.result = { text: body };
       this.answered.add(step);
     }
     return true;
@@ -323,14 +323,6 @@ export class TurnBuilder {
       }
     }
   }
-}
-
-/** Cap on the subagent answer kept per launching step (a bounded summary, not a transcript). */
-export const SUBAGENT_RESULT_CHARS = 4000;
-
-function boundedResult(text: string, max: number): ToolResult {
-  if (text.length <= max) return { text };
-  return { text: `${text.slice(0, max)}\n… [truncated ${text.length - max} chars]`, truncatedFrom: text.length };
 }
 
 export const usageTokens = (u: Usage): number => u.input + u.output + u.cacheRead + u.cacheWrite;

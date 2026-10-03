@@ -1,9 +1,10 @@
 import type { NormalizedSession } from "../schema.js";
 import { OWN_SESSION_FIELDS, OWN_STEP_FIELDS, OWN_TURN_FIELDS, describeStep, turnLabel } from "./index.js";
-import type { KnownSecret } from "./known-values.js";
+import { knownSecret, type KnownSecret } from "./known-values.js";
 import { safeLabel, withSafeLabels } from "./labels.js";
 import { findSecretPatterns } from "./patterns.js";
 import type { FragmentPolicy } from "./secret-value.js";
+import type { SourceLines, SourceLocator } from "./source-lines.js";
 
 /** What the re-scan found, never the value: not a fragment, not a hash. The length is the only detail. */
 export interface RescanIssue {
@@ -12,6 +13,8 @@ export interface RescanIssue {
   length?: number;
   /** Where in the payload (see `SuspiciousItem.location`); absent for matches on the raw payload (known values, home path). */
   location?: string;
+  /** Lines of the source transcript holding the value (see `source-lines.ts`); absent when no locator was given or the value is not in the source verbatim. */
+  source?: SourceLines;
 }
 
 /**
@@ -25,6 +28,8 @@ export interface SuspiciousItem {
   location: string;
   /** Places in the payload holding this same value; `location` is the first. */
   occurrences: number;
+  /** Lines of the source transcript holding the value; absent when it is not in the source verbatim. */
+  source?: SourceLines;
 }
 
 export interface RescanResult {
@@ -55,24 +60,45 @@ export const FRAGMENT_POLICY: FragmentPolicy = { minValueLength: 24, ratio: 0.5,
  */
 export function rescanPayload(
   payload: string,
-  opts: { knownSecrets?: KnownSecret[]; /** Values the patterns matched (`Redactor.matchedSecrets`); only their fragments are looked for. */ matchedSecrets?: KnownSecret[]; homeDir?: string; allowlist?: string[] } = {},
+  opts: {
+    knownSecrets?: KnownSecret[];
+    /** Values the patterns matched (`Redactor.matchedSecrets`); only their fragments are looked for. */
+    matchedSecrets?: KnownSecret[];
+    homeDir?: string;
+    allowlist?: string[];
+    /** Finds a finding's value in the source transcript, for its line numbers. Gets a matcher, never the value. */
+    locate?: SourceLocator;
+  } = {},
 ): RescanResult {
   const issues: RescanIssue[] = [];
   const suspicious: SuspiciousItem[] = [];
   const allow = new Set(opts.allowlist ?? []);
   const known = withSafeLabels(opts.knownSecrets ?? []);
   const whole = new Set<KnownSecret>();
-  for (const k of known) {
-    if (!k.value.inSet(allow) && k.value.isIn(payload)) {
-      issues.push({ rule: `known-secret:${k.label}`, length: k.value.length });
-      whole.add(k);
-    }
-  }
   const texts: Visit[] = [];
   try {
     collectStrings(JSON.parse(payload), texts);
   } catch {
     texts.push(...payload.split("\n").map((text) => ({ text, location: "payload", meta: false })));
+  }
+  // Findings are rare, so a lookup is a full pass over the source only when there is something to report; the cap keeps a
+  // pathological payload (hundreds of distinct values) from turning that into hundreds of passes.
+  let budget = MAX_LOOKUPS;
+  const where = (match: (text: string) => boolean): { source?: SourceLines } => {
+    const source = budget > 0 ? (budget--, opts.locate?.(match)) : undefined;
+    return source ? { source } : {};
+  };
+  /** The first place in the payload whose text satisfies `match`. */
+  const firstLocation = (match: (text: string) => boolean): { location?: string } => {
+    const at = texts.find((t) => match(t.text))?.location;
+    return at ? { location: at } : {};
+  };
+  for (const k of known) {
+    if (!k.value.inSet(allow) && k.value.isIn(payload)) {
+      const has = (text: string) => k.value.isIn(text);
+      issues.push({ rule: `known-secret:${k.label}`, length: k.value.length, ...firstLocation(has), ...where(has) });
+      whole.add(k);
+    }
   }
   // Defense in depth, never the guard for a truncation: a long prefix or suffix of a secret that survived because the
   // secret was cut in two before redaction matches no rule of its own. The whole value is already gone, so only a
@@ -82,14 +108,23 @@ export function rescanPayload(
   for (const k of known) {
     if (whole.has(k) || k.value.inSet(allow)) continue;
     const end = k.value.hasFragmentIn(haystack, FRAGMENT_POLICY);
-    if (end) issues.push({ rule: `secret-${end}:${k.label}`, length: k.value.fragmentLength(FRAGMENT_POLICY) });
+    if (!end) continue;
+    const has = (text: string) => k.value.hasFragmentIn(text, FRAGMENT_POLICY) !== undefined;
+    issues.push({ rule: `secret-${end}:${k.label}`, length: k.value.fragmentLength(FRAGMENT_POLICY), ...firstLocation(has), ...where(has) });
   }
   for (const k of withSafeLabels(opts.matchedSecrets ?? [])) {
     const end = k.value.hasFragmentIn(haystack, FRAGMENT_POLICY);
     if (!end) continue;
-    const where = texts.filter((t) => k.value.hasFragmentIn(t.text, FRAGMENT_POLICY));
-    suspicious.push({ rule: `secret-${end}:${k.label}`, length: k.value.fragmentLength(FRAGMENT_POLICY), location: where[0]?.location ?? "payload", occurrences: Math.max(1, where.length) });
+    const has = (text: string) => k.value.hasFragmentIn(text, FRAGMENT_POLICY) !== undefined;
+    const at = texts.filter((t) => has(t.text));
+    suspicious.push({ rule: `secret-${end}:${k.label}`, length: k.value.fragmentLength(FRAGMENT_POLICY), location: at[0]?.location ?? "payload", occurrences: Math.max(1, at.length), ...where(has) });
   }
+  // The value is wrapped before it leaves this function: the locator only ever sees a matcher over text.
+  const locatePattern = (value: string, rule: string): { source?: SourceLines } => {
+    if (!opts.locate || budget <= 0) return {};
+    const secret = knownSecret(value, rule, "pattern");
+    return where((text) => secret.value.isIn(text));
+  };
   const seen = new Map<string, SuspiciousItem>();
   const seenHigh = new Set<string>();
   for (const { text, location, meta } of texts) {
@@ -98,7 +133,7 @@ export function rescanPayload(
       if (m.confidence === "high") {
         if (seenHigh.has(value)) continue;
         seenHigh.add(value);
-        issues.push({ rule: m.rule, length: value.length, location });
+        issues.push({ rule: m.rule, length: value.length, location, ...locatePattern(value, m.rule) });
         continue;
       }
       // Our own identifier fields are copied, not redacted, and generic rules fire on ids; high matches there still block.
@@ -108,7 +143,7 @@ export function rescanPayload(
         known.occurrences++;
         continue;
       }
-      const item: SuspiciousItem = { rule: m.rule, length: value.length, location, occurrences: 1 };
+      const item: SuspiciousItem = { rule: m.rule, length: value.length, location, occurrences: 1, ...locatePattern(value, m.rule) };
       seen.set(value, item);
       suspicious.push(item);
     }
@@ -128,6 +163,9 @@ interface Visit {
 }
 
 const NONE: ReadonlySet<string> = new Set();
+
+/** Findings whose lines are looked up per scan; the report shows far fewer. */
+const MAX_LOOKUPS = 50;
 
 /**
  * Every string and object key of the payload with a location that is safe to print: turn and step as in the

@@ -62,7 +62,7 @@ describe("suspicious tier", () => {
     expect(prepared.report.rescan).toEqual([]);
     expect(prepared.report.blocked).toBe(false);
     expect(prepared.report.clean).toBe(false);
-    expect(prepared.report.suspicious).toEqual([{ rule: "secret-assignment", length: value.length, location: "turn 3 · Bash · input (object key)", occurrences: 1 }]);
+    expect(prepared.report.suspicious).toEqual([{ rule: "secret-assignment", length: value.length, location: "turn 3 · Bash · input (object key)", occurrences: 1, source: { hits: [{ line: 6 }], total: 1 } }]);
   });
 
   it("points at the right turn in a multi-message session", () => {
@@ -301,7 +301,7 @@ describe("browse source", () => {
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher });
     const review = await source.review(sessions[0]!, "full", new AbortController().signal);
     expect(review.blocked).toBe(false);
-    expect(review.suspicious).toEqual([{ rule: "secret-assignment", length: value.length, location: "turn 3 · Bash · input (object key)", occurrences: 1 }]);
+    expect(review.suspicious).toEqual([{ rule: "secret-assignment", length: value.length, location: "turn 3 · Bash · input (object key)", occurrences: 1, lines: "line 6" }]);
     expect(leaked(JSON.stringify(review), value, "")).toEqual([]);
 
     await expect(source.publish(sessions[0]!, "full", { reviewId: review.id })).rejects.toThrow(/suspicious values .* not confirmed/);

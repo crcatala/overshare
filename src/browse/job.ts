@@ -13,6 +13,7 @@ import { parseSession, UnrecognizedFormatError } from "../adapters/index.js";
 import type { AgentShareConfig } from "../config.js";
 import { formatDuration, formatSessionCost, formatTokens, plural } from "../format.js";
 import { PromptsUnavailableError } from "../modes.js";
+import { formatSourceLines, type SourceLines } from "../redact/source-lines.js";
 import { capRedacted } from "../cap.js";
 import { prepareShare, SUMMARY_MAX, type PreparedShare } from "../pipeline.js";
 import type { PublishInput } from "../publish/index.js";
@@ -93,6 +94,9 @@ export function viewFromSession(session: NormalizedSession): SessionView {
 
 // ── review ─────────────────────────────────────────────────────────────────────────────
 
+/** The source lines of a finding, for the screen: `lines: "line 42"`, or nothing when the value was not found in the source. */
+const linesOf = (source: SourceLines | undefined): { lines?: string } => (source ? { lines: stripControls(formatSourceLines(source)) } : {});
+
 export function summarizeShare(prepared: PreparedShare): ShareReview {
   const { report } = prepared;
   return {
@@ -100,7 +104,13 @@ export function summarizeShare(prepared: PreparedShare): ShareReview {
     clean: report.clean,
     blocked: report.blocked,
     findings: report.findings.map((f) => ({ rule: stripControls(f.rule), where: stripControls(f.where) })),
-    suspicious: report.suspicious.map((i) => ({ rule: stripControls(i.rule), length: i.length, location: stripControls(i.location), occurrences: i.occurrences })),
+    issues: report.rescan.map((i) => ({
+      rule: stripControls(i.rule),
+      ...(i.length !== undefined ? { length: i.length } : {}),
+      ...(i.location ? { location: stripControls(i.location) } : {}),
+      ...linesOf(i.source),
+    })),
+    suspicious: report.suspicious.map((i) => ({ rule: stripControls(i.rule), length: i.length, location: stripControls(i.location), occurrences: i.occurrences, ...linesOf(i.source) })),
     knownSources: report.knownSources,
     redactions: Object.values(report.counts).reduce((a, b) => a + b, 0),
     bytes: report.bytes,

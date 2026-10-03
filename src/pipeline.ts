@@ -8,6 +8,7 @@ import { collectKnownSecrets, type KnownSecret, type KnownSourceUse } from "./re
 import { safeKeys, safeLabel } from "./redact/labels.js";
 import { Redactor, SECRET_CATEGORIES, redactSession, type RedactionFinding } from "./redact/index.js";
 import { rescanPayload, type RescanIssue, type SuspiciousItem } from "./redact/rescan.js";
+import { sourceLocator } from "./redact/source-lines.js";
 import type { HarnessName, NormalizedSession, SessionStats, ShareMode, Step, SubagentTotals } from "./schema.js";
 import { computeStats } from "./stats.js";
 import { TOOL_NAME, TOOL_VERSION } from "./version.js";
@@ -38,7 +39,7 @@ export interface ShareReport {
   counts: Record<string, number>;
   findings: RedactionFinding[];
   rescan: RescanIssue[];
-  /** Medium-confidence matches still in the payload (rule, length, location; never the value): publishing needs a confirmation. */
+  /** Medium-confidence matches still in the payload (rule, length, location, source lines; never the value): publishing needs a confirmation. */
   suspicious: SuspiciousItem[];
   /** Where known values came from and how many each contributed (counts only), including sources that were switched off. */
   knownSources: KnownSourceUse[];
@@ -110,7 +111,9 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
   session.generator = { name: TOOL_NAME, version: TOOL_VERSION, sharedAt: (opts.now ?? new Date()).toISOString() };
 
   const json = JSON.stringify(session);
-  const { issues: rescan, suspicious } = rescanPayload(json, { knownSecrets, matchedSecrets: redactor.matchedSecrets(), homeDir: machine.homeDir, allowlist: redact.allowlist });
+  // Line numbers come from the source files, never from the payload. A subagent file is named by a `safeLabel`: its name is data.
+  const locate = sourceLocator([{ raw }, ...(opts.subagentFiles ?? []).map((f, i) => ({ name: safeLabel(f.fileName, `subagent-file-${i + 1}`), raw: f.raw }))]);
+  const { issues: rescan, suspicious } = rescanPayload(json, { knownSecrets, matchedSecrets: redactor.matchedSecrets(), homeDir: machine.homeDir, allowlist: redact.allowlist, locate });
   const secretsFound = [...SECRET_CATEGORIES].some((c) => (counts[c] ?? 0) > 0);
   return {
     session,

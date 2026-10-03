@@ -52,7 +52,7 @@ describe("publish dialog", () => {
   });
 
   it("scans the mode you pick (number keys and j/k) and shows its payload size", async () => {
-    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], suspicious: [], knownSources: [], redactions: 0, bytes: { full: 2_000_000, brief: 200_000, minimal: 60_000, prompts: 9_000 }[mode] }) });
+    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], issues: [], suspicious: [], knownSources: [], redactions: 0, bytes: { full: 2_000_000, brief: 200_000, minimal: 60_000, prompts: 9_000 }[mode] }) });
     await d.press("p");
     expect(d.text()).toContain("195.3 KB payload");
     await d.press("1");
@@ -65,7 +65,7 @@ describe("publish dialog", () => {
     const d = drive({
       review: (_, mode) => {
         if (mode === "prompts") throw new PromptsUnavailableError(REFUSAL);
-        return { mode, clean: true, blocked: false, findings: [], suspicious: [], knownSources: [], redactions: 0, bytes: 1000 };
+        return { mode, clean: true, blocked: false, findings: [], issues: [], suspicious: [], knownSources: [], redactions: 0, bytes: 1000 };
       },
     });
     await d.press("p", "4"); // prompts
@@ -80,7 +80,7 @@ describe("publish dialog", () => {
   });
 
   it("never lets a blocked share continue", async () => {
-    const d = drive({ review: (_, mode) => ({ mode, clean: false, blocked: true, findings: [], suspicious: [], knownSources: [], redactions: 0, bytes: 1 }) });
+    const d = drive({ review: (_, mode) => ({ mode, clean: false, blocked: true, findings: [], issues: [], suspicious: [], knownSources: [], redactions: 0, bytes: 1 }) });
     await d.press("p");
     expect(d.text()).toContain("✗ blocked: unredacted secrets remain");
     await d.press(KEY.enter, "y");
@@ -88,9 +88,36 @@ describe("publish dialog", () => {
     expect(d.text()).not.toContain("Publish brief to");
   });
 
+  it("says what blocked the share and where in the transcript file, without a value", async () => {
+    const d = drive({
+      review: (_, mode) => ({
+        mode,
+        clean: false,
+        blocked: true,
+        findings: [],
+        issues: [
+          { rule: "github-v2", length: 40, location: "turn 3 · Bash · input (object key)", lines: "lines 6, 9 (+2 more)" },
+          { rule: "known-secret:MY_KEY", length: 33 },
+        ],
+        suspicious: [],
+        knownSources: [],
+        redactions: 0,
+        bytes: 1,
+      }),
+    });
+    await d.press("p");
+    const text = d.text(100, 40).replace(/[│\s]+/g, " ");
+    expect(text).toContain("✗ blocked: unredacted secrets remain");
+    expect(text).toContain("github-v2 (40 chars) @ turn 3 · Bash · input (object key) · lines 6, 9 (+2 more)");
+    expect(text).toContain("known-secret:MY_KEY (33 chars)");
+    expect(text).toContain("line numbers are of /sessions/s1.jsonl");
+    await d.press(KEY.enter, "y");
+    expect(d.source.published).toEqual([]);
+  });
+
   it("lists what was redacted and asks for review when findings exist", async () => {
     const d = drive({
-      review: (_, mode) => ({ mode, clean: false, blocked: false, findings: [{ rule: "github-token", where: "turn 2 tool input" }, { rule: "email", where: "turn 1 prompt" }], suspicious: [], knownSources: [], redactions: 2, bytes: 5000 }),
+      review: (_, mode) => ({ mode, clean: false, blocked: false, findings: [{ rule: "github-token", where: "turn 2 tool input" }, { rule: "email", where: "turn 1 prompt" }], issues: [], suspicious: [], knownSources: [], redactions: 2, bytes: 5000 }),
     });
     await d.press("p");
     expect(d.text()).toContain("! 2 findings — redacted, please review");
@@ -105,8 +132,9 @@ describe("publish dialog", () => {
       clean: false,
       blocked: false,
       findings: [],
+      issues: [],
       suspicious: [
-        { rule: "secret-assignment", length: 16, location: "turn 3 · Bash · input (object key)", occurrences: 1 },
+        { rule: "secret-assignment", length: 16, location: "turn 3 · Bash · input (object key)", occurrences: 1, lines: "line 42" },
         { rule: "eightxeight-2", length: 30, location: "turn 7 · Read · input.path", occurrences: 2 },
       ],
       knownSources: [],
@@ -123,7 +151,7 @@ describe("publish dialog", () => {
       await d.press(KEY.enter); // continue → suspicious step, not the confirm step
       const text = d.text(100, 40).replace(/[│\s]+/g, " ");
       expect(text).toContain("2 suspicious values could not be redacted");
-      expect(text).toContain("secret-assignment (16 chars) @ turn 3 · Bash · input (object key)");
+      expect(text).toContain("secret-assignment (16 chars) @ turn 3 · Bash · input (object key) · line 42");
       expect(text).toContain("eightxeight-2 (30 chars, ×2) @ turn 7 · Read · input.path");
       expect(text).toContain("/sessions/s1.jsonl");
       expect(text).not.toContain("Publish brief to");
@@ -180,7 +208,7 @@ describe("publish dialog", () => {
       { id: "credentialFiles" as const, enabled: false, count: 0 },
       { id: "ghToken" as const, enabled: false, count: 0 },
     ];
-    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], suspicious: [], knownSources, redactions: 0, bytes: 1000 }) });
+    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], issues: [], suspicious: [], knownSources, redactions: 0, bytes: 1000 }) });
     await d.press("p");
     const text = d.text().replace(/[│\s]+/g, " "); // the dialog box wraps the line
     expect(text).toContain("known values: env (4), project .env (2)");
@@ -195,7 +223,7 @@ describe("publish dialog", () => {
       { id: "ghToken" as const, enabled: false, count: 0 },
       { id: "secrets-file" as const, enabled: true, count: 3 },
     ];
-    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], suspicious: [], knownSources, redactions: 0, bytes: 1000 }) });
+    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], issues: [], suspicious: [], knownSources, redactions: 0, bytes: 1000 }) });
     await d.press("p");
     for (const width of [60, 44, 36]) {
       // Only the dialog's own rows: on a narrow screen the list behind it shows through right of the border.

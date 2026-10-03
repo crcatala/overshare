@@ -35,7 +35,7 @@ describe("a long prefix or suffix of a known value", () => {
   it("is flagged by rule and length, never by value", () => {
     const n = FRAGMENT_POLICY.minFragment;
     const prefix = rescanPayload(payload(`leftover ${value.slice(0, 26)} cut`), { knownSecrets: known });
-    expect(prefix.issues).toEqual([{ rule: "secret-prefix:SERVICE_TOKEN", length: Math.max(n, Math.ceil(value.length * FRAGMENT_POLICY.ratio)) }]);
+    expect(prefix.issues).toEqual([{ rule: "secret-prefix:SERVICE_TOKEN", length: Math.max(n, Math.ceil(value.length * FRAGMENT_POLICY.ratio)), location: "turn 1 · text · text" }]);
     const suffix = rescanPayload(payload(`leftover ${value.slice(-26)} cut`), { knownSecrets: known });
     expect(suffix.issues.map((i) => i.rule)).toEqual(["secret-suffix:SERVICE_TOKEN"]);
     for (const issue of [...prefix.issues, ...suffix.issues]) for (let i = 0; i + 6 <= value.length; i += 2) expect(JSON.stringify(issue)).not.toContain(value.slice(i, i + 6));

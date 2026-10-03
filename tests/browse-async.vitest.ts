@@ -11,7 +11,7 @@ import { deferred, drive as baseDrive, KEY, sampleView, type FakeSourceOptions }
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
-const review = (mode: ShareMode, bytes: number, over: Partial<ShareReview> = {}): ShareReview => ({ mode, clean: true, blocked: false, findings: [], suspicious: [], knownSources: [], redactions: 0, bytes, ...over });
+const review = (mode: ShareMode, bytes: number, over: Partial<ShareReview> = {}): ShareReview => ({ mode, clean: true, blocked: false, findings: [], issues: [], suspicious: [], knownSources: [], redactions: 0, bytes, ...over });
 const viewTitled = (text: string): SessionView => ({ ...sampleView(), items: [{ kind: "user", turn: 1, label: text, body: text }, { kind: "assistant", turn: 1, label: `reply to ${text}`, body: `reply to ${text}` }] });
 
 /** A fake source whose reviews are held until the test resolves them, one deferred per call, in call order. */
@@ -269,7 +269,7 @@ describe.each([false, true])("source that ignores the abort: %s", (ignore) => {
       const d = drive({ review: h.review });
       await d.press("p", KEY.enter, "c", "y"); // all before the review exists
       expect(d.source.published).toEqual([]);
-      h.last("brief").d.resolve(review("brief", 5_000, { clean: false, suspicious: [{ rule: "secret-assignment", length: 16, location: "turn 3 · Bash · input (object key)", occurrences: 1 }] }));
+      h.last("brief").d.resolve(review("brief", 5_000, { clean: false, issues: [], suspicious: [{ rule: "secret-assignment", length: 16, location: "turn 3 · Bash · input (object key)", occurrences: 1 }] }));
       await vi.advanceTimersByTimeAsync(0);
       await d.press(KEY.enter, "y", KEY.enter); // continue → suspicious step; y and enter do not pass it
       expect(d.text()).toContain("continue anyway");

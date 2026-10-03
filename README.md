@@ -201,7 +201,11 @@ walks, so what the re-scan can still find sits where the redactor does not look:
 conversation text. Those are reported as **suspicious**: they may be secrets, they are still in the payload, and you decide.
 
 - The report (terminal, `--json`, browse dialog) lists each one by rule, length and **location** (`turn 3 · Bash · input (object key)`,
-  turn numbers as in `agent-share browse`), plus the transcript file to look at. Never the value, a fragment or a hash.
+  turn numbers as in `agent-share browse`), the **line numbers** of the transcript file where the value is (`… · line 42`; up to five,
+  then `(+N more)`; a hit in a Claude Code subagent transcript names that file), plus the transcript file to look at. Never the
+  value, a fragment or a hash. Blocked re-scan issues carry the same location and lines, in the terminal and in the browse dialog.
+  The lines are found by looking the value up in the source file, not read off the payload, so they never reach the upload; a value
+  that only exists after a transformation (not verbatim in the file) is reported by turn and step alone.
 - `publish --yes` stops with exit 2 and does not publish; `--allow-findings` does not cover it either, because those secrets are
   redacted and these are not. After inspecting the values, pass `--allow-suspicious`, or add a value that is fine to
   `redact.allowlist` so it is not reported again.
@@ -209,7 +213,7 @@ conversation text. Those are reported as **suspicious**: they may be secrets, th
   `c`; enter never continues, and nothing is sent before the final `y`.
 - Expect this to be rare: on 486 of the author's local sessions it fired on none. Honest limit: it only surfaces what a pattern
   layer matched. A secret with **no recognizable format** matches nothing, so no layer reports it; that is what the known-value
-  sources are for, and this tier does not make up for turning them off. Line numbers in the transcript are not shown yet (ass-jgn2).
+  sources are for, and this tier does not make up for turning them off.
 
 Findings and final re-scan issues (terminal, `--json` and the browse dialog) show rules, locations,
 counts and a length, never a secret value, a fragment of one, or the text around a finding: an

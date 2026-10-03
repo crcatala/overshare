@@ -57,3 +57,7 @@ Measurements (counts and timings only; real sessions in ~/.claude/projects + ~/.
 - Total cold index time is unchanged (~1.7 s); the list is usable from first paint instead of after it.
 
 Known limitations of (a), not fixed here: a pi subagent-worker session shows as a normal row until it is read (the worker flag comes from the title); sort by title/prompts/calls/duration and the free-text/repo/branch/model/tool filters only see rows already read, so they reorder / fill in as reading proceeds.
+
+**2026-10-03T16:41:55Z**
+
+Decision (2026-10-03): part (b) will be done as its own follow-up PR on this ticket, not folded into the part (a) PR (#30). ass-mpbn stays open until (b) merges and is closed by that PR.

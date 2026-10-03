@@ -43,8 +43,8 @@ function indexed() {
   const projects = join(dir, "claude");
   mkdirSync(join(projects, "-home-me-work-app"), { recursive: true });
   const t = new ClaudeTranscript("sess-1", "/home/me/work/app")
-    // The secret is on the second line: the title is the first line cut at 80 characters, which can split a secret (ass-ahh1).
-    .user(`please deploy the app\nmy key is ${secrets.anthropic}`)
+    // On the first line, where the share title is derived from and its 80-character cut falls inside the key (ass-ahh1).
+    .user(`please deploy the app, my key is ${secrets.anthropic}\nthanks`)
     .assistant("m1", [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "cat .env" } }], ccUsage(10, 5))
     .toolResult("b1", `GITHUB_TOKEN=${secrets.github}\nDEMO_SERVICE_TOKEN=${secrets.env}\n${secrets.pem}`)
     .assistant("m2", [{ type: "text", text: "deployed; nothing else to do" }], ccUsage(10, 5));

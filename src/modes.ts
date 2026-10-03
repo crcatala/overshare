@@ -14,12 +14,8 @@ import type {
   Turn,
   TurnActivity,
 } from "./schema.js";
+import { cutPoint } from "./cap.js";
 import { SHARE_MODES } from "./schema.js";
-
-export interface ProjectOptions {
-  /** Max characters kept per tool result / large tool input string in full mode. */
-  maxToolChars?: number;
-}
 
 const RANK: Record<ShareMode, number> = { full: 3, brief: 2, minimal: 1, prompts: 0 };
 
@@ -45,11 +41,11 @@ export function availableModes(mode: ShareMode, promptsAllowed = true): ShareMod
 }
 
 /** The result's `mode` is `mode`, not the mode `session` was published in; keep that if you need it. */
-export function projectSession(session: NormalizedSession, mode: ShareMode, opts: ProjectOptions = {}): NormalizedSession {
+export function projectSession(session: NormalizedSession, mode: ShareMode): NormalizedSession {
   if (RANK[mode] > RANK[session.mode]) throw new Error(`Cannot project a ${session.mode} session up to ${mode}`);
   const reason = mode === "prompts" ? promptsUnavailableReason(session) : undefined;
   if (reason) throw new PromptsUnavailableError(reason);
-  const project = mode === "full" ? (t: Turn) => fullTurn(t, opts.maxToolChars ?? 20_000) : mode === "brief" ? briefTurn : mode === "minimal" ? minimalTurn : promptsTurn;
+  const project = mode === "full" ? (t: Turn) => t : mode === "brief" ? briefTurn : mode === "minimal" ? minimalTurn : promptsTurn;
   return { ...session, mode, turns: session.turns.map((turn) => project({ ...turn, activity: turn.activity ?? turnActivity(turn) })) };
 }
 
@@ -84,9 +80,13 @@ function promptsTurn(turn: Turn): Turn {
   };
 }
 
+/** Default for `capToolText`: characters kept per tool result and per string of a tool input. */
+export const DEFAULT_MAX_TOOL_CHARS = 20_000;
+
 function truncate(text: string, max: number): { text: string; truncatedFrom?: number } {
   if (text.length <= max) return { text };
-  return { text: `${text.slice(0, max)}\n… [truncated ${text.length - max} chars]`, truncatedFrom: text.length };
+  const cut = cutPoint(text, max);
+  return { text: `${text.slice(0, cut)}\n… [truncated ${text.length - cut} chars]`, truncatedFrom: text.length };
 }
 
 function truncateDeep(value: unknown, max: number): unknown {
@@ -102,15 +102,19 @@ function truncateResult(result: ToolResult | undefined, max: number): ToolResult
   return { ...result, text: t.text, ...(t.truncatedFrom ? { truncatedFrom: t.truncatedFrom } : {}) };
 }
 
-function fullTurn(turn: Turn, max: number): Turn {
-  return {
-    ...turn,
-    steps: turn.steps.map((s): Step => {
+/**
+ * Cap every tool result and every string of a tool input at `max` characters. Call it on REDACTED text only: a secret
+ * that straddles a cut made before redaction leaves a prefix no rule recognises (ass-7x3c). A replacement token that
+ * spans the cut is dropped whole. `truncatedFrom` is the redacted length, the only length that is left to know.
+ */
+export function capToolText(session: NormalizedSession, max: number = DEFAULT_MAX_TOOL_CHARS): NormalizedSession {
+  const steps = (list: Step[]): Step[] =>
+    list.map((s): Step => {
       if (s.kind === "tool") return { ...s, input: truncateDeep(s.input, max), result: truncateResult(s.result, max) };
       if (s.kind === "subagent") return { ...s, result: truncateResult(s.result, max) };
       return s;
-    }),
-  };
+    });
+  return { ...session, turns: session.turns.map((t) => ({ ...t, steps: steps(t.steps) })) };
 }
 
 function emptyGroup(id: string): ToolGroupStep {

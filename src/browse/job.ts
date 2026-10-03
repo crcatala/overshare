@@ -13,7 +13,8 @@ import { parseSession, UnrecognizedFormatError } from "../adapters/index.js";
 import type { AgentShareConfig } from "../config.js";
 import { formatDuration, formatSessionCost, formatTokens, plural } from "../format.js";
 import { PromptsUnavailableError } from "../modes.js";
-import { prepareShare, type PreparedShare } from "../pipeline.js";
+import { capRedacted } from "../cap.js";
+import { prepareShare, SUMMARY_MAX, type PreparedShare } from "../pipeline.js";
 import type { PublishInput } from "../publish/index.js";
 import { stripControls } from "../sanitize.js";
 import { totalTokens, type HarnessName, type NormalizedSession, type ShareMode } from "../schema.js";
@@ -26,6 +27,8 @@ import type { SessionView, ShareReview, ViewItem } from "./source.js";
 const cap = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max)}\n… (+${text.length - max} more characters)` : text);
 const stripPasteTags = (s: string): string => s.replace(/<\/?pasted_content[^>]*>/g, "").trim();
 const firstLine = (text: string): string => stripPasteTags(text).split("\n", 1)[0]!.replace(/\s+/g, " ");
+/** The adapters keep summaries and descriptions whole (the share pipeline caps them after redaction); the list shows them as the share will. */
+const shown = (text: string): string => capRedacted(text, SUMMARY_MAX);
 
 export function viewFromSession(session: NormalizedSession): SessionView {
   const stats = computeStats(session);
@@ -47,19 +50,19 @@ export function viewFromSession(session: NormalizedSession): SessionView {
         items.push({
           kind: "tool",
           turn,
-          label: `${step.name}  ${step.summary}`,
+          label: `${step.name}  ${shown(step.summary)}`,
           meta: step.name,
           error: step.isError,
-          body: `${step.summary}\n\n── input ──\n${input}\n\n── result${step.isError ? " (error)" : ""} ──\n${result}`,
+          body: `${cap(step.summary, 2_000)}\n\n── input ──\n${input}\n\n── result${step.isError ? " (error)" : ""} ──\n${result}`,
         });
       } else if (step.kind === "subagent") {
         items.push({
           kind: "subagent",
           turn,
-          label: `${step.tool}  ${step.agents.join(", ")} ${step.description ?? ""}`.trim(),
+          label: `${step.tool}  ${step.agents.join(", ")} ${shown(step.description ?? "")}`.trim(),
           meta: step.tool,
           error: step.isError,
-          body: `${step.description ?? ""}\n\n${step.result ? cap(step.result.text, 4_000) : "(no result recorded)"}`,
+          body: `${cap(step.description ?? "", 2_000)}\n\n${step.result ? cap(step.result.text, 4_000) : "(no result recorded)"}`,
         });
       } else if (step.kind === "event") {
         items.push({ kind: "event", turn, label: `${step.event}: ${firstLine(step.text)}`, meta: step.event, error: step.event === "error", body: cap([step.text, step.detail].filter(Boolean).join("\n\n"), 6_000) });

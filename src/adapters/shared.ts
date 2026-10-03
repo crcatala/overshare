@@ -40,10 +40,11 @@ export interface AdapterResult {
   dropped: DropCounts;
 }
 
-const firstLine = (s: string, max = 160): string => {
-  const line = s.trim().split("\n", 1)[0] ?? "";
-  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
-};
+/**
+ * The first line, whole. An adapter never cuts text it hands on: the cut would happen before redaction, and a secret
+ * that straddles it leaves a prefix no rule recognises (ass-7x3c). The pipeline caps it after redaction (`capRedacted`).
+ */
+const firstLine = (s: string): string => s.trim().split("\n", 1)[0] ?? "";
 
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.length > 0 ? v : undefined);
 
@@ -85,7 +86,7 @@ export function describeTool(name: string, input: unknown): ToolInfo {
   }
   if (n === "skill") return { action: "other", summary: str(args.skill) ?? str(args.name) ?? "" };
   if (n === "todowrite") return { action: "other", summary: "update todo list" };
-  return { action: "other", summary: firstLine(compactJson(args), 120) };
+  return { action: "other", summary: firstLine(compactJson(args)) };
 }
 
 function compactJson(v: unknown): string {
@@ -129,13 +130,13 @@ export function describeSubagent(name: string, input: unknown): Omit<SubagentSte
       const mission = JSON.parse(args.mission) as Record<string, unknown>;
       description = str(mission.title);
     } catch {
-      description = firstLine(args.mission, 120);
+      description = firstLine(args.mission);
     }
   } else if (!description && args.mission && typeof args.mission === "object") {
     description = str((args.mission as Record<string, unknown>).title);
   }
-  if (!description) description = str(args.task) ? firstLine(String(args.task), 160) : undefined;
-  if (!description && typeof args.prompt === "string") description = firstLine(args.prompt, 160);
+  if (!description) description = str(args.task) ? firstLine(String(args.task)) : undefined;
+  if (!description && typeof args.prompt === "string") description = firstLine(args.prompt);
   return {
     tool: name,
     agents: [...agents],

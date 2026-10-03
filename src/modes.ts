@@ -83,6 +83,9 @@ function promptsTurn(turn: Turn): Turn {
 /** Default for `capToolText`: characters kept per tool result and per string of a tool input. */
 export const DEFAULT_MAX_TOOL_CHARS = 20_000;
 
+/** Cap on a background subagent's answer (a bounded summary, not a transcript); a smaller `maxToolChars` wins. */
+export const SUBAGENT_RESULT_CHARS = 4000;
+
 function truncate(text: string, max: number): { text: string; truncatedFrom?: number } {
   if (text.length <= max) return { text };
   const cut = cutPoint(text, max);
@@ -103,7 +106,8 @@ function truncateResult(result: ToolResult | undefined, max: number): ToolResult
 }
 
 /**
- * Cap every tool result and every string of a tool input at `max` characters. Call it on REDACTED text only: a secret
+ * Cap every tool result and every string of a tool input at `max` characters (a background subagent's answer at
+ * `SUBAGENT_RESULT_CHARS` if that is less). Call it on REDACTED text only: a secret
  * that straddles a cut made before redaction leaves a prefix no rule recognises (ass-7x3c). A replacement token that
  * spans the cut is dropped whole. `truncatedFrom` is the redacted length, the only length that is left to know.
  */
@@ -111,7 +115,9 @@ export function capToolText(session: NormalizedSession, max: number = DEFAULT_MA
   const steps = (list: Step[]): Step[] =>
     list.map((s): Step => {
       if (s.kind === "tool") return { ...s, input: truncateDeep(s.input, max), result: truncateResult(s.result, max) };
-      if (s.kind === "subagent") return { ...s, result: truncateResult(s.result, max) };
+      // Only a background (async) answer is bounded at SUBAGENT_RESULT_CHARS. A foreground answer, or a transcript summary
+      // on a step that was not launched in the background, keeps the `maxToolChars` cap.
+      if (s.kind === "subagent") return { ...s, result: truncateResult(s.result, s.async ? Math.min(max, SUBAGENT_RESULT_CHARS) : max) };
       return s;
     });
   return { ...session, turns: session.turns.map((t) => ({ ...t, steps: steps(t.steps) })) };

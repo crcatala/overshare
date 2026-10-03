@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseClaudeCode } from "../src/adapters/claude-code.js";
-import { SUBAGENT_RESULT_CHARS, type SubagentFileInput } from "../src/adapters/shared.js";
+import { type SubagentFileInput } from "../src/adapters/shared.js";
+import { SUBAGENT_RESULT_CHARS, capToolText } from "../src/modes.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { prepareShare } from "../src/pipeline.js";
 import { estimateCost } from "../src/pricing.js";
@@ -345,9 +346,11 @@ describe("the launching step's summary", () => {
     expect(step!.usage!.turns).toBe(1);
   });
 
-  it("bounds the summary like a notification answer, and says what it cut", () => {
+  it("keeps the summary whole; the share pipeline bounds it like a notification answer after redaction, and says what it cut (ass-yyg0)", () => {
     const long = "x".repeat(SUBAGENT_RESULT_CHARS + 500);
-    const [step] = subagentSteps(parse(mainWithLaunch({ kind: "async" }), [oneCallFile("a1", { toolUseId: LAUNCH }, long)]).session);
+    const parsed = parse(mainWithLaunch({ kind: "async" }), [oneCallFile("a1", { toolUseId: LAUNCH }, long)]).session;
+    expect(subagentSteps(parsed)[0]!.result).toEqual({ text: long });
+    const [step] = subagentSteps(capToolText(parsed));
     expect(step!.result!.truncatedFrom).toBe(long.length);
     expect(step!.result!.text.startsWith("x".repeat(SUBAGENT_RESULT_CHARS))).toBe(true);
     expect(step!.result!.text.length).toBeLessThan(long.length);

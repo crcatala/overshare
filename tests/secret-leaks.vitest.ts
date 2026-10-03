@@ -18,13 +18,17 @@ import { GistPublisher } from "../src/publish/gist.js";
 import { publishPrepared } from "../src/publish/index.js";
 import type { PublishPayload, Publisher } from "../src/publish/types.js";
 import { Redactor } from "../src/redact/index.js";
-import { collectKnownSecrets, knownSecret, type KnownSecret } from "../src/redact/known-values.js";
+import { collectKnownSecrets, knownSecret, type KnownSourceSettings } from "../src/redact/known-values.js";
 import { rescanPayload } from "../src/redact/rescan.js";
 import { SecretValue } from "../src/redact/secret-value.js";
 import { formatReport } from "../src/report.js";
 import { ClaudeTranscript, ccUsage, randomish } from "./helpers.js";
 
 const root = join(import.meta.dirname, "..");
+
+/** The leak tests want the widest harvesting surface, so every opt-in source is switched on. */
+const ALL_SOURCES: KnownSourceSettings = { env: true, projectEnv: true, credentialFiles: true, ghToken: true };
+const ALL_ON = { ...DEFAULT_CONFIG, redact: { ...DEFAULT_CONFIG.redact, knownSources: ALL_SOURCES } };
 
 describe("SecretValue", () => {
   const raw = `Zq${randomish(30, 91)}`;
@@ -213,7 +217,7 @@ describe("planted secrets never surface in output, even when things fail", () =>
     ].join("\n");
 
   it("the planted sources are all really harvested (so the other tests mean something)", () => {
-    const found = collectKnownSecrets({ home: planted.home, projectDir: planted.project });
+    const found = collectKnownSecrets({ home: planted.home, projectDir: planted.project, enabled: ALL_SOURCES }).secrets;
     for (const [name, value] of Object.entries(planted.secrets)) {
       if (name === "SECRETS_FILE") continue;
       expect(
@@ -224,10 +228,10 @@ describe("planted secrets never surface in output, even when things fail", () =>
   });
 
   it("dumping the collected secrets, a Redactor holding them and the prepare options prints no value", () => {
-    const found = [...collectKnownSecrets({ home: planted.home, projectDir: planted.project }), ...extra()];
+    const found = [...collectKnownSecrets({ home: planted.home, projectDir: planted.project, enabled: ALL_SOURCES }).secrets, ...extra()];
     expect(found.length).toBe(planted.values.length);
     const redactor = new Redactor({ ...machine(), knownSecrets: found });
-    const options = { mode: "full", config: DEFAULT_CONFIG, knownSecrets: found };
+    const options = { mode: "full", config: ALL_ON, knownSecrets: found };
     const dumps = [
       JSON.stringify(found),
       inspect(found, { depth: null, showHidden: true }),
@@ -243,8 +247,8 @@ describe("planted secrets never surface in output, even when things fail", () =>
   });
 
   it("a clean run: the secrets are redacted and appear nowhere in the payload, report or console", () => {
-    const prepared = prepareShare(dumpTranscript(planted), { mode: "full", config: DEFAULT_CONFIG, machine: machine(), extraKnownSecrets: extra() });
-    expect(prepared.report.knownSecretCount).toBe(planted.values.length);
+    const prepared = prepareShare(dumpTranscript(planted), { mode: "full", config: ALL_ON, machine: machine(), extraKnownSecrets: extra() });
+    expect(prepared.report.knownSources.map((u) => [u.id, u.count])).toEqual([["env", 1], ["projectEnv", 1], ["credentialFiles", 5], ["ghToken", 1], ["secrets-file", 1]]);
     expect(prepared.report.blocked).toBe(false);
     expect(leaks(prepared.json, planted)).toEqual([]);
     expect(prepared.json).toContain("[REDACTED:MY_SERVICE_API_KEY]");
@@ -254,12 +258,12 @@ describe("planted secrets never surface in output, even when things fail", () =>
   it("rescan block: a planted value left in the payload is reported by label and length only", () => {
     const leakyKey = planted.secrets.DB_PASSWORD; // object keys are not redacted, so only the re-scan sees this
     const raw = dumpTranscript(planted, { toolInput: { command: "run", [leakyKey]: 1 } });
-    const prepared = prepareShare(raw, { mode: "full", config: DEFAULT_CONFIG, machine: machine(), extraKnownSecrets: extra() });
+    const prepared = prepareShare(raw, { mode: "full", config: ALL_ON, machine: machine(), extraKnownSecrets: extra() });
     expect(prepared.report.blocked).toBe(true);
     expect(prepared.report.rescan[0]).toMatchObject({ rule: "known-secret:DB_PASSWORD", length: leakyKey.length });
     // The payload is the thing that is blocked; what a caller may print is everything else.
     expect(leaks(everything(prepared), planted)).toEqual([]);
-    const issues = rescanPayload(prepared.json, { knownSecrets: [...collectKnownSecrets({ home: planted.home, projectDir: planted.project })] });
+    const issues = rescanPayload(prepared.json, { knownSecrets: [...collectKnownSecrets({ home: planted.home, projectDir: planted.project, enabled: ALL_SOURCES }).secrets] });
     expect(leaks(JSON.stringify(issues) + inspect(issues, { depth: null }), planted)).toEqual([]);
   });
 
@@ -276,7 +280,7 @@ describe("planted secrets never surface in output, even when things fail", () =>
     const inputs = [garbage[0], garbage[1], garbage.join("\n"), garbage.slice(2).join("\n"), `${valid}${garbage[0]}\n`, `${valid}${garbage[1]}`];
     const outcomes = inputs.map((raw) => {
       try {
-        return { prepared: prepareShare(raw ?? "", { mode: "full", config: DEFAULT_CONFIG, machine: machine(), extraKnownSecrets: extra() }) };
+        return { prepared: prepareShare(raw ?? "", { mode: "full", config: ALL_ON, machine: machine(), extraKnownSecrets: extra() }) };
       } catch (error) {
         return { error: error as Error };
       }
@@ -293,8 +297,8 @@ describe("planted secrets never surface in output, even when things fail", () =>
   });
 
   it("a failing publisher: the error and everything it was handed print no planted value", async () => {
-    const prepared = prepareShare(dumpTranscript(planted), { mode: "full", config: DEFAULT_CONFIG, machine: machine(), extraKnownSecrets: extra() });
-    const found = [...collectKnownSecrets({ home: planted.home, projectDir: planted.project }), ...extra()];
+    const prepared = prepareShare(dumpTranscript(planted), { mode: "full", config: ALL_ON, machine: machine(), extraKnownSecrets: extra() });
+    const found = [...collectKnownSecrets({ home: planted.home, projectDir: planted.project, enabled: ALL_SOURCES }).secrets, ...extra()];
 
     // The real gist publisher with a runner that fails like `gh` does.
     const real = new GistPublisher({ viewerUrl: "https://viewer.invalid", run: async (_cmd, args) => (args[0] === "auth" ? { code: 0, stdout: "", stderr: "" } : { code: 1, stdout: "", stderr: "HTTP 502" }) });
@@ -307,7 +311,7 @@ describe("planted secrets never surface in output, even when things fail", () =>
       async delete() {},
     };
     for (const publisher of [real, sloppy]) {
-      const err = await publishPrepared(publisher, DEFAULT_CONFIG, "gist", prepared).then(
+      const err = await publishPrepared(publisher, ALL_ON, "gist", prepared).then(
         () => undefined,
         (e: Error) => e,
       );
@@ -338,10 +342,12 @@ describe("the CLI never prints planted values, including on failure", () => {
 
   it("report, blocked report, failed publish and malformed transcript", { timeout: 60_000 }, () => {
     const p = plant();
+    mkdirSync(join(p.home, ".config", "agent-share"), { recursive: true });
+    writeFileSync(join(p.home, ".config", "agent-share", "config.json"), JSON.stringify({ redact: { knownSources: ALL_SOURCES } }));
 
     const clean = cli(p, ["report", "--mode", "full", "--json"], write(p, dumpTranscript(p)));
     expect(clean.status).toBe(2); // redacted something, needs review
-    expect(JSON.parse(clean.text.slice(clean.text.indexOf("{"))).knownSecretCount).toBeGreaterThanOrEqual(8);
+    expect(JSON.parse(clean.text.slice(clean.text.indexOf("{"))).knownSources.reduce((n: number, u: { count: number }) => n + u.count, 0)).toBeGreaterThanOrEqual(8);
 
     const blocked = cli(p, ["report", "--mode", "full"], write(p, dumpTranscript(p, { toolInput: { command: "run", [p.secrets.DB_PASSWORD]: 1 } })));
     expect(blocked.status).toBe(3);

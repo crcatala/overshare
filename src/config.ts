@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { R2Config } from "./publish/r2.js";
+import { DEFAULT_KNOWN_SOURCES, KNOWN_SOURCES, type KnownSourceSettings } from "./redact/known-values.js";
 
 export interface AgentShareConfig {
   /** Viewer base URL; shares link to `<viewerUrl>#<owner>/<gistId>`. */
@@ -22,6 +23,8 @@ export interface AgentShareConfig {
     denylist: string[];
     /** Literal strings that must never be redacted (e.g. a known-public test key). */
     allowlist: string[];
+    /** Which machine sources supply exact secret values to redact (see README "What this tool reads and why"). */
+    knownSources: KnownSourceSettings;
   };
 }
 
@@ -32,7 +35,7 @@ export const DEFAULT_CONFIG: AgentShareConfig = {
   viewerUrl: "https://agent.nub.sh/session/",
   target: "gist",
   maxToolChars: 20_000,
-  redact: { emails: true, username: true, hostname: false, denylist: [], allowlist: [] },
+  redact: { emails: true, username: true, hostname: false, denylist: [], allowlist: [], knownSources: DEFAULT_KNOWN_SOURCES },
 };
 
 export function configPath(env: NodeJS.ProcessEnv = process.env): string {
@@ -51,7 +54,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentShareConf
   const config: AgentShareConfig = {
     ...DEFAULT_CONFIG,
     ...user,
-    redact: { ...DEFAULT_CONFIG.redact, ...(user.redact ?? {}) },
+    redact: { ...DEFAULT_CONFIG.redact, ...(user.redact ?? {}), knownSources: parseKnownSources(user.redact?.knownSources, path) },
   };
   config.viewerUrlSource = user.viewerUrl ? "config" : "default";
   if (env.AGENT_SHARE_VIEWER_URL) {
@@ -61,4 +64,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentShareConf
   if (env.AGENT_SHARE_TARGET) config.target = env.AGENT_SHARE_TARGET as ShareTarget;
   if (!SHARE_TARGETS.includes(config.target)) throw new Error(`Unknown target "${config.target}" (use ${SHARE_TARGETS.join(" or ")})`);
   return config;
+}
+
+/** A typo in a security setting must not be silently ignored, so unknown keys and non-booleans are errors. */
+function parseKnownSources(user: unknown, path: string): KnownSourceSettings {
+  if (user === undefined) return { ...DEFAULT_KNOWN_SOURCES };
+  if (!user || typeof user !== "object" || Array.isArray(user)) throw new Error(`Invalid config at ${path}: redact.knownSources must be an object of booleans (${KNOWN_SOURCES.join(", ")})`);
+  const out = { ...DEFAULT_KNOWN_SOURCES };
+  for (const [key, value] of Object.entries(user)) {
+    if (!(KNOWN_SOURCES as readonly string[]).includes(key)) throw new Error(`Invalid config at ${path}: unknown redact.knownSources.${key} (use ${KNOWN_SOURCES.join(", ")})`);
+    if (typeof value !== "boolean") throw new Error(`Invalid config at ${path}: redact.knownSources.${key} must be true or false`);
+    out[key as keyof KnownSourceSettings] = value;
+  }
+  return out;
 }

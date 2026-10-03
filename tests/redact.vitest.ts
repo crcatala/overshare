@@ -112,9 +112,9 @@ describe("collectKnownSecrets", () => {
       env: { MY_API_KEY: envValue, HOME_DIR: "/home/x", SHORT_TOKEN: "abc", CLAUDE_CODE_SESSION_ID: "1234-5678-abcd", ENABLE_AUTH: "true" },
       home,
       projectDir: project,
-      ghToken: false,
-      credentialFiles: [credFile],
-    });
+      enabled: { credentialFiles: true },
+      jsonCredentialFiles: [credFile],
+    }).secrets;
     const byLabel = Object.fromEntries(found.map((k) => [k.label, k]));
     expect(byLabel.MY_API_KEY?.value.equals(envValue)).toBe(true);
     expect(byLabel["anthropic.access"]?.value.equals(oauth)).toBe(true);

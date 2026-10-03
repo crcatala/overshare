@@ -67,7 +67,15 @@ const program = new Command();
 program
   .name("agent-share")
   .description("Share coding-agent session transcripts with redaction, share modes and a static viewer")
-  .version(TOOL_VERSION);
+  .version(TOOL_VERSION)
+  .addHelpText(
+    "after",
+    `
+Redaction reads secret-looking environment variables and the session project's .env files by default.
+Credential files (pi/Claude/Codex auth, gh hosts.yml, ~/.npmrc, ~/.netrc) and \`gh auth token\` are opt-in:
+set redact.knownSources.credentialFiles / .ghToken to true in ~/.config/agent-share/config.json (or $AGENT_SHARE_CONFIG). 'agent-share report' shows which
+sources were read. Use --secrets-file for values you know are sensitive. See README: "What this tool reads and why".`,
+  );
 
 program
   .command("list")

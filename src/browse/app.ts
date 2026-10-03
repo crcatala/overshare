@@ -9,6 +9,7 @@
  *   publish   p → mode → review → confirm; yes uploads exactly what was reviewed
  */
 import { formatBytes } from "../format.js";
+import { formatKnownSources } from "../report.js";
 import { SHARE_MODES, type HarnessName } from "../schema.js";
 import { facet, parseQuery, searchSessions } from "../sessions/query.js";
 import { sharesFor } from "../sessions/shares.js";
@@ -508,6 +509,7 @@ export class BrowserApp extends Screen {
         inner.push(`${formatBytes(r.bytes)} payload · ${plural(r.redactions, "redaction")}`);
         inner.push(r.blocked ? st.red("✗ blocked: unredacted secrets remain") : r.clean ? st.green("✓ clean") : st.yellow(`! ${plural(r.findings.length, "finding")} — redacted, please review`));
         for (const x of r.findings.slice(0, 3)) inner.push(st.dim(`  ${x.rule} @ ${x.where}`));
+        inner.push(...wrap(st.dim(`known values: ${formatKnownSources(r.knownSources)}`), width - 6).slice(0, 3));
       }
       for (const warning of f.preflight.warnings) inner.push(...wrap(st.yellow(`warning: ${warning}`), width - 6).slice(0, 3));
       if (f.alreadyShared) inner.push(st.yellow("this session was already shared once"));

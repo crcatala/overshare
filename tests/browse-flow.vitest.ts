@@ -51,7 +51,7 @@ describe("publish dialog", () => {
   });
 
   it("scans the mode you pick (number keys and j/k) and shows its payload size", async () => {
-    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], redactions: 0, bytes: { full: 2_000_000, brief: 200_000, minimal: 60_000, prompts: 9_000 }[mode] }) });
+    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], knownSources: [], redactions: 0, bytes: { full: 2_000_000, brief: 200_000, minimal: 60_000, prompts: 9_000 }[mode] }) });
     await d.press("p");
     expect(d.text()).toContain("195.3 KB payload");
     await d.press("1");
@@ -64,7 +64,7 @@ describe("publish dialog", () => {
     const d = drive({
       review: (_, mode) => {
         if (mode === "prompts") throw new PromptsUnavailableError(REFUSAL);
-        return { mode, clean: true, blocked: false, findings: [], redactions: 0, bytes: 1000 };
+        return { mode, clean: true, blocked: false, findings: [], knownSources: [], redactions: 0, bytes: 1000 };
       },
     });
     await d.press("p", "4"); // prompts
@@ -79,7 +79,7 @@ describe("publish dialog", () => {
   });
 
   it("never lets a blocked share continue", async () => {
-    const d = drive({ review: (_, mode) => ({ mode, clean: false, blocked: true, findings: [], redactions: 0, bytes: 1 }) });
+    const d = drive({ review: (_, mode) => ({ mode, clean: false, blocked: true, findings: [], knownSources: [], redactions: 0, bytes: 1 }) });
     await d.press("p");
     expect(d.text()).toContain("✗ blocked: unredacted secrets remain");
     await d.press(KEY.enter, "y");
@@ -89,13 +89,27 @@ describe("publish dialog", () => {
 
   it("lists what was redacted and asks for review when findings exist", async () => {
     const d = drive({
-      review: (_, mode) => ({ mode, clean: false, blocked: false, findings: [{ rule: "github-token", where: "turn 2 tool input" }, { rule: "email", where: "turn 1 prompt" }], redactions: 2, bytes: 5000 }),
+      review: (_, mode) => ({ mode, clean: false, blocked: false, findings: [{ rule: "github-token", where: "turn 2 tool input" }, { rule: "email", where: "turn 1 prompt" }], knownSources: [], redactions: 2, bytes: 5000 }),
     });
     await d.press("p");
     expect(d.text()).toContain("! 2 findings — redacted, please review");
     expect(d.text()).toContain("github-token @ turn 2 tool input");
     await d.press(KEY.enter);
     expect(d.text()).toContain("Publish brief to"); // still requires the explicit y
+  });
+
+  it("says which sources supplied known secret values, and which were not read", async () => {
+    const knownSources = [
+      { id: "env" as const, enabled: true, count: 4 },
+      { id: "projectEnv" as const, enabled: true, count: 2 },
+      { id: "credentialFiles" as const, enabled: false, count: 0 },
+      { id: "ghToken" as const, enabled: false, count: 0 },
+    ];
+    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], knownSources, redactions: 0, bytes: 1000 }) });
+    await d.press("p");
+    const text = d.text().replace(/[│\s]+/g, " "); // the dialog box wraps the line
+    expect(text).toContain("known values: env (4), project .env (2)");
+    expect(text).toContain("not read: credential files, gh auth token (disabled)");
   });
 
   it("cannot continue when publishing is not configured, and says why", async () => {

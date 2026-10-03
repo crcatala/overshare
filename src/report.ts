@@ -1,7 +1,15 @@
 import { formatBytes, formatCacheSummary, formatSessionCost, formatTokens, formatUsageTotals, plural } from "./format.js";
 import type { ShareReport } from "./pipeline.js";
 import { SECRET_CATEGORIES, type RedactionCategory } from "./redact/index.js";
+import { KNOWN_SOURCE_LABELS, type KnownSourceUse } from "./redact/known-values.js";
 import { totalTokens } from "./schema.js";
+
+/** Which sources supplied exact secret values, e.g. `env (4), project .env (2); not read: credential files, gh auth token (disabled)`. Names and counts only. */
+export function formatKnownSources(sources: KnownSourceUse[]): string {
+  const read = sources.filter((u) => u.enabled).map((u) => `${KNOWN_SOURCE_LABELS[u.id]} (${u.count})`);
+  const off = sources.filter((u) => !u.enabled).map((u) => KNOWN_SOURCE_LABELS[u.id]);
+  return `${read.length ? read.join(", ") : "none"}${off.length ? `; not read: ${off.join(", ")} (disabled)` : ""}`;
+}
 
 /** Human-readable redaction report: rules, locations and counts, never secret values or the text around them. */
 export function formatReport(r: ShareReport, opts: { maxFindings?: number; color?: boolean } = {}): string {
@@ -50,7 +58,7 @@ export function formatReport(r: ShareReport, opts: { maxFindings?: number; color
     }
     if (r.findings.length > max) lines.push(dim(`  … ${r.findings.length - max} more (use --all-findings)`));
   }
-  lines.push("", `${dim(`Known local secret values checked: ${r.knownSecretCount}`)}`);
+  lines.push("", dim(`Known values: ${formatKnownSources(r.knownSources)}`));
   if (r.rescan.length) {
     lines.push(red(bold(`Final re-scan: ${plural(r.rescan.length, "issue")} — publishing blocked`)));
     for (const i of r.rescan) lines.push(red(`  ✗ ${i.rule}${i.length === undefined ? "" : ` (${plural(i.length, "char")})`}`));

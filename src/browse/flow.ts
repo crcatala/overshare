@@ -1,6 +1,9 @@
 /**
  * Publish flow state machine: mode → review/confirm → publishing → done (or error). Renderer-agnostic.
  *
+ * A payload that still holds suspicious values gets one more step ("suspicious") before the final confirm: the
+ * user sees where to look in the transcript and must press `c` to go on; the confirmation is passed to `publish`.
+ *
  * Reviews are the real pipeline's (redaction + final re-scan for that mode) and are what gets uploaded:
  * `Source.publish` reuses the reviewed payload. A mode the pipeline refuses (e.g. prompts mode on a legacy pi
  * session) is reported on that mode only; it never crashes the flow.
@@ -12,7 +15,7 @@ import type { Preflight, ShareSummary, Source } from "./source.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import { sharesFor } from "../sessions/shares.js";
 
-export type FlowStep = "mode" | "confirm" | "busy" | "done" | "error";
+export type FlowStep = "mode" | "suspicious" | "confirm" | "busy" | "done" | "error";
 
 export const MODE_HINT: Record<ShareMode, string> = {
   full: "everything, after redaction",
@@ -32,6 +35,8 @@ export class PublishFlow {
   /** Post-upload warnings (e.g. R2 public access), or the reason an upload failed. */
   warnings: string[] = [];
   failure?: string;
+  /** The user passed the suspicious-values step for the current mode. */
+  private suspiciousConfirmed = false;
   readonly preflight: Preflight;
   private reviews = new Map<ShareMode, ShareSummary>();
   /** A mode the pipeline refused, by mode. */
@@ -96,14 +101,28 @@ export class PublishFlow {
     this.setMode(Math.max(0, Math.min(SHARE_MODES.length - 1, this.modeIdx + delta)));
   }
 
-  /** Enter advances the mode step; at the confirm step only `y` calls this (see `BrowserApp.flowKey`). */
+  /** Whether this mode's payload holds suspicious values, which need their own confirmation. */
+  get hasSuspicious(): boolean {
+    return (this.review?.suspicious.length ?? 0) > 0;
+  }
+
+  /**
+   * Enter advances the mode step; at the suspicious step only `c` and at the confirm step only `y` call this
+   * (see `BrowserApp.flowKey`).
+   */
   next(): void {
     if (this.step === "mode") {
-      if (this.canContinue) this.step = "confirm";
+      if (this.canContinue) {
+        this.suspiciousConfirmed = false;
+        this.step = this.hasSuspicious ? "suspicious" : "confirm";
+      }
+    } else if (this.step === "suspicious") {
+      this.suspiciousConfirmed = true;
+      this.step = "confirm";
     } else if (this.step === "confirm") {
       this.step = "busy";
       const mode = this.mode;
-      this.source.publish(this.session, mode).then(
+      this.source.publish(this.session, mode, { suspiciousConfirmed: this.suspiciousConfirmed }).then(
         ({ url, warnings }) => {
           this.url = url;
           this.warnings = warnings;
@@ -125,8 +144,10 @@ export class PublishFlow {
   }
 
   back(): void {
-    if (this.step === "confirm") this.step = "mode";
-    else if (this.step !== "busy") this.onClose();
+    if (this.step === "confirm" || this.step === "suspicious") {
+      this.suspiciousConfirmed = false;
+      this.step = "mode";
+    } else if (this.step !== "busy") this.onClose();
     this.redraw();
   }
 

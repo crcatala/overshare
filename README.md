@@ -117,7 +117,7 @@ field, falls back to its default.
   (`AGENT_SHARE_SHARES` overrides). The browser shows a ✓ on those sessions and can filter by them.
 - **What gets published.** The publish dialog reviews the chosen mode with the real pipeline and uploads exactly the payload you
   reviewed. Modes the pipeline refuses (for example `prompts` on a legacy pi session) say why and cannot be selected; a blocked
-  re-scan cannot be published. The viewer itself shows your local transcript unredacted, because it never leaves your machine.
+  re-scan cannot be published, and suspicious values (see "Suspicious values") need an extra confirmation first. The viewer itself shows your local transcript unredacted, because it never leaves your machine.
 - **Terminal safety.** Errors inside the UI show in the footer instead of crashing; on any exit the terminal modes are restored.
   Transcript text is untrusted, so terminal control sequences in it (clipboard writes, title changes, screen clears) are stripped
   before anything is drawn.
@@ -183,7 +183,28 @@ Report status:
 - **CLEAN** — no secrets found; `publish --yes` publishes without prompting.
 - **NEEDS REVIEW** (exit 2) — secrets were redacted; the report lists each finding by rule and location.
   Publishing requires an interactive "y" or `--yes --allow-findings`.
+- **NEEDS CONFIRMATION** (exit 2) — see "Suspicious values" below. Publishing requires an interactive "y" to a
+  question that says so, or `--yes --allow-suspicious`.
 - **BLOCKED** (exit 3) — the re-scan found something; publishing is refused.
+
+#### Suspicious values
+
+The final re-scan blocks on high-confidence matches (known values, prefix-anchored formats like `ghp_`/`sk-ant-`, private keys,
+URL credentials, auth headers). It also looks for **medium-confidence** matches (`password=…`-style assignments, generic
+keyword rules that look random) in the exact outgoing bytes. The redactor already replaces every medium match in the text it
+walks, so what the re-scan can still find sits where the redactor does not look: object keys, and fields outside the
+conversation text. Those are reported as **suspicious**: they may be secrets, they are still in the payload, and you decide.
+
+- The report (terminal, `--json`, browse dialog) lists each one by rule, length and **location** (`turn 3 · Bash · input (object key)`,
+  turn numbers as in `agent-share browse`), plus the transcript file to look at. Never the value, a fragment or a hash.
+- `publish --yes` stops with exit 2 and does not publish; `--allow-findings` does not cover it either, because those secrets are
+  redacted and these are not. After inspecting the values, pass `--allow-suspicious`, or add a value that is fine to
+  `redact.allowlist` so it is not reported again.
+- In `agent-share browse`, a payload with suspicious values gets an extra screen before the final confirmation, needing an explicit
+  `c`; enter never continues, and nothing is sent before the final `y`.
+- Expect this to be rare: on 486 of the author's local sessions it fired on none. Honest limit: it only surfaces what a pattern
+  layer matched. A secret with **no recognizable format** matches nothing, so no layer reports it; that is what the known-value
+  sources are for, and this tier does not make up for turning them off. Line numbers in the transcript are not shown yet (ass-jgn2).
 
 Findings and final re-scan issues (terminal, `--json` and the browse dialog) show rules, locations,
 counts and a length, never a secret value, a fragment of one, or the text around a finding: an

@@ -11,6 +11,7 @@
  *   publish   p → mode → review → confirm; yes uploads exactly what was reviewed
  */
 import { formatBytes } from "../format.js";
+import { stripControls } from "../sanitize.js";
 import { formatKnownSources } from "../report.js";
 import { SHARE_MODES, type HarnessName } from "../schema.js";
 import { facet, parseQuery, searchSessions } from "../sessions/query.js";
@@ -469,6 +470,10 @@ export class BrowserApp extends Screen {
       else if (isKey(data, "k") || isKey(data, "up")) f.moveMode(-1);
       else if (data >= "1" && data <= String(SHARE_MODES.length)) f.setMode(Number(data) - 1);
       else if (isKey(data, "enter")) f.next();
+    } else if (f.step === "suspicious") {
+      // Not enter, for the same reason as the confirm step: continuing must be a deliberate key.
+      if (data === "c" || data === "C") f.next();
+      else if (data === "n" || data === "N") f.back();
     } else if (f.step === "confirm") {
       // Only an explicit y publishes: enter must not, or two quick enters (continue, continue) upload.
       if (data === "y" || data === "Y") f.next();
@@ -607,7 +612,19 @@ export class BrowserApp extends Screen {
   private drawFlow(width: number): string[] {
     const f = this.flow!;
     const inner: string[] = [st.dim(cut(f.session.title ?? "", width - 4)), ""];
-    if (f.step === "mode" || f.step === "confirm") {
+    if (f.step === "suspicious") {
+      const r = f.review!;
+      inner.push(st.yellow(st.bold(`${plural(r.suspicious.length, "suspicious value")} could not be redacted`)), ...wrap(st.dim("They look like they could be secrets, are still in the payload and would be published as they are."), width - 6), "");
+      for (const i of r.suspicious.slice(0, 8)) inner.push(...wrap(`${st.yellow("?")} ${i.rule} ${st.dim(`(${plural(i.length, "char")}${i.occurrences > 1 ? `, ×${i.occurrences}` : ""}) @ ${i.location}`)}`, width - 6));
+      if (r.suspicious.length > 8) inner.push(st.dim(`  … ${r.suspicious.length - 8} more`));
+      inner.push(
+        "",
+        ...wrap(`Look at these turns in ${st.cyan(stripControls(f.session.path))} (turn numbers as in this viewer), and publish only if they are fine.`, width - 6),
+        ...wrap(st.dim("Add a value that is fine to redact.allowlist to stop being asked. Secrets with no recognizable format are not detected at all."), width - 6),
+        "",
+        `${st.key("c")} ${st.dim("continue anyway")}  ${st.key("n")} ${st.dim("back")}  ${st.key("esc")} ${st.dim("cancel")}`,
+      );
+    } else if (f.step === "mode" || f.step === "confirm") {
       SHARE_MODES.forEach((m, i) => {
         const on = i === f.modeIdx;
         inner.push(`${on ? st.cyan("›") : " "} ${st.dim(`${i + 1}`)} ${on ? st.bold(m.padEnd(8)) : m.padEnd(8)} ${st.dim(MODE_HINT[m])}`);
@@ -620,8 +637,11 @@ export class BrowserApp extends Screen {
       } else if (f.loading || !r) inner.push(st.dim("scanning for secrets…"));
       else {
         inner.push(`${formatBytes(r.bytes)} payload · ${plural(r.redactions, "redaction")}`);
-        inner.push(r.blocked ? st.red("✗ blocked: unredacted secrets remain") : r.clean ? st.green("✓ clean") : st.yellow(`! ${plural(r.findings.length, "finding")} — redacted, please review`));
+        if (r.blocked) inner.push(st.red("✗ blocked: unredacted secrets remain"));
+        else if (r.clean) inner.push(st.green("✓ clean"));
+        else if (r.findings.length) inner.push(st.yellow(`! ${plural(r.findings.length, "finding")} — redacted, please review`));
         for (const x of r.findings.slice(0, 3)) inner.push(st.dim(`  ${x.rule} @ ${x.where}`));
+        if (r.suspicious.length) inner.push(...wrap(st.yellow(`? ${plural(r.suspicious.length, "suspicious value")} left in the payload — you will be asked to look at ${r.suspicious.length === 1 ? "it" : "them"} first`), width - 6));
         // Not capped: the "not read" half sits at the end and is the part a narrow terminal would otherwise cut.
         inner.push(...wrap(st.dim(`known values: ${formatKnownSources(r.knownSources)}`), width - 6));
       }

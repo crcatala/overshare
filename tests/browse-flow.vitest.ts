@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PromptsUnavailableError } from "../src/modes.js";
 import { PublishFlow } from "../src/browse/flow.js";
+import type { ShareMode } from "../src/schema.js";
 import { drive, fakeSource, KEY, sampleSessions } from "./browse-helpers.js";
 
 beforeEach(() => vi.useFakeTimers());
@@ -51,7 +52,7 @@ describe("publish dialog", () => {
   });
 
   it("scans the mode you pick (number keys and j/k) and shows its payload size", async () => {
-    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], knownSources: [], redactions: 0, bytes: { full: 2_000_000, brief: 200_000, minimal: 60_000, prompts: 9_000 }[mode] }) });
+    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], suspicious: [], knownSources: [], redactions: 0, bytes: { full: 2_000_000, brief: 200_000, minimal: 60_000, prompts: 9_000 }[mode] }) });
     await d.press("p");
     expect(d.text()).toContain("195.3 KB payload");
     await d.press("1");
@@ -64,7 +65,7 @@ describe("publish dialog", () => {
     const d = drive({
       review: (_, mode) => {
         if (mode === "prompts") throw new PromptsUnavailableError(REFUSAL);
-        return { mode, clean: true, blocked: false, findings: [], knownSources: [], redactions: 0, bytes: 1000 };
+        return { mode, clean: true, blocked: false, findings: [], suspicious: [], knownSources: [], redactions: 0, bytes: 1000 };
       },
     });
     await d.press("p", "4"); // prompts
@@ -79,7 +80,7 @@ describe("publish dialog", () => {
   });
 
   it("never lets a blocked share continue", async () => {
-    const d = drive({ review: (_, mode) => ({ mode, clean: false, blocked: true, findings: [], knownSources: [], redactions: 0, bytes: 1 }) });
+    const d = drive({ review: (_, mode) => ({ mode, clean: false, blocked: true, findings: [], suspicious: [], knownSources: [], redactions: 0, bytes: 1 }) });
     await d.press("p");
     expect(d.text()).toContain("✗ blocked: unredacted secrets remain");
     await d.press(KEY.enter, "y");
@@ -89,13 +90,87 @@ describe("publish dialog", () => {
 
   it("lists what was redacted and asks for review when findings exist", async () => {
     const d = drive({
-      review: (_, mode) => ({ mode, clean: false, blocked: false, findings: [{ rule: "github-token", where: "turn 2 tool input" }, { rule: "email", where: "turn 1 prompt" }], knownSources: [], redactions: 2, bytes: 5000 }),
+      review: (_, mode) => ({ mode, clean: false, blocked: false, findings: [{ rule: "github-token", where: "turn 2 tool input" }, { rule: "email", where: "turn 1 prompt" }], suspicious: [], knownSources: [], redactions: 2, bytes: 5000 }),
     });
     await d.press("p");
     expect(d.text()).toContain("! 2 findings — redacted, please review");
     expect(d.text()).toContain("github-token @ turn 2 tool input");
     await d.press(KEY.enter);
     expect(d.text()).toContain("Publish brief to"); // still requires the explicit y
+  });
+
+  describe("suspicious values", () => {
+    const suspiciousReview = (_: unknown, mode: ShareMode) => ({
+      mode,
+      clean: false,
+      blocked: false,
+      findings: [],
+      suspicious: [
+        { rule: "secret-assignment", length: 16, location: "turn 3 · Bash · input (object key)", occurrences: 1 },
+        { rule: "eightxeight-2", length: 30, location: "turn 7 · Read · input.path", occurrences: 2 },
+      ],
+      knownSources: [],
+      redactions: 0,
+      bytes: 5000,
+    });
+
+    it("tells the mode step about them, then makes the user pass an extra step before the final confirmation", async () => {
+      const d = drive({ review: suspiciousReview });
+      await d.press("p");
+      expect(d.text()).toContain("2 suspicious values left in the payload");
+      expect(d.text()).not.toContain("✓ clean");
+      expect(d.text()).not.toContain("0 findings");
+      await d.press(KEY.enter); // continue → suspicious step, not the confirm step
+      const text = d.text(100, 40).replace(/[│\s]+/g, " ");
+      expect(text).toContain("2 suspicious values could not be redacted");
+      expect(text).toContain("secret-assignment (16 chars) @ turn 3 · Bash · input (object key)");
+      expect(text).toContain("eightxeight-2 (30 chars, ×2) @ turn 7 · Read · input.path");
+      expect(text).toContain("/sessions/s1.jsonl");
+      expect(text).not.toContain("Publish brief to");
+      expect(d.source.published).toEqual([]);
+    });
+
+    it("only an explicit c moves on; enter, y and space do not, and nothing is sent before the final y", async () => {
+      const d = drive({ review: suspiciousReview });
+      await d.press("p", KEY.enter, KEY.enter, "y", KEY.space, "x");
+      expect(d.text()).toContain("continue anyway");
+      expect(d.source.published).toEqual([]);
+      await d.press("c");
+      expect(d.text()).toContain("Publish brief to a secret (unlisted) gist?");
+      expect(d.source.published).toEqual([]);
+      await d.press(KEY.enter, "c");
+      expect(d.source.published).toEqual([]);
+      await d.press("y");
+      expect(d.source.published).toEqual([{ id: "s1", mode: "brief" }]);
+      expect(d.source.suspiciousConfirmed).toEqual([true]);
+    });
+
+    it("n and esc leave without publishing, and coming back asks again", async () => {
+      const d = drive({ review: suspiciousReview });
+      await d.press("p", KEY.enter, "n");
+      expect(d.text()).toContain("enter continue");
+      await d.press(KEY.enter, "c", "n"); // confirm step, back to modes
+      await d.press(KEY.enter);
+      expect(d.text()).toContain("continue anyway"); // the earlier c does not carry over
+      await d.press(KEY.esc, KEY.esc);
+      expect(d.app.flow).toBeUndefined();
+      expect(d.source.published).toEqual([]);
+    });
+
+    it("a blocked mode cannot continue at all, suspicious or not", async () => {
+      const d = drive({ review: (s, mode) => ({ ...suspiciousReview(s, mode), blocked: true }) });
+      await d.press("p", KEY.enter);
+      expect(d.text()).toContain("✗ blocked");
+      expect(d.text()).not.toContain("continue anyway");
+    });
+
+    it("a payload with nothing suspicious skips the extra step", async () => {
+      const d = drive();
+      await d.press("p", KEY.enter);
+      expect(d.text()).toContain("Publish brief to");
+      await d.press("y");
+      expect(d.source.suspiciousConfirmed).toEqual([false]);
+    });
   });
 
   it("says which sources supplied known secret values, and which were not read", async () => {
@@ -105,7 +180,7 @@ describe("publish dialog", () => {
       { id: "credentialFiles" as const, enabled: false, count: 0 },
       { id: "ghToken" as const, enabled: false, count: 0 },
     ];
-    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], knownSources, redactions: 0, bytes: 1000 }) });
+    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], suspicious: [], knownSources, redactions: 0, bytes: 1000 }) });
     await d.press("p");
     const text = d.text().replace(/[│\s]+/g, " "); // the dialog box wraps the line
     expect(text).toContain("known values: env (4), project .env (2)");
@@ -120,7 +195,7 @@ describe("publish dialog", () => {
       { id: "ghToken" as const, enabled: false, count: 0 },
       { id: "secrets-file" as const, enabled: true, count: 3 },
     ];
-    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], knownSources, redactions: 0, bytes: 1000 }) });
+    const d = drive({ review: (_, mode) => ({ mode, clean: true, blocked: false, findings: [], suspicious: [], knownSources, redactions: 0, bytes: 1000 }) });
     await d.press("p");
     for (const width of [60, 44, 36]) {
       // Only the dialog's own rows: on a narrow screen the list behind it shows through right of the border.

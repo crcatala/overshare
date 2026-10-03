@@ -5,7 +5,7 @@ import type { AgentShareConfig } from "./config.js";
 import { projectSession } from "./modes.js";
 import { collectKnownSecrets, type KnownSecret, type KnownSourceUse } from "./redact/known-values.js";
 import { Redactor, SECRET_CATEGORIES, redactSession, type RedactionFinding } from "./redact/index.js";
-import { rescanPayload, type RescanIssue } from "./redact/rescan.js";
+import { rescanPayload, type RescanIssue, type SuspiciousItem } from "./redact/rescan.js";
 import type { HarnessName, NormalizedSession, SessionStats, ShareMode } from "./schema.js";
 import { computeStats } from "./stats.js";
 import { TOOL_NAME, TOOL_VERSION } from "./version.js";
@@ -36,10 +36,12 @@ export interface ShareReport {
   counts: Record<string, number>;
   findings: RedactionFinding[];
   rescan: RescanIssue[];
+  /** Medium-confidence matches still in the payload (rule, length, location; never the value): publishing needs a confirmation. */
+  suspicious: SuspiciousItem[];
   /** Where known values came from and how many each contributed (counts only), including sources that were switched off. */
   knownSources: KnownSourceUse[];
   bytes: number;
-  /** No secrets were found and the final payload re-scan is clean. */
+  /** No secrets were found, the final payload re-scan is clean and nothing suspicious is left. */
   clean: boolean;
   /** The final re-scan found something: publishing must be refused. */
   blocked: boolean;
@@ -97,7 +99,7 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
   session.generator = { name: TOOL_NAME, version: TOOL_VERSION, sharedAt: (opts.now ?? new Date()).toISOString() };
 
   const json = JSON.stringify(session);
-  const rescan = rescanPayload(json, { knownSecrets, homeDir: machine.homeDir, allowlist: redact.allowlist });
+  const { issues: rescan, suspicious } = rescanPayload(json, { knownSecrets, homeDir: machine.homeDir, allowlist: redact.allowlist });
   const secretsFound = [...SECRET_CATEGORIES].some((c) => (counts[c] ?? 0) > 0);
   return {
     session,
@@ -112,9 +114,10 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
       counts,
       findings: redactor.findings,
       rescan,
+      suspicious,
       knownSources,
       bytes: Buffer.byteLength(json),
-      clean: !secretsFound && rescan.length === 0,
+      clean: !secretsFound && rescan.length === 0 && suspicious.length === 0,
       blocked: rescan.length > 0,
     },
   };

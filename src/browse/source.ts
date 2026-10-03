@@ -60,6 +60,8 @@ export interface ShareSummary {
   /** The final re-scan found unredacted secrets: publishing must be refused. */
   blocked: boolean;
   findings: Array<{ rule: string; where: string }>;
+  /** Medium-confidence matches still in the payload (never the value): publishing needs an extra confirmation. */
+  suspicious: Array<{ rule: string; length: number; location: string; occurrences: number }>;
   /** Which machine sources supplied known secret values (counts only). */
   knownSources: KnownSourceUse[];
   redactions: number;
@@ -82,7 +84,8 @@ export interface Source {
   /** May throw (e.g. `PromptsUnavailableError` for legacy pi sessions in prompts mode). */
   review(s: SessionSummary, mode: ShareMode): ShareSummary;
   preflight(): Preflight;
-  publish(s: SessionSummary, mode: ShareMode): Promise<{ url: string; warnings: string[] }>;
+  /** `suspiciousConfirmed`: the user has seen the suspicious values of the reviewed payload and chose to publish anyway. */
+  publish(s: SessionSummary, mode: ShareMode, opts?: { suspiciousConfirmed?: boolean }): Promise<{ url: string; warnings: string[] }>;
 }
 
 // ── view ───────────────────────────────────────────────────────────────────────────────
@@ -168,6 +171,7 @@ export function summarizeShare(prepared: PreparedShare): ShareSummary {
     clean: report.clean,
     blocked: report.blocked,
     findings: report.findings.map((f) => ({ rule: stripControls(f.rule), where: stripControls(f.where) })),
+    suspicious: report.suspicious.map((i) => ({ rule: stripControls(i.rule), length: i.length, location: stripControls(i.location), occurrences: i.occurrences })),
     knownSources: report.knownSources,
     redactions: Object.values(report.counts).reduce((a, b) => a + b, 0),
     bytes: report.bytes,
@@ -220,12 +224,13 @@ export function createSource(opts: SourceOptions): Source {
         return { error: (err as Error).message, warnings };
       }
     },
-    async publish(s, mode) {
+    async publish(s, mode, opts) {
       // Only ever upload a payload that `review` produced. If it has been evicted, re-preparing here would
       // upload content nobody looked at, so make the user review again.
       const share = prepared.get(key(s, mode));
       if (!share) throw new Error("The reviewed payload is no longer available; go back and review it again before publishing.");
       if (share.report.blocked) throw new Error("Refusing to publish: the final re-scan found unredacted secrets.");
+      if (share.report.suspicious.length && !opts?.suspiciousConfirmed) throw new Error("Refusing to publish: suspicious values are still in the payload and were not confirmed.");
       const publisher = makePublisher(config, target);
       const { result, warnings } = await publishPrepared(publisher, config, target, share);
       prepared.delete(key(s, mode));

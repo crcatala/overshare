@@ -26,7 +26,7 @@ describe("pattern detection", () => {
     const out = r.redactText(input, "test");
     expect(out).toContain("[REDACTED:");
     expect(r.counts["secret-pattern"]).toBeGreaterThan(0);
-    expect(rescanPayload(JSON.stringify({ text: out }))).toEqual([]);
+    expect(rescanPayload(JSON.stringify({ text: out })).issues).toEqual([]);
   });
 
   it.each([
@@ -130,7 +130,7 @@ describe("rescanPayload", () => {
   it("flags known values, high-confidence patterns and home paths left in the payload", () => {
     const known = fake.envValue();
     const payload = JSON.stringify({ a: `x ${known}`, b: `y ${fake.github()}`, c: "/home/tester/secret-project" });
-    const issues = rescanPayload(payload, { knownSecrets: [knownSecret(known, "K", "env")], homeDir: "/home/tester" });
+    const { issues } = rescanPayload(payload, { knownSecrets: [knownSecret(known, "K", "env")], homeDir: "/home/tester" });
     expect(issues.map((i) => i.rule)).toEqual(["known-secret:K", "github-v2", "home-path"]);
     expect(issues.map((i) => i.length)).toEqual([known.length, expect.any(Number), undefined]);
     expect(JSON.stringify(issues)).not.toContain(known.slice(0, 4));

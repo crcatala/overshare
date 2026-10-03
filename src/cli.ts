@@ -5,12 +5,14 @@ import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError, Option } from "commander";
 import { SHARE_TARGETS, loadConfig, type ShareTarget } from "./config.js";
 import { exportFixtureShares, generateFixtures } from "./fixtures/index.js";
-import { formatBytes } from "./format.js";
+import { formatBytes, plural } from "./format.js";
 import { prepareShare, type PreparedShare } from "./pipeline.js";
 import { PromptsUnavailableError } from "./modes.js";
 import { createPublisher, forgetShare, parseShareRef, preflightWarnings, publishPrepared } from "./publish/index.js";
+import { SECRET_CATEGORIES } from "./redact/index.js";
 import { readSecretsFile } from "./redact/known-values.js";
 import { formatReport } from "./report.js";
+import { stripControls } from "./sanitize.js";
 import { defaultRoots, listSessions, resolveSession, type SessionRef } from "./resolve.js";
 import { SHARE_MODES, type HarnessName, type ShareMode } from "./schema.js";
 import { loadSubagentFiles } from "./subagent-files.js";
@@ -111,7 +113,7 @@ withSessionOptions(program.command("report"), "brief")
   .action((arg: string | undefined, opts: SessionOptions & { json?: boolean; allFindings?: boolean }) => {
     const { ref, prepared } = prepare(arg, opts);
     if (opts.json) console.log(JSON.stringify({ path: ref.path, ...prepared.report }, null, 2));
-    else console.log(formatReport(prepared.report, { color: !!process.stdout.isTTY && !process.env.NO_COLOR, maxFindings: opts.allFindings ? Infinity : 25 }));
+    else console.log(formatReport(prepared.report, { color: !!process.stdout.isTTY && !process.env.NO_COLOR, maxFindings: opts.allFindings ? Infinity : 25, transcriptPath: ref.path }));
     process.exitCode = prepared.report.blocked ? EXIT.blocked : prepared.report.clean ? EXIT.ok : EXIT.needsReview;
   });
 
@@ -120,8 +122,8 @@ withSessionOptions(program.command("export"), "full")
   .requiredOption("-o, --output <file>", "output file")
   .option("-q, --quiet", "do not print the report")
   .action((arg: string | undefined, opts: SessionOptions & { output: string; quiet?: boolean }) => {
-    const { prepared } = prepare(arg, opts);
-    if (!opts.quiet) console.error(formatReport(prepared.report, { color: !!process.stderr.isTTY && !process.env.NO_COLOR }));
+    const { ref, prepared } = prepare(arg, opts);
+    if (!opts.quiet) console.error(formatReport(prepared.report, { color: !!process.stderr.isTTY && !process.env.NO_COLOR, transcriptPath: ref.path }));
     writeFileSync(opts.output, prepared.json, { mode: 0o600 });
     console.error(`\nWrote ${opts.output} (${formatBytes(prepared.report.bytes)})`);
   });
@@ -136,33 +138,43 @@ withSessionOptions(program.command("publish"), "brief")
   .option("-t, --target <target>", "where to store the share: gist | r2 (default from config)", parseTarget)
   .option("-y, --yes", "skip confirmation when the report is clean")
   .option("--allow-findings", "with --yes: publish even though secrets were redacted (only after reviewing the report)")
+  .option("--allow-suspicious", "with --yes: publish even though suspicious values are still in the payload (only after inspecting them in the transcript)")
   .option("--json", "print the publish result as JSON")
   .action(
-    async (arg: string | undefined, opts: SessionOptions & { target?: ShareTarget; yes?: boolean; allowFindings?: boolean; json?: boolean }) => {
+    async (arg: string | undefined, opts: SessionOptions & { target?: ShareTarget; yes?: boolean; allowFindings?: boolean; allowSuspicious?: boolean; json?: boolean }) => {
       const config = loadConfig();
       const target = opts.target ?? config.target;
       // Fail on missing target configuration before doing any work.
       const publisher = createPublisher(config, target);
       const warnings = preflightWarnings(config, target);
       for (const w of warnings) console.error(`warning: ${w}`);
-      const { prepared } = prepare(arg, opts);
+      const { ref, prepared } = prepare(arg, opts);
       const { report } = prepared;
-      console.error(formatReport(report, { color: !!process.stderr.isTTY && !process.env.NO_COLOR }));
+      console.error(formatReport(report, { color: !!process.stderr.isTTY && !process.env.NO_COLOR, transcriptPath: ref.path }));
       if (report.blocked) {
         console.error("\nRefusing to publish: the final re-scan found unredacted secrets.");
         process.exitCode = EXIT.blocked;
         return;
       }
-      const autoOk = opts.yes && (report.clean || opts.allowFindings);
+      // Two independent gates for --yes: redacted secrets (safe in the payload) and suspicious values (still in it).
+      const redactedSecrets = [...SECRET_CATEGORIES].some((c) => (report.counts[c] ?? 0) > 0);
+      const suspicious = report.suspicious.length > 0;
+      const autoOk = opts.yes && (!redactedSecrets || opts.allowFindings) && (!suspicious || opts.allowSuspicious);
       if (!autoOk) {
-        if (opts.yes && !report.clean) console.error("\n--yes only applies to clean reports (add --allow-findings after reviewing).");
+        if (opts.yes && redactedSecrets && !opts.allowFindings) console.error("\n--yes only applies to clean reports (add --allow-findings after reviewing).");
+        if (opts.yes && suspicious && !opts.allowSuspicious) {
+          console.error(`\n--yes does not cover suspicious values that are still in the payload. Inspect ${stripControls(ref.path)} at the locations listed above, then allowlist what is fine or add --allow-suspicious.`);
+        }
         if (!process.stdin.isTTY) {
           console.error("Not publishing: review the report and re-run interactively or with --yes.");
           process.exitCode = report.clean ? EXIT.declined : EXIT.needsReview;
           return;
         }
         const where = target === "gist" ? "a secret (unlisted) gist" : "the public R2 bucket (unlisted id)";
-        const ok = await confirm(`\nPublish ${formatBytes(report.bytes)} to ${where}? [y/N] `);
+        const question = suspicious
+          ? `\n${plural(report.suspicious.length, "suspicious value")} may be a secret and ${report.suspicious.length === 1 ? "is" : "are"} still in the payload. Have you inspected ${report.suspicious.length === 1 ? "it" : "them"}? Publish ${formatBytes(report.bytes)} to ${where} anyway? [y/N] `
+          : `\nPublish ${formatBytes(report.bytes)} to ${where}? [y/N] `;
+        const ok = await confirm(question);
         if (!ok) {
           console.error("Not published.");
           process.exitCode = EXIT.declined;

@@ -85,7 +85,7 @@ export function sampleView(): SessionView {
   return { items, turns: 2, tools: { Bash: 12, Edit: 3, Read: 7 }, stats: { cost: "$1.20", tokens: "2.1M", duration: "32m 0s", toolCalls: 22, subagents: 0, files: { read: 7, edited: 3, written: 1 } } };
 }
 
-const clean = (mode: ShareMode): ShareSummary => ({ mode, clean: true, blocked: false, findings: [], knownSources: [], redactions: 0, bytes: 12_345 });
+const clean = (mode: ShareMode): ShareSummary => ({ mode, clean: true, blocked: false, findings: [], suspicious: [], knownSources: [], redactions: 0, bytes: 12_345 });
 
 export interface FakeSourceOptions {
   sessions?: SessionSummary[];
@@ -98,6 +98,8 @@ export interface FakeSourceOptions {
 
 export interface FakeSource extends Source {
   published: Array<{ id: string; mode: ShareMode }>;
+  /** `suspiciousConfirmed` as passed to each `publish`, in order. */
+  suspiciousConfirmed: Array<boolean | undefined>;
   reviewed: Array<{ id: string; mode: ShareMode }>;
 }
 
@@ -105,11 +107,13 @@ export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
   const shares: SharesFile = opts.shares ?? {};
   const published: FakeSource["published"] = [];
   const reviewed: FakeSource["reviewed"] = [];
+  const suspiciousConfirmed: FakeSource["suspiciousConfirmed"] = [];
   return {
     sessions: opts.sessions ?? sampleSessions(),
     shares,
     destination: "a secret (unlisted) gist",
     published,
+    suspiciousConfirmed,
     reviewed,
     view: opts.view ?? (() => sampleView()),
     review(s, mode) {
@@ -117,8 +121,9 @@ export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
       return (opts.review ?? ((_, m) => clean(m)))(s, mode);
     },
     preflight: opts.preflight ?? (() => ({ warnings: [] })),
-    async publish(s, mode) {
+    async publish(s, mode, publishOpts) {
       published.push({ id: s.id, mode });
+      suspiciousConfirmed.push(publishOpts?.suspiciousConfirmed);
       const out = await (opts.publish ?? (async () => ({ url: `https://viewer.example/#${s.id}`, warnings: [] })))(s, mode);
       (shares[shareKey(s.harness, s.id)] ??= []).push({ url: out.url, mode, target: "gist", sharedAt: new Date(NOW).toISOString() });
       return out;

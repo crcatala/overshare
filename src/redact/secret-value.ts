@@ -1,6 +1,30 @@
 import { inspect } from "node:util";
+import { shannonEntropy } from "@sanity-labs/secret-scan";
 
 const MASK = "[redacted]";
+
+/**
+ * When a long prefix or suffix of a secret counts as a leak of it (the backstop for a secret cut in two before
+ * redaction, ass-ahh1). A fragment of ordinary text shared with the start or end of a value (`postgres://user:`,
+ * a host name, a path, a JWT header) must not count, so every bound is a filter: the value is long enough, the
+ * fragment is a good part of it, and it holds one long run of characters that looks random.
+ */
+export interface FragmentPolicy {
+  /** Values shorter than this are not checked. */
+  minValueLength: number;
+  /** The fragment is this fraction of the value, rounded up, within `minFragment` and `maxFragment`. */
+  ratio: number;
+  minFragment: number;
+  maxFragment: number;
+  /** The fragment's longest run of token characters (`A-Za-z0-9+/_=-`; a scheme, host or path separator ends one) must be this long... */
+  minRun: number;
+  /** ...reach this Shannon entropy per character... */
+  minEntropy: number;
+  /** ...and be less than this fraction lowercase words of 4+ letters (identifiers and host names are, random tokens rarely are). */
+  maxWordRatio: number;
+}
+
+export type FragmentEnd = "prefix" | "suffix";
 
 /**
  * A secret string that cannot be printed or serialized by accident. The text lives in a `#private`
@@ -50,6 +74,31 @@ export class SecretValue {
     return this.#value === other;
   }
 
+  /** Length of the fragment `hasFragmentIn` looks for under `policy`; 0 when the value is not checked. Not secret: derived from the length. */
+  fragmentLength(policy: FragmentPolicy): number {
+    if (this.#value.length < policy.minValueLength) return 0;
+    const n = Math.min(policy.maxFragment, Math.max(policy.minFragment, Math.ceil(this.#value.length * policy.ratio)));
+    return n < this.#value.length ? n : 0;
+  }
+
+  /**
+   * The first or last `fragmentLength(policy)` characters of the secret occur in `text`, and that fragment looks
+   * random enough to be part of a secret rather than shared ordinary text. Reports which end, never the fragment.
+   */
+  hasFragmentIn(text: string, policy: FragmentPolicy): FragmentEnd | undefined {
+    const n = this.fragmentLength(policy);
+    if (!n) return undefined;
+    // Every HS256 JWT starts with the same header, which is ordinary text; the fragment starts after it.
+    const start = JWT_HEADER.exec(this.#value)?.[0].length ?? 0;
+    for (const [end, fragment] of [
+      ["prefix", this.#value.slice(start, start + n)],
+      ["suffix", this.#value.slice(-n)],
+    ] as const) {
+      if (looksRandom(fragment, policy) && text.includes(fragment)) return end;
+    }
+    return undefined;
+  }
+
   toString(): string {
     return MASK;
   }
@@ -65,4 +114,13 @@ export class SecretValue {
   [inspect.custom](): string {
     return MASK;
   }
+}
+
+const JWT_HEADER = /^eyJ[A-Za-z0-9_-]*\./;
+
+function looksRandom(fragment: string, policy: FragmentPolicy): boolean {
+  const run = (fragment.match(/[A-Za-z0-9+/_=-]+/g) ?? []).reduce((best, r) => (r.length > best.length ? r : best), "");
+  if (run.length < policy.minRun) return false;
+  const wordChars = (run.match(/[a-z]{4,}/g) ?? []).reduce((n, w) => n + w.length, 0);
+  return wordChars / run.length < policy.maxWordRatio && shannonEntropy(run) >= policy.minEntropy;
 }

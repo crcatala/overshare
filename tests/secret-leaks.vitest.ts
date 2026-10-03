@@ -90,6 +90,22 @@ describe("SecretValue", () => {
     expect(secret.inSet(new Set(["other"]))).toBe(false);
     expect(secret.equals(raw)).toBe(true);
   });
+
+  it("looks for a long prefix or suffix and reports which end and how long, never the fragment", () => {
+    const policy = { minValueLength: 24, ratio: 0.5, minFragment: 20, maxFragment: 32, minRun: 16, minEntropy: 3, maxWordRatio: 0.4 };
+    expect(secret.fragmentLength(policy)).toBe(20);
+    expect(secret.hasFragmentIn(`x ${raw.slice(0, 20)} y`, policy)).toBe("prefix");
+    expect(secret.hasFragmentIn(`x ${raw.slice(-20)} y`, policy)).toBe("suffix");
+    expect(secret.hasFragmentIn(`x ${raw.slice(0, 19)} y`, policy)).toBeUndefined();
+    expect(secret.hasFragmentIn("nothing here", policy)).toBeUndefined();
+    expect(secret.fragmentLength({ ...policy, minValueLength: raw.length + 1 })).toBe(0);
+    // Ordinary text shared with the start of a value is not a fragment: no run of random-looking characters.
+    const url = new SecretValue("https://hooks.slack.com/services/T01ABCDEF/B02GHIJKL/xY7zA1bC3dE5");
+    expect(url.hasFragmentIn("see https://hooks.slack.com/services/ for the docs", policy)).toBeUndefined();
+    // Every HS256 JWT starts with the same header.
+    const jwt = new SecretValue("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.Dq8Wf2Ns6Yt0Vh4Bk8Mj2Lp6");
+    expect(jwt.hasFragmentIn("a token starts eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.", policy)).toBeUndefined();
+  });
 });
 
 describe("SecretValue stays encapsulated", () => {
@@ -102,7 +118,7 @@ describe("SecretValue stays encapsulated", () => {
 
   it("exposes only matchers and the string conversions, so no method returns the raw value", () => {
     const names = Object.getOwnPropertyNames(SecretValue.prototype).sort();
-    expect(names).toEqual(["constructor", "contains", "countIn", "equals", "inSet", "isIn", "length", "replaceIn", "toJSON", "toString"]);
+    expect(names).toEqual(["constructor", "contains", "countIn", "equals", "fragmentLength", "hasFragmentIn", "inSet", "isIn", "length", "replaceIn", "toJSON", "toString"]);
     expect(Object.getOwnPropertySymbols(SecretValue.prototype).map(String).sort()).toEqual(["Symbol(Symbol.toPrimitive)", "Symbol(nodejs.util.inspect.custom)"]);
   });
 
@@ -111,7 +127,7 @@ describe("SecretValue stays encapsulated", () => {
   });
 
   it("only the matcher code calls the matcher methods on a known value", () => {
-    const callers = files.filter(([, text]) => /\.value\.(isIn|countIn|replaceIn|contains|inSet|equals)\(/.test(text)).map(([f]) => f);
+    const callers = files.filter(([, text]) => /\.value\.(isIn|countIn|replaceIn|contains|inSet|equals|hasFragmentIn|fragmentLength)\(/.test(text)).map(([f]) => f);
     expect(callers.sort()).toEqual(["src/redact/index.ts", "src/redact/labels.ts", "src/redact/rescan.ts"]);
   });
 

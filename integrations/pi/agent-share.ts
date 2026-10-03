@@ -14,11 +14,15 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const MODES = ["full", "brief", "minimal", "prompts"] as const;
 
 interface Report {
+  /** Transcript file, as printed by `agent-share report --json`. */
+  path?: string;
   clean: boolean;
   blocked: boolean;
   counts: Record<string, number>;
   findings: { category: string; rule: string; where: string }[];
   rescan: { rule: string; length?: number }[];
+  /** Medium-confidence matches still in the payload; never the value. */
+  suspicious: { rule: string; length: number; location: string; occurrences: number }[];
   bytes: number;
 }
 
@@ -104,7 +108,21 @@ export default function agentShare(pi: ExtensionAPI) {
       }
       const counts = Object.entries(report.counts).map(([k, n]) => `${n} ${k}`).join(", ") || "none";
       let allowFindings = false;
-      if (!report.clean) {
+      let allowSuspicious = false;
+      if (report.suspicious.length) {
+        const list = report.suspicious
+          .slice(0, 6)
+          .map((i) => `• ${i.rule} (${i.length} chars) @ ${i.location}`)
+          .join("\n");
+        const ok = await ctx.ui.confirm(
+          "Suspicious values could not be redacted — publish anyway?",
+          `${list}${report.suspicious.length > 6 ? `\n… ${report.suspicious.length - 6} more` : ""}\n\nThese may be secrets and are still in the payload as they are. Look at those turns in ${report.path ?? "the transcript"} before you say yes. Values with no recognizable format are not detected at all.`,
+        );
+        if (!ok) return ctx.ui.notify("Share cancelled.", "info");
+        allowSuspicious = true;
+      }
+      const redacted = Object.keys(report.counts).some((k) => k === "known-secret" || k === "secret-pattern");
+      if (redacted) {
         const secrets = report.findings.filter((f) => f.category === "known-secret" || f.category === "secret-pattern");
         const preview = secrets
           .slice(0, 6)
@@ -118,7 +136,7 @@ export default function agentShare(pi: ExtensionAPI) {
         allowFindings = true;
       }
 
-      const publishRun = await pi.exec(bin, ["publish", ...base, "--yes", ...(allowFindings ? ["--allow-findings"] : []), "--json"], {
+      const publishRun = await pi.exec(bin, ["publish", ...base, "--yes", ...(allowFindings ? ["--allow-findings"] : []), ...(allowSuspicious ? ["--allow-suspicious"] : []), "--json"], {
         timeout: 120_000,
       });
       try {

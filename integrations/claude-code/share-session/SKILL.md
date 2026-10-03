@@ -25,7 +25,7 @@ Modes (default `brief`):
    ```
 
    `--current` resolves this session via `$CLAUDE_CODE_SESSION_ID`.
-   Exit code: `0` clean, `2` secrets were redacted (needs review), `3` blocked.
+   Exit code: `0` clean, `2` needs review (secrets were redacted, or suspicious values remain), `3` blocked.
 
 3. Act on the result:
    - **Clean (exit 0):** publish directly:
@@ -36,6 +36,13 @@ Modes (default `brief`):
      locations only; it never contains secret values or the text around them) and ask whether to publish. Only after they explicitly
      agree, run the publish command with `--yes --allow-findings`. Never add
      `--allow-findings` on your own.
+   - **Suspicious values (exit 2, `Status: NEEDS CONFIRMATION`):** the report has a `Suspicious`
+     section. These values may be secrets and are **still in the payload** (rule, length and
+     location only; never the value). Show that section verbatim, tell the user which turns of the
+     transcript to inspect (the report names the file), and say that values with no recognizable
+     format are not detected at all. Only after they explicitly agree, add `--allow-suspicious`
+     (`--yes --allow-suspicious`, plus `--allow-findings` if secrets were also redacted). `--yes` and
+     `--allow-findings` do not cover them. Never add `--allow-suspicious` on your own.
    - **Blocked (exit 3):** do not publish. Tell the user which rule fired and suggest
      fixing the source or adding an `allowlist` entry in `~/.config/agent-share/config.json`.
 

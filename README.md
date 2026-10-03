@@ -68,7 +68,7 @@ agent-share  7/7
 | `/` | search: free words plus `harness:pi repo:x branch:y model:opus tool:Bash since:7d before:2026-09-01 shared:no workers:yes` | |
 | `h` `r` `t` `s` | cycle harness · repo · time · shared | `H` `R` `T` `S`: pick from a dialog (`/` filters the repo list) |
 | `g` | cycle grouping: none → date → repo → harness | `G`: dialog |
-| `o` | cycle sort field (size, title, repo, prompts, calls, duration, updated) | `O`: dialog with field and direction |
+| `o` | cycle sort field (size, title, repo, prompts, calls, duration, updated); selects the first session | `O`: dialog with field and direction |
 | `x` | clear search and filters (grouping and sort stay); shown in the footer while there is something to clear | |
 | `enter` | open the session viewer | |
 | `p` | publish: mode → review → confirm (`enter` continues; only `y` publishes) | |
@@ -77,12 +77,16 @@ agent-share  7/7
 | `?` / `q` | help / clear filters, then quit (asks first unless you turned that off) | |
 
 The filter chips under the title double as a key legend: the hotkey letter in each (**h**arness, **r**epo, **t**ime,
-**s**hared, **g**roup, s**o**rt) is bold and underlined. Changing a filter or the search selects the first session again
-and scrolls to it; grouping and sorting keep the selection where it is.
+**s**hared, **g**roup, s**o**rt) is bold and underlined. Changing a filter, the search or the sort selects the first session again
+and scrolls to it; grouping keeps the selection where it is.
 
 In the viewer the left pane lists messages and the right pane shows the selected one in full; the header has the
-tool-call breakdown and whether a `brief` share would be clean. `v` cycles the list between your prompts, the
-conversation, and everything (tool calls, thinking, subagents, skills); `J`/`K` jump between prompts. `V` opens the same
+tool-call breakdown and whether a `brief` share would be clean. One pane has the focus at a time (the list at first; the
+selected row dims when the content has it). `enter`, `tab`, `l` or `→` move the focus to the content pane; `esc`, `tab`,
+`h`, `←` or `q` bring it back, and from the list `esc`/`q`/`h`/`←` leave the viewer. Both panes take the same keys as the
+session list: `j`/`k` or the arrows move (a message in the list, a line in the content), `space`/`PgDn`/`ctrl-f` and
+`b`/`PgUp`/`ctrl-b` page, `ctrl-d`/`ctrl-u` half a page, `g`/`G` first/last. `v` cycles the list between your prompts, the
+conversation, and everything (tool calls, thinking, subagents, skills); `J`/`K` jump between prompts from either pane. `V` opens the same
 choice as a dialog and adds two layout options that are saved and apply at every level: indent assistant replies under
 their prompt, and indent tool calls (with thinking, subagents and events) one level further.
 

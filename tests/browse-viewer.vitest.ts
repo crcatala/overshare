@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ViewItem } from "../src/browse/source.js";
 import { drive, KEY, listColumn, sampleView } from "./browse-helpers.js";
 import { memorySettings } from "../src/browse/settings.js";
 
@@ -68,12 +69,12 @@ describe("session viewer", () => {
     expect(d.text()).toContain("tool · Edit · error");
   });
 
-  it("scrolls long content with space and says how much is hidden", async () => {
+  it("scrolls long content once the content pane is focused, and says how much is hidden", async () => {
     const long = Array.from({ length: 80 }, (_, i) => `line ${i + 1}`).join("\n");
     const d = await open({ view: () => ({ ...sampleView(), items: [{ kind: "user", turn: 1, label: "long", body: long }] }) });
-    expect(d.text()).toMatch(/↓ \d+ more lines/);
+    expect(d.text()).toMatch(/↓ \d+ more lines · enter to read/);
     expect(d.text()).not.toContain("line 80");
-    await d.press(KEY.space, KEY.space, KEY.space, KEY.space, KEY.space, KEY.space, KEY.space, KEY.space, KEY.space, KEY.space);
+    await d.press(KEY.enter, ...Array(10).fill(KEY.space));
     expect(d.text()).toContain("line 80");
   });
 
@@ -192,5 +193,147 @@ describe("view options (V)", () => {
     const d = await open({ settings });
     await d.press(KEY.esc, KEY.down, KEY.enter); // back to the list, open the second session
     expect(indentOf(d, "Fixed: the default")).toBe(2);
+  });
+});
+
+describe("pane focus", () => {
+  const longBody = Array.from({ length: 100 }, (_, i) => `line ${String(i + 1).padStart(3, "0")}`).join("\n");
+  const longView = (n = 60) => ({
+    ...sampleView(),
+    items: Array.from({ length: n }, (_, i): ViewItem => ({ kind: i % 2 ? "assistant" : "user", turn: i + 1, label: `message ${String(i).padStart(2, "0")}`, body: i === 0 ? longBody : `body ${i}` })),
+  });
+  const SIZE: [number, number] = [120, 30]; // the list shows 30 − 5 header lines − rule − footer rows
+  const selected = (d: Awaited<ReturnType<typeof open>>) => listColumn(d.lines(...SIZE)).find((l) => l.includes("▌"))?.match(/message (\d+)/)?.[1];
+  const contentHas = (d: Awaited<ReturnType<typeof open>>, text: string) => d.lines(...SIZE).some((l) => l.split(" │ ")[1]?.includes(text));
+
+  it("starts on the list; enter moves to the content pane, esc goes back, a second esc leaves the viewer", async () => {
+    const d = await open();
+    expect(d.app.viewer!.focus).toBe("list");
+    await d.press(KEY.enter);
+    expect(d.app.viewer!.focus).toBe("content");
+    await d.press(KEY.esc);
+    expect(d.app.viewer!.focus).toBe("list");
+    expect(d.app.viewer).toBeDefined();
+    await d.press(KEY.esc);
+    expect(d.app.viewer).toBeUndefined();
+  });
+
+  it("tab cycles between the panes continuously; l focuses the content and h / q go back", async () => {
+    const d = await open();
+    const focus = () => d.app.viewer!.focus;
+    await d.press("\t");
+    expect(focus()).toBe("content");
+    await d.press("\t");
+    expect(focus()).toBe("list");
+    await d.press("\t", "\t", "\t");
+    expect(focus()).toBe("content");
+    await d.press("h");
+    expect(focus()).toBe("list");
+    await d.press("l");
+    expect(focus()).toBe("content");
+    await d.press("q");
+    expect(focus()).toBe("list");
+    expect(d.app.viewer).toBeDefined();
+  });
+
+  it("does not focus an empty content pane", async () => {
+    const d = await open({ view: () => ({ ...sampleView(), items: [] }) });
+    await d.press(KEY.enter, "\t");
+    expect(d.app.viewer!.focus).toBe("list");
+  });
+
+  /** The first body line of the content pane that is on screen (the pane's title and blank line scroll off first). */
+  const firstLine = (d: Awaited<ReturnType<typeof open>>) => Number(d.lines(...SIZE).map((l) => l.split(" │ ")[1]?.match(/line (\d{3})/)?.[1]).find(Boolean));
+  const atTop = (d: Awaited<ReturnType<typeof open>>) => contentHas(d, "turn 1");
+
+  it("the list pane pages with space / b, PgDn / PgUp, ctrl-f / ctrl-b and half pages with ctrl-d / ctrl-u", async () => {
+    const d = await open({ view: () => longView() }); // the default level lists every message of this view
+    d.lines(...SIZE);
+    expect(selected(d)).toBe("00");
+    await d.press(KEY.space);
+    const page = Number(selected(d)); // a page is as many rows as the panes show
+    expect(page).toBeGreaterThan(15);
+    await d.press(KEY.pageDown);
+    expect(selected(d)).toBe(String(2 * page).padStart(2, "0"));
+    await d.press(KEY.ctrlB);
+    expect(selected(d)).toBe(String(page).padStart(2, "0"));
+    await d.press("b", KEY.pageUp);
+    expect(selected(d)).toBe("00");
+    await d.press(KEY.ctrlD);
+    expect(Number(selected(d))).toBe(Math.floor(page / 2));
+    await d.press(KEY.ctrlU);
+    expect(selected(d)).toBe("00");
+    await d.press(...Array(5).fill(KEY.ctrlF));
+    expect(selected(d)).toBe("59"); // clamps at the end
+  });
+
+  it("in the content pane j/k, arrows, paging and g/G scroll the message and leave the selection alone", async () => {
+    const d = await open({ view: () => longView() });
+    d.lines(...SIZE);
+    await d.press(KEY.enter);
+    expect(atTop(d)).toBe(true);
+    await d.press("j", KEY.down, "j"); // three lines: past the title and the blank line, onto the second body line
+    expect(atTop(d)).toBe(false);
+    expect(firstLine(d)).toBe(2);
+    await d.press("j", "j");
+    expect(firstLine(d)).toBe(4);
+    await d.press("k", KEY.up, "k", "k", "k");
+    expect(atTop(d)).toBe(true); // clamped at the top
+    await d.press(KEY.space);
+    expect(firstLine(d)).toBeGreaterThan(15); // a page, not a line
+    await d.press("G");
+    expect(contentHas(d, "line 100")).toBe(true);
+    await d.press("g");
+    expect(atTop(d)).toBe(true);
+    await d.press(KEY.pageDown, KEY.ctrlD, KEY.ctrlU, KEY.pageUp, "b", KEY.home);
+    expect(atTop(d)).toBe(true);
+    expect(selected(d)).toBe("00"); // the list never moved
+  });
+
+  it("scrolling past the end does not build up hidden distance, so k moves straight back", async () => {
+    const d = await open({ view: () => longView() });
+    d.lines(...SIZE);
+    await d.press(KEY.enter, "G");
+    const bottom = firstLine(d);
+    await d.press(...Array(30).fill("j"));
+    expect(firstLine(d)).toBe(bottom);
+    await d.press("k");
+    expect(firstLine(d)).toBe(bottom - 1);
+  });
+
+  it("the list pane no longer scrolls the content: space moves the selection, and the content restarts at the top", async () => {
+    const d = await open({ view: () => longView() });
+    d.lines(...SIZE);
+    await d.press(KEY.enter, KEY.space, KEY.esc); // scroll the content, then return to the list
+    await d.press("j"); // next message: its scroll starts at the top again
+    expect(selected(d)).toBe("01");
+    expect(contentHas(d, "body 1")).toBe(true);
+  });
+
+  it("J and K still jump between prompts from the content pane, and v / V / p work there", async () => {
+    const d = await open({ view: () => longView() });
+    d.lines(...SIZE);
+    await d.press(KEY.enter, "J");
+    expect(selected(d)).toBe("02"); // the next user prompt
+    expect(d.app.viewer!.focus).toBe("content");
+    await d.press("V");
+    expect(d.text()).toContain("Indent assistant replies");
+    await d.press(KEY.esc);
+    await d.press("p");
+    expect(d.app.flow).toBeDefined();
+  });
+
+  it("shows which pane has the focus: the selected row dims, the rule and the footer change", async () => {
+    const d = await open({ view: () => longView() });
+    const raw = () => d.app.render(120).join("\n");
+    expect(raw()).toContain("\x1b[48;5;238m"); // focused selection
+    expect(raw()).not.toContain("\x1b[48;5;236m\x1b[");
+    expect(d.lines().at(-1)).toContain("enter/tab");
+    expect(d.text()).toContain("enter to read");
+    await d.press(KEY.enter);
+    expect(raw()).toContain("\x1b[48;5;236m"); // dimmed selection while the content has the focus
+    expect(raw()).not.toContain("\x1b[48;5;238m");
+    expect(d.text()).toContain("reading · j/k scroll");
+    expect(d.lines().at(-1)).toContain("tab/esc");
   });
 });

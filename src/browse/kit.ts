@@ -33,6 +33,8 @@ export const st = {
    * clear this background for the rest of the row, so the background is re-applied after every reset.
    */
   sel: (s: string): string => `\x1b[48;5;238m${s.replace(/\x1b\[(?:0?|49)m/g, (reset) => `${reset}\x1b[48;5;238m`)}\x1b[49m`,
+  /** Selected row in a pane that does not have the keyboard focus. */
+  selDim: (s: string): string => `\x1b[48;5;236m${s.replace(/\x1b\[(?:0?|49)m/g, (reset) => `${reset}\x1b[48;5;236m`)}\x1b[49m`,
   /** The hotkey letter inside a label: bold + underline, without touching colours or backgrounds. */
   hot: (s: string): string => `\x1b[1;4m${s}\x1b[22;24m`,
   chip: (s: string): string => `\x1b[48;5;24m\x1b[38;5;255m ${s} \x1b[0m`,
@@ -54,6 +56,24 @@ export const isKey = (data: string, key: string): boolean => matchesKey(data, ke
 export const isPlain = (data: string, key: string): boolean => data !== key.toUpperCase() && isKey(data, key) && !isKey(data, `shift+${key}`);
 /** Shift + a letter. */
 export const isShift = (data: string, key: string): boolean => data === key.toUpperCase() || isKey(data, `shift+${key}`);
+
+/** A page-sized move: `fraction` of the visible rows, up or down. */
+export interface PageMove {
+  dir: 1 | -1;
+  fraction: number;
+}
+
+/**
+ * The paging keys every scrollable pane shares: space, PgDn, ctrl-f / b, PgUp, ctrl-b a full page,
+ * ctrl-d / ctrl-u half a page. (`space`/`b` need no modifier, and ctrl-b is tmux's prefix.)
+ */
+export function pagingKey(data: string): PageMove | undefined {
+  if (isKey(data, "pageDown") || isKey(data, "ctrl+f") || isKey(data, "space")) return { dir: 1, fraction: 1 };
+  if (isKey(data, "pageUp") || isKey(data, "ctrl+b") || isPlain(data, "b")) return { dir: -1, fraction: 1 };
+  if (isKey(data, "ctrl+d")) return { dir: 1, fraction: 0.5 };
+  if (isKey(data, "ctrl+u")) return { dir: -1, fraction: 0.5 };
+  return undefined;
+}
 
 /** Join two blocks side by side; each gets a fixed width. */
 export function columns(left: string[], right: string[], lw: number, rw: number, sep = " │ "): string[] {

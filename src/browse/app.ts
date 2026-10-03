@@ -5,7 +5,7 @@
  *   list      h harness · r repo · t time · s shared · g group · o sort   (x clears filters)
  *             Shift+key opens the same choice as a dialog: H R T S G O     (R: type / to filter the repo list)
  *             space/ctrl-f/PgDn and b/ctrl-b/PgUp page · ctrl-d/ctrl-u half a page · , settings
- *             changing a filter or the search jumps back to the first session; group and sort keep the selection
+ *             changing a filter, the search or the sort jumps back to the first session; grouping keeps the selection
  *   search    /  free words plus harness:pi project:x branch:y model:opus tool:Bash since:7d shared:no workers:yes
  *   open      enter → viewer (message list ↔ content); v cycles prompts / conversation / everything
  *   publish   p → mode → review → confirm; yes uploads exactly what was reviewed
@@ -18,7 +18,7 @@ import type { SessionSummary } from "../sessions/summary.js";
 import { ago, DATE_FORMATS, dateFormat, dayBucket, durationMs, plural, sessionDuration, shortModel, toolSummary, type DateFormatId } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { copyToClipboard, MODE_HINT, PublishFlow } from "./flow.js";
-import { box, columns, composite, cut, fit, hr, isKey, isPlain, isShift, padLines, Screen, st, w, wrap } from "./kit.js";
+import { box, columns, composite, cut, fit, hr, isKey, isPlain, isShift, padLines, pagingKey, Screen, st, w, wrap, type PageMove } from "./kit.js";
 import { memorySettings, type SettingsPatch, type SettingsStore } from "./settings.js";
 import type { Source } from "./source.js";
 import { SessionViewer } from "./viewer.js";
@@ -265,7 +265,7 @@ export class BrowserApp extends Screen {
           current: () => this.sort.field,
           apply: (v) => {
             this.setSortField(v as SortField);
-            this.refilter(keep);
+            this.refilterFromTop();
           },
         };
         const dir: DialogSection = {
@@ -277,7 +277,7 @@ export class BrowserApp extends Screen {
           current: () => this.sort.dir,
           apply: (v) => {
             this.sort.dir = v as "asc" | "desc";
-            this.refilter(keep);
+            this.refilterFromTop();
           },
         };
         return new RadioDialog("Sort", [field, dir], { onClose });
@@ -329,13 +329,11 @@ export class BrowserApp extends Screen {
     if (this.viewer) return this.viewer.onKey(data);
     if (this.typing) return this.typingKey(data);
     const n = this.view.length;
+    let paging: PageMove | undefined;
     if (isKey(data, "q") || isKey(data, "escape")) return this.query || this.anyFilter() ? this.clearFilters() : this.requestQuit();
     if (isKey(data, "j") || isKey(data, "down")) this.cursor = Math.min(n - 1, this.cursor + 1);
     else if (isKey(data, "k") || isKey(data, "up")) this.cursor = Math.max(0, this.cursor - 1);
-    else if (isKey(data, "pageDown") || isKey(data, "ctrl+f") || isKey(data, "space")) this.page(1, 1);
-    else if (isKey(data, "pageUp") || isKey(data, "ctrl+b") || isPlain(data, "b")) this.page(-1, 1);
-    else if (isKey(data, "ctrl+d")) this.page(1, 0.5);
-    else if (isKey(data, "ctrl+u")) this.page(-1, 0.5);
+    else if ((paging = pagingKey(data))) this.page(paging.dir, paging.fraction);
     else if (isKey(data, "home")) this.cursor = 0;
     else if (isKey(data, "end")) this.cursor = Math.max(0, n - 1);
     else if (data === "/") this.typing = true;
@@ -360,7 +358,7 @@ export class BrowserApp extends Screen {
       this.refilter(this.current);
     } else if (isPlain(data, "o")) {
       this.setSortField(cycle(SORTS.map((s) => s.id), this.sort.field));
-      this.refilter(this.current);
+      this.refilterFromTop();
     }
     // … and their Shift dialogs
     else if (isShift(data, "h")) this.dialog = this.dialogFor("harness");
@@ -651,16 +649,18 @@ export class BrowserApp extends Screen {
         row("/", "search (harness:pi since:7d tool:Bash shared:no …)"),
         row("h r t s", "cycle harness · repo · time · shared"),
         row("g  o", "cycle grouping · sort field"),
-        st.dim("  changing a filter or the search selects the first session again"),
+        st.dim("  changing a filter, the search or the sort selects the first session again"),
         row("H R T S G O", "Shift: pick from a dialog (R: / filters the repo list; O: field + direction)"),
         row("x", "clear search + filters"),
         row(",", "settings: confirm before quitting · date format"),
         row("enter  p  y", "open viewer · publish · copy link"),
         "",
         st.bold("Viewer"),
-        row("j/k  J/K", "message · previous/next prompt"),
-        row("v  V", "cycle prompts → conversation → everything · dialog"),
-        row("space", "scroll the content pane"),
+        row("j/k  J/K", "message (or scroll, in the content pane) · previous/next prompt"),
+        row("enter  tab", "read the message: focus the content pane (l / → too)"),
+        row("esc  tab", "back to the list from the content pane (h / ← / q too)"),
+        row("space  b", "page down / up in whichever pane has the focus; g/G top/bottom"),
+        row("v  V", "cycle prompts → conversation → everything · dialog + layout"),
         "",
         st.dim("any key closes this"),
       ],

@@ -56,14 +56,12 @@ describe("session list", () => {
     expect(d.text()).toContain("sort: last updated");
   });
 
-  it("group and sort dialogs keep the selection on the same session, even when rows above it move", async () => {
+  it("grouping keeps the selection on the same session, even when rows above it move", async () => {
     const d = drive();
     await d.press(KEY.down, KEY.down, KEY.down); // Auth token refresh race
     const selected = () => d.lines().some((l) => l.includes("▌") && l.split(" │ ")[0]!.includes("Auth token refresh race")) && d.lines().some((l) => l.includes("│ Auth token refresh race"));
     expect(selected()).toBe(true);
     await d.press("G", KEY.down, KEY.down, KEY.enter); // group: repo
-    expect(selected()).toBe(true);
-    await d.press("O", KEY.down, KEY.down, KEY.enter); // sort: title
     expect(selected()).toBe(true);
   });
 
@@ -323,13 +321,28 @@ describe("selection after filtering", () => {
     expect(selectedNumber(d.lines(120, 20))).toBe(0);
   });
 
-  it("keeps the selection when only grouping or sorting changes", async () => {
+  it("keeps the selection when only the grouping changes", async () => {
     const d = drive({ sessions: many });
     await d.press(...Array(30).fill("j"));
     await d.press("g");
     expect(selectedNumber(d.lines(120, 20))).toBe(30);
-    await d.press("o");
-    expect(selectedNumber(d.lines(120, 20))).toBe(30);
+  });
+
+  it("jumps back to the first session when the sort changes: o, and both sections of the O dialog", async () => {
+    const changes: Array<[string, (d: ReturnType<typeof drive>) => Promise<void>]> = [
+      ["o", (d) => d.press("o")],
+      ["O field", (d) => d.press("O", KEY.down, KEY.enter)],
+      ["O direction", (d) => d.press("O", ...Array(8).fill(KEY.down), KEY.enter)], // past the 8 fields onto "ascending"
+    ];
+    for (const [name, change] of changes) {
+      const d = drive({ sessions: many });
+      await d.press(...Array(70).fill("j"));
+      expect(selectedNumber(d.lines(120, 20)), name).toBe(70);
+      await change(d);
+      const lines = d.lines(120, 20);
+      expect(selectedNumber(lines), `${name}: selected`).toBe(Number(listColumn0(lines).match(/Session number (\d+)/)![1]));
+      expect(lines.some((l) => l.includes("▌")), `${name}: visible`).toBe(true);
+    }
   });
 });
 

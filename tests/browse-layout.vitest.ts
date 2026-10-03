@@ -25,6 +25,7 @@ const STATES: Array<[string, (d: Driver) => Promise<void>]> = [
   ["list with a date + time column", async (d) => void (await d.press(",", ...Array(6).fill(KEY.down), KEY.enter))],
   ["viewer (conversation)", async (d) => void (await d.press(KEY.enter))],
   ["viewer (everything)", async (d) => void (await d.press(KEY.enter, "v"))],
+  ["viewer content pane focused", async (d) => void (await d.press(KEY.enter, KEY.enter, "j"))],
   ["viewer level dialog", async (d) => void (await d.press(KEY.enter, "V"))],
   ["viewer indented (everything)", async (d) => void (await d.press(KEY.enter, "V", KEY.down, KEY.down, KEY.space, KEY.down, KEY.down, KEY.enter, "v"))],
   ["publish: choose mode", async (d) => void (await d.press("p"))],

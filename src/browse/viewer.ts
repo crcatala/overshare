@@ -2,17 +2,19 @@
  * Session viewer: the left pane is a navigable list of messages, the right pane is the selected message in
  * full. The header shows stats, the tool-call breakdown and the redaction status of a brief share.
  *
- *   j/k ↑/↓  message         J/K  next/previous prompt        g/G  first/last
+ *   Two panes, one has the focus (the list at first): enter / tab / → / l  read the message (focus the content),
+ *   esc / tab / ← / h  back to the list. The same movement keys drive whichever pane is focused:
+ *   j/k ↑/↓ line · space/PgDn/ctrl-f and b/PgUp/ctrl-b page · ctrl-d/u half page · g/G first/last.
+ *   Everywhere: J/K next/previous prompt · p publish. From the list, esc / q / ← / h leaves the viewer.
  *   v        cycle the list: prompts → conversation → everything           V  as a dialog, plus layout
  *            settings that persist: indent replies under their prompt, and tool calls one level deeper
- *   space / ctrl-d / ctrl-u  scroll the content pane           p  publish        esc  back
  */
 import { formatBytes } from "../format.js";
 import { sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import { plural, shortModel } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
-import { columns, cut, fit, hr, isKey, padLines, st, wrap } from "./kit.js";
+import { columns, cut, fit, hr, isKey, padLines, pagingKey, st, wrap } from "./kit.js";
 import type { SettingsStore } from "./settings.js";
 import type { ShareSummary, SessionView, Source, ViewItem, ViewKind } from "./source.js";
 
@@ -43,6 +45,8 @@ export interface ViewerHooks {
   close(): void;
 }
 
+export type Pane = "list" | "content";
+
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 export class SessionViewer {
@@ -52,11 +56,14 @@ export class SessionViewer {
   report?: ShareSummary;
   reportError?: string;
   level = 1;
+  private pane: Pane = "list";
   private cursor = 0;
   private scroll = 0;
   private listTop = 0;
   private rightLines: string[] = [];
   private rightHeight = 1;
+  /** Rows both panes showed on the last draw: the size of a page. */
+  private bodyHeight = 10;
   private timers: Array<ReturnType<typeof setTimeout>> = [];
 
   constructor(
@@ -119,29 +126,60 @@ export class SessionViewer {
     this.scroll = 0;
   }
 
+  /** Which pane the movement keys drive. */
+  get focus(): Pane {
+    return this.pane;
+  }
+
   onKey(data: string): void {
     const items = this.items;
     const move = (to: number) => {
       this.cursor = Math.max(0, Math.min(items.length - 1, to));
       this.scroll = 0;
     };
+    const scrollTo = (to: number) => {
+      this.scroll = Math.max(0, Math.min(this.maxScroll(), to));
+    };
+    const paging = pagingKey(data);
+    if (this.pane === "content") {
+      // Right pane: the same keys as everywhere, scrolling the message. esc (or h / ←, q) goes back to the list.
+      if (isKey(data, "escape") || isKey(data, "q") || isKey(data, "left") || isKey(data, "h") || isKey(data, "tab")) this.pane = "list";
+      else if (isKey(data, "down") || isKey(data, "j")) scrollTo(this.scroll + 1);
+      else if (isKey(data, "up") || isKey(data, "k")) scrollTo(this.scroll - 1);
+      else if (paging) scrollTo(this.scroll + paging.dir * Math.max(1, Math.floor(this.bodyHeight * paging.fraction)));
+      else if (isKey(data, "g") || isKey(data, "home")) scrollTo(0);
+      else if (data === "G" || isKey(data, "shift+g") || isKey(data, "end")) scrollTo(this.maxScroll());
+      else this.sharedKey(data, items, move);
+      return;
+    }
     if (isKey(data, "escape") || isKey(data, "q") || isKey(data, "left") || isKey(data, "h")) return this.hooks.close();
-    if (isKey(data, "down") || isKey(data, "j")) move(this.cursor + 1);
+    if (isKey(data, "enter") || isKey(data, "tab") || isKey(data, "right") || isKey(data, "l")) {
+      if (items.length > 0) this.pane = "content";
+    } else if (isKey(data, "down") || isKey(data, "j")) move(this.cursor + 1);
     else if (isKey(data, "up") || isKey(data, "k")) move(this.cursor - 1);
-    else if (data === "J" || isKey(data, "shift+j")) {
+    else if (paging) move(this.cursor + paging.dir * Math.max(1, Math.floor(this.bodyHeight * paging.fraction)));
+    else if (isKey(data, "g") || isKey(data, "home")) move(0);
+    else if (data === "G" || isKey(data, "shift+g") || isKey(data, "end")) move(items.length - 1);
+    else this.sharedKey(data, items, move);
+  }
+
+  /** Keys that work whichever pane has the focus. */
+  private sharedKey(data: string, items: ViewItem[], move: (to: number) => void): void {
+    if (data === "J" || isKey(data, "shift+j")) {
       const next = items.findIndex((it, i) => i > this.cursor && it.kind === "user");
       move(next >= 0 ? next : items.length - 1);
     } else if (data === "K" || isKey(data, "shift+k")) {
       let i = this.cursor - 1;
       while (i > 0 && items[i]!.kind !== "user") i--;
       move(i);
-    } else if (isKey(data, "g") || isKey(data, "home")) move(0);
-    else if (data === "G" || isKey(data, "shift+g") || isKey(data, "end")) move(items.length - 1);
-    else if (isKey(data, "pageDown") || isKey(data, "ctrl+d") || isKey(data, "space")) this.scroll += 8;
-    else if (isKey(data, "pageUp") || isKey(data, "ctrl+u")) this.scroll = Math.max(0, this.scroll - 8);
-    else if (isKey(data, "v")) this.setLevel((this.level + 1) % LEVELS.length);
+    } else if (isKey(data, "v")) this.setLevel((this.level + 1) % LEVELS.length);
     else if (data === "V" || isKey(data, "shift+v")) this.hooks.openDialog(this.viewDialog());
     else if (isKey(data, "p")) this.hooks.publish();
+  }
+
+  /** The furthest the content pane can scroll, from the last draw. */
+  private maxScroll(): number {
+    return Math.max(0, this.rightLines.length - this.rightHeight);
   }
 
   /**
@@ -170,7 +208,9 @@ export class SessionViewer {
   }
 
   footerKeys(): Array<[string, string]> {
-    return [["j/k", "message"], ["J/K", "prompt"], ["v", "list level"], ["V", "view options"], ["space", "scroll"], ["p", "publish"], ["esc", "back"]];
+    return this.pane === "content"
+      ? [["j/k", "scroll"], ["space/b", "page"], ["g/G", "top/bottom"], ["J/K", "prompt"], ["tab/esc", "back to list"], ["p", "publish"]]
+      : [["j/k", "message"], ["space/b", "page"], ["J/K", "prompt"], ["enter/tab", "read"], ["v", "list level"], ["V", "view options"], ["p", "publish"], ["esc", "back"]];
   }
 
   private header(width: number): string[] {
@@ -217,6 +257,8 @@ export class SessionViewer {
     const shared = sharesFor(this.source.shares, this.session.harness, this.session.id).length > 0;
     head.push(hr(width, `${LEVELS[this.level]!.label} · ${items.length} of ${this.view.items.length}${shared ? " · shared ✓" : ""}`));
     const bodyH = Math.max(1, height - head.length - 1);
+    this.bodyHeight = bodyH;
+    const focused = this.pane === "list";
     const lw = Math.max(20, Math.min(width - 14, Math.floor(width * 0.4)));
     const rw = Math.max(10, width - lw - 3);
     this.cursor = Math.min(this.cursor, Math.max(0, items.length - 1));
@@ -225,15 +267,18 @@ export class SessionViewer {
     const left = items.slice(this.listTop, this.listTop + bodyH).map((it, k) => {
       const i = this.listTop + k;
       const turn = it.kind === "user" ? st.dim(`#${it.turn} `) : "";
-      const row = `${i === this.cursor ? st.cyan("▌") : " "}${" ".repeat(this.depth(it.kind) * INDENT)}${ICON[it.kind](`${turn}${it.error ? st.red(it.label) : it.label}`)}`;
-      return i === this.cursor ? st.sel(fit(row, lw)) : row;
+      const row = `${i === this.cursor ? (focused ? st.cyan("▌") : st.gray("▌")) : " "}${" ".repeat(this.depth(it.kind) * INDENT)}${ICON[it.kind](`${turn}${it.error ? st.red(it.label) : it.label}`)}`;
+      return i === this.cursor ? (focused ? st.sel : st.selDim)(fit(row, lw)) : row;
     });
     const right = this.rightPane(items[this.cursor], rw, bodyH);
     return [...head, ...columns(padLines(left, bodyH), padLines(right, bodyH), lw, rw).slice(0, bodyH), this.scrollRule(width)];
   }
 
   private rightPane(it: ViewItem | undefined, width: number, height: number): string[] {
-    if (!it) return [st.dim("nothing to show")];
+    if (!it) {
+      this.rightLines = [];
+      return [st.dim("nothing to show")];
+    }
     const title = `${it.kind === "user" ? "prompt" : it.kind}${it.meta ? ` · ${it.meta}` : ""}${it.error ? " · error" : ""}  ${st.dim(`turn ${it.turn}`)}`;
     const dimmed = it.kind === "tool" || it.kind === "thinking";
     this.rightLines = [st.cyan(title), "", ...it.body.split("\n").flatMap((l) => (l ? wrap(dimmed ? st.gray(l) : l, width) : [""]))];
@@ -242,8 +287,13 @@ export class SessionViewer {
     return this.rightLines.slice(this.scroll, this.scroll + height);
   }
 
+  /** The rule under the panes says which one has the focus and how to move it. */
   private scrollRule(width: number): string {
     const more = this.rightLines.length - this.rightHeight - this.scroll;
-    return more > 0 ? hr(width, `↓ ${more} more lines · space`) : hr(width);
+    const left = more > 0 ? `↓ ${more} more lines` : "";
+    // hr() does not truncate its label, and this one is long.
+    const label = (text: string) => hr(width, cut(text, Math.max(0, width - 6)));
+    if (this.pane === "content") return label(["reading", "j/k scroll", "space/b page", "tab/esc back to the list", left].filter(Boolean).join(" · "));
+    return more > 0 ? label(`${left} · enter to read`) : hr(width);
   }
 }

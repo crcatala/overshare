@@ -1,6 +1,6 @@
 ---
 id: ass-azwt
-status: open
+status: closed
 deps: [ass-13r0, ass-8w1o]
 links: [ass-oayq, ass-mpbn, ass-1rgj, ass-pifw, ass-13r0, ass-iugy, ass-5qv5, ass-8w1o]
 created: 2026-10-01T01:15:35Z
@@ -41,3 +41,7 @@ It is the cheapest, safest speed-up for the publish dialog, and it is independen
 **2026-10-02T19:40:57Z**
 
 2026-10-02 PRODUCT DECISION NEEDED before implementing: do not build this as written. Review of the redaction design raised that harvesting real machine secret values is a deliberate, risky tradeoff, and we decided to (a) make the sensitive sources (credential files, ~/.npmrc, ~/.netrc, hosts.yml, gh auth token) opt-in and keep only env + project .env* by default (ass-13r0), (b) wrap KnownSecret values so they cannot be printed/serialized (ass-8w1o) - a cache would hold exactly these objects, and (c) tighten reporting (ass-5qv5, ass-iugy). A smaller default source set may make the ~0.4 s collection cost mostly disappear (no gh spawn, no credential-file reads), so this cache may be unnecessary. Blocked on ass-13r0 and ass-8w1o. After they land: re-measure collectKnownSecrets cost with the new defaults, then either close this ticket as not needed or re-scope it (if kept: in-memory only, cache the wrapper type, keep the safety/invalidation rules below).
+
+**2026-10-03T14:59:17Z**
+
+Won't do (measured 2026-10-03, after ass-13r0 and ass-8w1o landed). Timings only, no values printed; own machine, 15 runs. collectKnownSecrets with the new defaults (env + project .env, 19 values): median 0.1 ms, max 0.2 ms. With all four sources on (credential files + gh auth token spawn, 32 values): median 42.7 ms, max 44.5 ms (not the ~0.4 s the ticket assumed). prepareShare, full mode, collecting vs injecting a pre-collected list: 7.8 MB session 278 vs 270 ms (saves 7 ms); 0.5 MB session 212 vs 212 ms (saves 0). So the cost came from the sensitive sources, which are opt-in now, and a cache would save ~0.1 ms by default and at most ~43 ms for someone with every source on, against 210-280 ms of parse/redact/re-scan (that is ass-mpbn territory). A cache would also keep harvested KnownSecret objects alive for minutes with TTL/mtime invalidation that could go stale: a security cost for no visible gain. Closing; reopen only if collection gets more expensive (new sources).

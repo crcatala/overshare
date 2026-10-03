@@ -1,6 +1,6 @@
 ---
 id: ass-mpbn
-status: open
+status: in_progress
 deps: []
 links: [ass-azwt, ass-1rgj, ass-oayq, ass-pifw]
 created: 2026-10-01T01:15:13Z
@@ -38,3 +38,22 @@ Browsing is meant to be instant (a cursor move + redraw is ~12–15 ms by design
 - Measured before/after numbers (cold index time-to-first-paint, time-to-first-key-response on a large session) are recorded in a ticket note.
 - `npm test`, `npm run typecheck`, `npm run build` pass.
 
+
+## Notes
+
+**2026-10-03T15:23:08Z**
+
+Part (a) shipped on branch feat/ass-mpbn-async-index (PR pending): incremental, non-blocking first-run index. Part (b) REMAINS and this ticket stays open for it: async/cancellable Source.view and Source.review (worker threads or equivalent), loading states in the viewer and publish dialog, redaction scan off the main thread.
+
+What (a) did: runBrowse no longer builds the index before the UI starts. IndexJob (src/sessions/index.ts) lists every session from the stat-only listing (cache hits as cached, the rest as 'pending' placeholder rows), reads changed files newest first in ~20 ms time slices (setImmediate between slices, one file is never split), notifies once per slice, saves the cache every >=2 s while reading and on stop() (quit, ctrl-c, crash via process exit handler). BrowserApp shows 'reading sessions n/total', keeps the selection on the same session as rows fill in, refuses enter/p on a row not yet read, and says search/repo filter cover only sessions read so far. INDEX_VERSION not bumped: the cache shape is unchanged (placeholders are never persisted).
+
+Measurements (counts and timings only; real sessions in ~/.claude/projects + ~/.pi/agent/sessions, cold = empty AGENT_SHARE_INDEX, PTY 130x40, node dist build):
+- Sessions: 505 (119 claude-code, 386 pi), 778 MB. listRefs (stat only) 7 ms.
+- Index work itself is unchanged: cold 1.7 s, warm 11-17 ms. Largest single file read: 43 MB = 87 ms; per-file p50 1.1 ms, p99 40 ms.
+- Time to first paint, cold: before 1828/1858/1852 ms; after 142/148/150 ms. Warm: before 135/139 ms; after 154/155 ms (same within noise).
+- Key handling during cold indexing ('?' sent at 300 ms, time until the help box is visible): before 1532/1555/1550 ms (queued behind the whole index); after 15/16/72 ms. A key sent at 100 ms (before first paint) is handled at 132 ms after.
+- Event-loop stall while indexing (5 ms timer lag): max 84-85 ms = the one largest file; the rest of the slices are ~20 ms. So worst-case key latency during the cold index is bounded by the largest single transcript. Reading that file on a worker thread would remove it; that belongs to (b).
+- Quit mid-index keeps progress: a run killed by ctrl-c ~0.6 s into a cold index left a 125 KB cache (about a third of the sessions) that the next run reuses.
+- Total cold index time is unchanged (~1.7 s); the list is usable from first paint instead of after it.
+
+Known limitations of (a), not fixed here: a pi subagent-worker session shows as a normal row until it is read (the worker flag comes from the title); sort by title/prompts/calls/duration and the free-text/repo/branch/model/tool filters only see rows already read, so they reorder / fill in as reading proceeds.

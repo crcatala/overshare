@@ -6,7 +6,7 @@ const MASK = "[redacted]";
 /**
  * When a long prefix or suffix of a secret counts as a leak of it (the backstop for a secret cut in two before
  * redaction, ass-ahh1). A fragment of ordinary text shared with the start or end of a value (`postgres://user:`,
- * a host name, a path, a JWT header) must not count, so every bound is a filter: the value is long enough, the
+ * a host name, a path, a JWT's header and claims) must not count, so every bound is a filter: the value is long enough, the
  * fragment is a good part of it, and it holds one long run of characters that looks random.
  */
 export interface FragmentPolicy {
@@ -35,9 +35,13 @@ export type FragmentEnd = "prefix" | "suffix";
  */
 export class SecretValue {
   readonly #value: string;
+  /** What a fragment is taken from: the value, or for a JWT its signature (see `JWT`). */
+  readonly #fragmentable: string;
 
   constructor(value: string) {
     this.#value = value;
+    const jwt = JWT.exec(value);
+    this.#fragmentable = jwt ? (jwt[1] ?? "") : value;
   }
 
   /** Length is already reported (`rescan` issues), so it is not secret. */
@@ -76,9 +80,10 @@ export class SecretValue {
 
   /** Length of the fragment `hasFragmentIn` looks for under `policy`; 0 when the value is not checked. Not secret: derived from the length. */
   fragmentLength(policy: FragmentPolicy): number {
-    if (this.#value.length < policy.minValueLength) return 0;
-    const n = Math.min(policy.maxFragment, Math.max(policy.minFragment, Math.ceil(this.#value.length * policy.ratio)));
-    return n < this.#value.length ? n : 0;
+    const text = this.#fragmentable;
+    if (text.length < policy.minValueLength) return 0;
+    const n = Math.min(policy.maxFragment, Math.max(policy.minFragment, Math.ceil(text.length * policy.ratio)));
+    return n < text.length ? n : 0;
   }
 
   /**
@@ -88,11 +93,10 @@ export class SecretValue {
   hasFragmentIn(text: string, policy: FragmentPolicy): FragmentEnd | undefined {
     const n = this.fragmentLength(policy);
     if (!n) return undefined;
-    // Every HS256 JWT starts with the same header, which is ordinary text; the fragment starts after it.
-    const start = JWT_HEADER.exec(this.#value)?.[0].length ?? 0;
+    const own = this.#fragmentable;
     for (const [end, fragment] of [
-      ["prefix", this.#value.slice(start, start + n)],
-      ["suffix", this.#value.slice(-n)],
+      ["prefix", own.slice(0, n)],
+      ["suffix", own.slice(-n)],
     ] as const) {
       if (looksRandom(fragment, policy) && text.includes(fragment)) return end;
     }
@@ -116,7 +120,12 @@ export class SecretValue {
   }
 }
 
-const JWT_HEADER = /^eyJ[A-Za-z0-9_-]*\./;
+/**
+ * A JWT's header and claims are shared by every token of an issuer (the same `iss`, `role`, `sub` base64 over and
+ * over, even between a public and a service key), so they are ordinary text; only the signature is secret, and a
+ * token cut before it holds no credential. Fragments of a JWT are taken from the signature alone.
+ */
+const JWT = /^eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.([A-Za-z0-9_-]*)$/;
 
 function looksRandom(fragment: string, policy: FragmentPolicy): boolean {
   const run = (fragment.match(/[A-Za-z0-9+/_=-]+/g) ?? []).reduce((best, r) => (r.length > best.length ? r : best), "");

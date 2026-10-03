@@ -76,8 +76,8 @@ export class Redactor {
   readonly counts: Partial<Record<RedactionCategory, number>> = {};
   readonly findings: RedactionFinding[] = [];
   private readonly known: KnownSecret[];
-  /** High-confidence pattern matches, kept only as `SecretValue`s for the re-scan's fragment check; never reported. */
-  private readonly matched = new Map<string, KnownSecret>();
+  /** High-confidence pattern matches, kept only as `SecretValue`s for the re-scan's fragment check; never reported. A `#` field: `inspect` and `structuredClone` do not see it, and no raw value is a key anywhere. */
+  readonly #matched: KnownSecret[] = [];
   private readonly allow: Set<string>;
   private readonly deny: RegExp[];
   private readonly homeRes: RegExp[];
@@ -113,7 +113,7 @@ export class Redactor {
 
   /** The values high-confidence patterns matched so far, for the final re-scan to look for their fragments (see `rescanPayload`). */
   matchedSecrets(): KnownSecret[] {
-    return [...this.matched.values()];
+    return [...this.#matched];
   }
 
   /** Redact one string. `where` labels findings for the report. */
@@ -143,9 +143,9 @@ export class Redactor {
       let pos = 0;
       for (const m of matches) {
         pieces.push(out.slice(pos, m.start), `[REDACTED:${m.rule}]`);
-        if (m.confidence === "high" && this.matched.size < MAX_MATCHED) {
+        if (m.confidence === "high" && this.#matched.length < MAX_MATCHED) {
           const value = out.slice(m.start, m.end);
-          if (!this.matched.has(value)) this.matched.set(value, knownSecret(value, m.rule, "pattern"));
+          if (!this.#matched.some((k) => k.value.equals(value))) this.#matched.push(knownSecret(value, m.rule, "pattern"));
         }
         pos = m.end;
         this.count("secret-pattern");

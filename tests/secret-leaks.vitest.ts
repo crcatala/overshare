@@ -22,7 +22,7 @@ import { collectKnownSecrets, knownSecret, type KnownSourceSettings } from "../s
 import { rescanPayload } from "../src/redact/rescan.js";
 import { SecretValue } from "../src/redact/secret-value.js";
 import { formatReport } from "../src/report.js";
-import { ClaudeTranscript, ccUsage, randomish } from "./helpers.js";
+import { ClaudeTranscript, ccUsage, fake, randomish } from "./helpers.js";
 
 const root = join(import.meta.dirname, "..");
 
@@ -102,9 +102,60 @@ describe("SecretValue", () => {
     // Ordinary text shared with the start of a value is not a fragment: no run of random-looking characters.
     const url = new SecretValue("https://hooks.slack.com/services/T01ABCDEF/B02GHIJKL/xY7zA1bC3dE5");
     expect(url.hasFragmentIn("see https://hooks.slack.com/services/ for the docs", policy)).toBeUndefined();
-    // Every HS256 JWT starts with the same header.
-    const jwt = new SecretValue("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.Dq8Wf2Ns6Yt0Vh4Bk8Mj2Lp6");
-    expect(jwt.hasFragmentIn("a token starts eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.", policy)).toBeUndefined();
+  });
+
+  it("takes the fragments of a JWT from its signature alone: shared header and claims are not secret", () => {
+    const policy = { minValueLength: 24, ratio: 0.5, minFragment: 20, maxFragment: 32, minRun: 16, minEntropy: 3, maxWordRatio: 0.4 };
+    const header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
+    // A long, issuer-style claims segment shared by every token of the issuer (a public and a service key, say).
+    const claims = "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2twcm9qZWN0cmVmZXJlbmNlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSJ9";
+    const signature = randomish(43, 77, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_");
+    const jwt = new SecretValue(`${header}.${claims}.${signature}`);
+    expect(jwt.fragmentLength(policy)).toBe(22);
+    // Nothing of the shared parts counts, however long: the header, the claims, a sibling token's whole header and claims.
+    expect(jwt.hasFragmentIn(`a token starts ${header}.`, policy)).toBeUndefined();
+    expect(jwt.hasFragmentIn(`another token ${header}.${claims}. cut`, policy)).toBeUndefined();
+    expect(jwt.hasFragmentIn(`another token ${header}.${claims}.${randomish(43, 78, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")}`, policy)).toBeUndefined();
+    // A leaked signature prefix or suffix does.
+    expect(jwt.hasFragmentIn(`tail ${signature.slice(0, 30)}`, policy)).toBe("prefix");
+    expect(jwt.hasFragmentIn(`tail ${signature.slice(-30)}`, policy)).toBe("suffix");
+    // An unsigned token has no secret part.
+    const unsigned = new SecretValue(`${header}.${claims}.`);
+    expect(unsigned.fragmentLength(policy)).toBe(0);
+    expect(unsigned.hasFragmentIn(`${header}.${claims}.`, policy)).toBeUndefined();
+  });
+});
+
+describe("a Redactor that matched secrets by pattern", () => {
+  const token = fake.github();
+  const redactor = new Redactor({});
+  redactor.redactText(`key ${token} here`);
+  const windows = (text: string): number => {
+    let n = 0;
+    for (let i = 0; i + 8 <= token.length; i++) if (text.includes(token.slice(i, i + 8))) n++;
+    return n;
+  };
+
+  it("prints, serializes and clones without a window of the matched value", () => {
+    expect(redactor.matchedSecrets().length).toBe(1);
+    const dumps: Array<[string, string]> = [
+      ["inspect", inspect(redactor, { depth: null, showHidden: true })],
+      ["format", format("%j %o %O", redactor, redactor, redactor)],
+      ["JSON", JSON.stringify(redactor)],
+      ["entries", inspect(Object.entries(redactor), { depth: null, showHidden: true })],
+      ["own property names and values", JSON.stringify(Object.getOwnPropertyNames(redactor).map((k) => [k, inspect((redactor as never)[k], { depth: null, showHidden: true })]))],
+      ["structuredClone of own fields", inspect(Object.fromEntries(Object.entries(redactor).map(([k, v]) => [k, v instanceof Map || Array.isArray(v) || v instanceof Set ? structuredClone(v) : String(v)])), { depth: null, showHidden: true })],
+      ["matched secrets", inspect(redactor.matchedSecrets(), { depth: null, showHidden: true }) + JSON.stringify(redactor.matchedSecrets())],
+    ];
+    for (const [name, text] of dumps) expect({ name, windows: windows(text) }).toEqual({ name, windows: 0 });
+  });
+
+  it("holds no raw value as a key or an own field: only SecretValues", () => {
+    for (const k of Object.getOwnPropertyNames(redactor)) {
+      const v = (redactor as never)[k] as unknown;
+      expect(v instanceof Map ? [...v.keys()].map(String).join("") : "", k).not.toContain(token.slice(0, 8));
+    }
+    expect(redactor.matchedSecrets().every((k) => k.value instanceof SecretValue)).toBe(true);
   });
 });
 

@@ -89,3 +89,6 @@ export function sessionDuration(s: Pick<SessionSummary, "startedAt" | "endedAt">
   const ms = durationMs(s);
   return ms > 0 ? formatDuration(ms) : undefined;
 }
+
+/** The branch for a meta line: a branch worked out from the repo's reflog says so. */
+export const branchLabel = (s: Pick<SessionSummary, "branch" | "branchGuess">): string | undefined => (s.branch ? `${s.branch}${s.branchGuess ? " (guess)" : ""}` : undefined);

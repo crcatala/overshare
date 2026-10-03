@@ -429,3 +429,44 @@ describe("IndexJob (incremental index)", () => {
     expect(cachedIds().sort()).toEqual(["0", "2"]);
   });
 });
+
+describe("summarizeRaw keeps the last thing the assistant said", () => {
+  it("claude-code: the last message with text, not a later one that only calls tools", () => {
+    const t = new ClaudeTranscript("sess-reply", "/home/tester/work/demo");
+    t.user("do it");
+    t.assistant("m1", [{ type: "text", text: "First  answer" }], ccUsage(1, 1));
+    t.user("and more");
+    t.assistant("m2", [{ type: "text", text: "Done.\n\nAll\n  fixed." }, { type: "tool_use", id: "t1", name: "Bash", input: {} }], ccUsage(1, 1));
+    t.toolResult("t1", "ok");
+    t.assistant("m3", [{ type: "tool_use", id: "t2", name: "Bash", input: {} }], ccUsage(1, 1));
+    expect(summarizeRaw(ref("claude-code"), t.toJsonl()).lastReply).toBe("Done. All fixed.");
+  });
+
+  it("pi: the last assistant text", () => {
+    const t = new PiTranscript("pi-reply", "/home/tester/work/demo");
+    t.user("go");
+    t.assistant([{ type: "text", text: "early" }]);
+    t.assistant([{ type: "text", text: "the end" }, { type: "toolCall", id: "c1", name: "read", arguments: {} }]);
+    t.assistant([{ type: "toolCall", id: "c2", name: "read", arguments: {} }]);
+    expect(summarizeRaw(ref("pi"), t.toJsonl()).lastReply).toBe("the end");
+  });
+
+  it("is undefined when the assistant never wrote any text", () => {
+    const t = new ClaudeTranscript("sess-silent", "/home/tester/work/demo");
+    t.user("go");
+    t.assistant("m1", [{ type: "tool_use", id: "t1", name: "Bash", input: {} }], ccUsage(1, 1));
+    expect(summarizeRaw(ref("claude-code"), t.toJsonl()).lastReply).toBeUndefined();
+  });
+
+  it("is cut at about 600 characters and stripped of control sequences", () => {
+    const evil = "\x1b]52;c;ZXZpbA==\x07\x1b[2J";
+    const t = new ClaudeTranscript("sess-long", "/home/tester/work/demo");
+    t.user("go");
+    t.assistant("m1", [{ type: "text", text: `${evil}${"word ".repeat(300)}` }], ccUsage(1, 1));
+    const reply = summarizeRaw(ref("claude-code"), t.toJsonl()).lastReply!;
+    expect(reply.length).toBeLessThanOrEqual(600); // cut first, then stripped (like prompts), so the stripped bytes come off the 600
+    expect(reply.length).toBeGreaterThan(500);
+    expect(reply.endsWith("…")).toBe(true);
+    expect(reply).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/);
+  });
+});

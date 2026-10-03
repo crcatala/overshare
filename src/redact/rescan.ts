@@ -93,7 +93,7 @@ export function rescanPayload(
 interface Visit {
   text: string;
   location: string;
-  /** One of our own identifier fields (`OWN_STEP_FIELDS` and friends), which the Redactor copies on purpose. */
+  /** One of our schema's identifier fields (`OWN_STEP_FIELDS` and friends), which the Redactor copies on purpose. Copied is not trusted: some come from the transcript, so high-confidence matches here still block. */
   meta: boolean;
 }
 

@@ -38,11 +38,14 @@ export interface RedactorOptions {
 const EMAIL = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 const SAFE_EMAIL = /^(noreply@|no-reply@)|@(users\.noreply\.github\.com|example\.(com|org|net)|anthropic\.com)$/i;
 /**
- * Strings the tool itself wrote (ids, timestamps, kinds), by place in the schema. They are copied as they are: they are
- * never user content, and the email/home-path/username rules could mangle them. Everything else is free-form
- * (tool input, tool results, event detail, prompts) and is redacted with no key skipped: an `id`, `kind`, `event` or
- * `action` inside a tool input is the tool's data, and its name must not decide whether it is redacted.
- * Do not add a key here because some free-form object happens to use it.
+ * Identifier fields of our schema, exempt from redaction by their position in it (not by their key name). They are
+ * copied as they are because the email/home-path/username rules could mangle ids and timestamps. The exemption is
+ * not a claim that the value is trusted: some are copied from the transcript (a tool or subagent step `id` is the
+ * harness call id), so a secret-shaped one is only caught by the final re-scan (see ass-1c07).
+ *
+ * Everything else is free-form (tool input, tool results, event detail, prompts) and is redacted with no key
+ * skipped: an `id`, `kind`, `event` or `action` inside a tool input is the tool's data, and its name must not
+ * decide whether it is redacted. Do not add a key here because some free-form object happens to use it.
  *
  * Steps: their direct fields (`StepBase`, the `kind` tag, `ToolStep.action`, `EventStep.event`).
  */
@@ -51,7 +54,7 @@ export const OWN_STEP_FIELDS: ReadonlySet<string> = new Set(["id", "responseId",
 export const OWN_TURN_FIELDS: ReadonlySet<string> = new Set(["timestamp"]);
 /**
  * Session-level fields outside `turns`, as dotted paths with array indices dropped. The Redactor never walks them
- * (only `title` and `project` are); the final re-scan does, and treats exactly these as identifiers.
+ * (only `title` and `project` are); the final re-scan does, and exempts exactly these from the suspicious tier.
  */
 export const OWN_SESSION_FIELDS: ReadonlySet<string> = new Set([
   "schema",

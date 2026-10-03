@@ -1,5 +1,5 @@
 /**
- * The Redactor exempts only the identifier fields the tool wrote itself (`OWN_*_FIELDS`), by place in the schema.
+ * The Redactor exempts only the identifier fields of our schema (`OWN_*_FIELDS`), by place in the schema, not by key name.
  * Free-form content is walked with no key skipped: a tool input that has an `id`, `kind`, `event` or `action`
  * property gets redacted like any other. Everything here runs the real pipeline with planted fake secrets.
  */

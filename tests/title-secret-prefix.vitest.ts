@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { summarizeShare } from "../src/browse/job.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { prepareShare } from "../src/pipeline.js";
+import { capTitle, prepareShare } from "../src/pipeline.js";
 import { knownSecret } from "../src/redact/known-values.js";
 import { formatReport } from "../src/report.js";
 import { PI_INPUT_PROVENANCE_TYPE, type HarnessName, type ShareMode } from "../src/schema.js";
@@ -102,6 +102,33 @@ describe("a secret that straddles the title cut", () => {
     const secret = fake.github();
     const prepared = prepareShare(claude(`${lead(40)}${secret}\nmore`), { mode: "brief", config: DEFAULT_CONFIG, machine, knownSecrets: [] });
     expect(prepared.session.title).toMatch(/\[REDACTED:[\w-]+\]$/);
+  });
+
+  // The marker that replaces a secret is longer than most prompts' tail, so a secret starting near the end of the title
+  // leaves a marker that spans the 79-character cut: it must be dropped whole, never cut to `[REDACTED:gith…`.
+  it.each([65, 70, 75, 78])("a marker that spans the cut is dropped whole (secret at char %i)", (start) => {
+    const prepared = prepareShare(claude(`${lead(start)}${fake.github()}\nmore`), { mode: "brief", config: DEFAULT_CONFIG, machine, knownSecrets: [] });
+    const title = prepared.session.title!;
+    expect(title.length).toBeLessThanOrEqual(start);
+    expect(title.endsWith("…")).toBe(true);
+    expect(title).not.toContain("[");
+    expect(title).not.toContain("REDACTED");
+  });
+
+  it("a marker that ends exactly at the cut is kept whole", () => {
+    const marker = "[REDACTED:github-v2]";
+    const title = capTitle(`${"a".repeat(79 - marker.length)}${marker}tail beyond the cut`);
+    expect(title).toBe(`${"a".repeat(79 - marker.length)}${marker}…`);
+  });
+
+  it("capTitle never splits a token, whatever its length or kind, at any cut position", () => {
+    for (const marker of ["[REDACTED:private-key-block]", "[REDACTED]", "[email]", "[user]", "[host]"]) {
+      for (let start = 50; start <= 80; start++) {
+        const title = capTitle(`${"a".repeat(start)}${marker}${"b".repeat(40)}`);
+        expect(title.length).toBeLessThanOrEqual(80);
+        expect(title.split("[").length).toBe(title.split("]").length); // every opened token is closed
+      }
+    }
   });
 
   it("is still found as one finding in the prompt (the title does not hide or double-report it in the review)", () => {

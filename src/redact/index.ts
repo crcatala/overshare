@@ -126,11 +126,19 @@ export class Redactor {
       });
     }
     const matches = findSecretPatterns(out, this.allow);
-    for (const m of [...matches].reverse()) {
-      const token = `[REDACTED:${m.rule}]`;
-      out = out.slice(0, m.start) + token + out.slice(m.end);
-      this.count("secret-pattern");
-      this.findings.push({ category: "secret-pattern", rule: `${m.rule} (${m.confidence})`, where });
+    if (matches.length) {
+      // One pass over the matches, which are ordered and disjoint, with the pieces joined once: splicing the string
+      // per match is quadratic when a large string has thousands of them (ass-7x3c measured 21 s for 15k in 5 MB).
+      const pieces: string[] = [];
+      let pos = 0;
+      for (const m of matches) {
+        pieces.push(out.slice(pos, m.start), `[REDACTED:${m.rule}]`);
+        pos = m.end;
+        this.count("secret-pattern");
+        this.findings.push({ category: "secret-pattern", rule: `${m.rule} (${m.confidence})`, where });
+      }
+      pieces.push(out.slice(pos));
+      out = pieces.join("");
     }
     if (this.opts.redactEmails !== false) {
       out = out.replace(EMAIL, (email) => {

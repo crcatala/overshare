@@ -142,5 +142,6 @@ describe("ordinary shares stay unflagged", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+    // Twelve full pipeline runs take 4-5 s on a quiet machine, close to vitest's 5 s default; give a loaded runner room.
+  }, 30_000);
 });

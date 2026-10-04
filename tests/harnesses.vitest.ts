@@ -100,6 +100,18 @@ describe("sniffHarness", () => {
     expect(sniffHarness(write("snapshot-first.jsonl", text))).toBe("claude-code");
   });
 
+  it("finds a Claude Code transcript whose first line is far longer than a block (a big paste in the first message)", () => {
+    const text = new ClaudeTranscript("sess-big", "/work/demo").user(`${"é".repeat(150_000)}`).user("second").toJsonl();
+    expect(Buffer.byteLength(text.split("\n", 1)[0]!)).toBeGreaterThan(2 * 64 * 1024);
+    expect(sniffHarness(write("big-first.jsonl", text))).toBe("claude-code");
+  });
+
+  it("finds a transcript after a long run of lines that name no harness", () => {
+    const snapshot = JSON.stringify({ type: "file-history-snapshot", messageId: "m1", snapshot: {} });
+    const text = `${Array(500).fill(snapshot).join("\n")}\n${NATIVE["claude-code"]()}`;
+    expect(sniffHarness(write("long-prefix.jsonl", text))).toBe("claude-code");
+  });
+
   it("refuses a file no harness claims, rather than guessing the first one", () => {
     expect(() => sniffHarness(write("other.jsonl", '{"hello":"world"}\nnot json\n'))).toThrow(UnrecognizedFormatError);
     expect(() => sniffHarness(write("empty.jsonl", ""))).toThrow(UnrecognizedFormatError);

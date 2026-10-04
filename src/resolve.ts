@@ -1,7 +1,8 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
-import { HARNESSES, HARNESS_NAMES, UnrecognizedFormatError, detectHarness, type HarnessName } from "./harnesses/index.js";
+import { StringDecoder } from "node:string_decoder";
+import { HARNESSES, HARNESS_NAMES, UnrecognizedFormatError, detectHarnessInLines, type HarnessName } from "./harnesses/index.js";
 
 export type SessionRoots = Record<HarnessName, string>;
 
@@ -79,19 +80,30 @@ export function resolveSession(arg: string | undefined, opts: ResolveOptions = {
   throw new Error(`No ${opts.harness ?? ""} session found for ${cwd}`.replace("  ", " "));
 }
 
-/**
- * The harness a session file is in, from its first lines (the whole of a long first line is not needed: detection reads
- * what parses). A file no harness claims is an error, not a guess.
- */
-export function sniffHarness(path: string): HarnessName {
+/** The lines of a file, read a block at a time, so a caller that stops early has read only what it needed. */
+function* fileLines(path: string): Generator<string> {
   const fd = openSync(path, "r");
   try {
+    const decoder = new StringDecoder("utf8");
     const buf = Buffer.alloc(64 * 1024);
-    const n = readSync(fd, buf, 0, buf.length, 0);
-    const found = detectHarness(buf.subarray(0, n).toString("utf8"));
-    if (!found) throw new UnrecognizedFormatError();
-    return found;
+    let pending = "";
+    for (let n = readSync(fd, buf, 0, buf.length, null); n > 0; n = readSync(fd, buf, 0, buf.length, null)) {
+      const parts = (pending + decoder.write(buf.subarray(0, n))).split("\n");
+      pending = parts.pop() ?? "";
+      yield* parts;
+    }
+    yield pending + decoder.end();
   } finally {
     closeSync(fd);
   }
+}
+
+/**
+ * The harness a session file is in: the first line that one of them recognises, however long the lines before it (a
+ * pasted file in the first message, a run of bookkeeping lines). A file no harness claims is an error, not a guess.
+ */
+export function sniffHarness(path: string): HarnessName {
+  const found = detectHarnessInLines(fileLines(path));
+  if (!found) throw new UnrecognizedFormatError();
+  return found;
 }

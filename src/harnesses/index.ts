@@ -22,7 +22,12 @@ export const harnesses = (): Harness[] => HARNESS_NAMES.map((n) => HARNESSES[n])
  * first one that says yes wins.
  */
 export function detectHarness(raw: string): HarnessName | undefined {
-  for (const line of raw.split("\n", 50)) {
+  return detectHarnessInLines(raw.split("\n", 50));
+}
+
+/** `detectHarness` over any source of lines, so a caller reading a file can go on until a line says what it is. */
+export function detectHarnessInLines(lines: Iterable<string>): HarnessName | undefined {
+  for (const line of lines) {
     if (!line.trim()) continue;
     let entry: Record<string, unknown>;
     try {

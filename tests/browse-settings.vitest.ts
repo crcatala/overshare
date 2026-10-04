@@ -22,11 +22,12 @@ describe("normalizeSettings", () => {
   });
 
   it("keeps valid fields and defaults the invalid ones one by one", () => {
-    expect(normalizeSettings({ confirmQuit: false, dateFormat: "nope", viewer: { indentReplies: true, indentTools: "yes" } })).toEqual({
+    expect(normalizeSettings({ confirmQuit: false, dateFormat: "nope", viewer: { indentReplies: true, indentTools: "yes", markers: "words" } })).toEqual({
       confirmQuit: false,
       dateFormat: "relative",
-      viewer: { indentReplies: true, indentTools: false },
+      viewer: { indentReplies: true, indentTools: false, markers: "icon" },
     });
+    expect(normalizeSettings({ viewer: { markers: "text" } }).viewer.markers).toBe("text");
     expect(normalizeSettings({ dateFormat: "datetime", viewer: [] }).dateFormat).toBe("datetime");
   });
 
@@ -59,8 +60,21 @@ describe("fileSettings", () => {
     a.update({ viewer: { indentReplies: true } });
     a.update({ viewer: { indentTools: true } });
     const b = fileSettings(path);
-    expect(b.get()).toEqual({ confirmQuit: true, dateFormat: "short", viewer: { indentReplies: true, indentTools: true } });
+    expect(b.get()).toEqual({ confirmQuit: true, dateFormat: "short", viewer: { indentReplies: true, indentTools: true, markers: "icon" } });
     expect(loadSettings(path)).toEqual(b.get());
+  });
+
+  it("saves the text marker style to the file and a new run reads it back", () => {
+    const path = join(dir, "browse.json");
+    expect(fileSettings(path).update({ viewer: { markers: "text" } })).toBe(true);
+    expect(JSON.parse(readFileSync(path, "utf8")).viewer.markers).toBe("text");
+    expect(fileSettings(path).get().viewer.markers).toBe("text");
+    // Switching back, and other viewer fields, leave each other alone.
+    const store = fileSettings(path);
+    store.update({ viewer: { indentTools: true } });
+    expect(loadSettings(path).viewer).toEqual({ indentReplies: false, indentTools: true, markers: "text" });
+    store.update({ viewer: { markers: "icon" } });
+    expect(loadSettings(path).viewer).toEqual({ indentReplies: false, indentTools: true, markers: "icon" });
   });
 
   it("survives a corrupt file and a hand-edited partial file", () => {
@@ -87,7 +101,7 @@ describe("fileSettings", () => {
     expect(second.get().confirmQuit).toBe(false); // and it now reflects the other's change
     second.update({ viewer: { indentReplies: true } });
     first.update({ viewer: { indentTools: true } });
-    expect(loadSettings(path).viewer).toEqual({ indentReplies: true, indentTools: true });
+    expect(loadSettings(path).viewer).toEqual({ indentReplies: true, indentTools: true, markers: "icon" });
   });
 
   it("falls back to its own state when the file is gone or corrupt at the time of a change", () => {
@@ -99,7 +113,7 @@ describe("fileSettings", () => {
     expect(loadSettings(path)).toEqual({ ...DEFAULT_SETTINGS, confirmQuit: false, dateFormat: "date" });
     writeFileSync(path, "{ not json");
     store.update({ viewer: { indentTools: true } });
-    expect(loadSettings(path)).toEqual({ ...DEFAULT_SETTINGS, confirmQuit: false, dateFormat: "date", viewer: { indentReplies: false, indentTools: true } });
+    expect(loadSettings(path)).toEqual({ ...DEFAULT_SETTINGS, confirmQuit: false, dateFormat: "date", viewer: { indentReplies: false, indentTools: true, markers: "icon" } });
   });
 
   it("keeps changes it could not save and writes them with the next successful save", () => {
@@ -125,7 +139,7 @@ describe("fileSettings", () => {
 describe("memorySettings", () => {
   it("applies an initial patch and updates", () => {
     const s = memorySettings({ viewer: { indentTools: true } });
-    expect(s.get().viewer).toEqual({ indentReplies: false, indentTools: true });
+    expect(s.get().viewer).toEqual({ indentReplies: false, indentTools: true, markers: "icon" });
     s.update({ confirmQuit: false });
     expect(s.get().confirmQuit).toBe(false);
   });

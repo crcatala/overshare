@@ -58,7 +58,7 @@ export class RadioDialog {
   constructor(
     private readonly heading: string | (() => string),
     readonly sections: DialogSection[],
-    readonly opts: { searchable?: boolean; onClose: () => void },
+    readonly opts: { searchable?: boolean; /** Rows to show before scrolling, in place of `WINDOW`. */ window?: number; onClose: () => void },
   ) {
     // Start on the currently chosen item of the first section.
     const first = sections[0];
@@ -171,7 +171,7 @@ export class RadioDialog {
     const boxW = Math.min(width, natural + 2);
     const inner = boxW - 4;
     const chrome = 2 /* borders */ + 2 /* blank + footer */ + (this.opts.searchable ? 2 : 0) + 2 /* the meter and its blank line */;
-    const room = Math.max(3, Math.min(WINDOW, all.length, maxHeight - chrome));
+    const room = Math.max(3, Math.min(this.opts.window ?? WINDOW, all.length, maxHeight - chrome));
     this.window = room;
     const rendered = lines.map((l, i) => this.render(l, onCursor[i]!, inner));
     const selLine = Math.max(0, onCursor.indexOf(true));

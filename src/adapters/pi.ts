@@ -127,17 +127,18 @@ export function parsePi(raw: string, options: AdapterOptions = {}): AdapterResul
  * cost of a component divided by its tokens. The last call with tokens in a component wins.
  */
 function recordedRates(entries: Entry[]): Record<string, TokenRates> {
-  const rates: Record<string, Partial<TokenRates>> = {};
+  const rates = new Map<string, Partial<TokenRates>>();
   for (const e of entries) {
     const m = e.type === "message" ? e.message : undefined;
     if (m?.role !== "assistant" || typeof m.model !== "string" || !m.usage?.cost) continue;
     const u = m.usage;
     const rate = (tokens: unknown, cost: unknown) => (typeof tokens === "number" && tokens > 0 && typeof cost === "number" && cost > 0 ? (cost / tokens) * 1_000_000 : undefined);
     const found = { input: rate(u.input, u.cost.input), cacheRead: rate(u.cacheRead, u.cost.cacheRead), cacheWrite: rate(u.cacheWrite, u.cost.cacheWrite) };
-    const into = (rates[m.model] ??= {});
+    let into = rates.get(m.model);
+    if (!into) rates.set(m.model, (into = {}));
     for (const [k, v] of Object.entries(found)) if (v !== undefined) into[k as keyof TokenRates] = v;
   }
-  return Object.fromEntries(Object.entries(rates).filter((kv): kv is [string, TokenRates] => kv[1].input !== undefined && kv[1].cacheRead !== undefined));
+  return Object.fromEntries([...rates].filter((kv): kv is [string, TokenRates] => kv[1].input !== undefined && kv[1].cacheRead !== undefined));
 }
 
 /**

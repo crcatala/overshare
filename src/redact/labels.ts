@@ -1,5 +1,6 @@
 import type { KnownSecret } from "./known-values.js";
 import { findSecretPatterns, looksLikeSecret } from "./patterns.js";
+import { setOwn } from "../own-keys.js";
 
 /**
  * Labels end up in the report and in the published `[REDACTED:<label>]` token. Several come from data
@@ -58,7 +59,7 @@ export function safeKeys<V>(record: Record<string, V>, fallback: string): Record
       while (taken.has(name));
       taken.add(name);
     }
-    out[name] = value;
+    setOwn(out, name, value);
   }
   return out;
 }

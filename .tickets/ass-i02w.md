@@ -1,6 +1,6 @@
 ---
 id: ass-i02w
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-10-04T03:33:38Z

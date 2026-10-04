@@ -1,5 +1,6 @@
 import type { NormalizedSession, SessionStats, SubagentTotals } from "../schema.js";
 import { knownSecret, type KnownSecret } from "./known-values.js";
+import { setOwn } from "../own-keys.js";
 import { safeLabel, withSafeLabels } from "./labels.js";
 import { SENSITIVE_KEY, findSecretPatterns, isLiteralSecretValue } from "./patterns.js";
 
@@ -257,7 +258,7 @@ export function redactSession(session: NormalizedSession, redactor: Redactor): N
     if (Array.isArray(value)) return value.map((v) => walk(v, key, where));
     if (value && typeof value === "object") {
       const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(value)) out[k] = walk(v, k, where);
+      for (const [k, v] of Object.entries(value)) setOwn(out, k, walk(v, k, where));
       return out;
     }
     return value;
@@ -265,7 +266,7 @@ export function redactSession(session: NormalizedSession, redactor: Redactor): N
   const walkSubagentUsage = (usage: Record<string, unknown>, where: string): Record<string, unknown> => {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(usage)) {
-      out[k] = k === "models" && Array.isArray(v) ? v.map((m) => (typeof m === "string" ? redactor.redactIdentifier(m, where) : walk(m, k, where))) : walk(v, k, where);
+      setOwn(out, k, k === "models" && Array.isArray(v) ? v.map((m) => (typeof m === "string" ? redactor.redactIdentifier(m, where) : walk(m, k, where))) : walk(v, k, where));
     }
     return out;
   };
@@ -273,12 +274,12 @@ export function redactSession(session: NormalizedSession, redactor: Redactor): N
   const walkStep = (step: Record<string, unknown>, where: string): Record<string, unknown> => {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(step)) {
-      if (typeof v === "string" && OWN_STEP_FIELDS.has(k)) out[k] = k === "id" || k === "responseId" ? redactor.redactIdentifier(v, where) : v;
+      if (typeof v === "string" && OWN_STEP_FIELDS.has(k)) setOwn(out, k, k === "id" || k === "responseId" ? redactor.redactIdentifier(v, where) : v);
       // Ids and model ids copied from the transcript: one surrogate per value wherever it appears (ass-lka8, ass-gmih).
-      else if (typeof v === "string" && k === "model") out[k] = redactor.redactIdentifier(v, where);
-      else if (Array.isArray(v) && k === "responseIds") out[k] = v.map((id) => (typeof id === "string" ? redactor.redactIdentifier(id, where) : walk(id, k, where)));
-      else if (k === "usage" && step.kind === "subagent" && v && typeof v === "object") out[k] = walkSubagentUsage(v as Record<string, unknown>, where);
-      else out[k] = walk(v, k, where);
+      else if (typeof v === "string" && k === "model") setOwn(out, k, redactor.redactIdentifier(v, where));
+      else if (Array.isArray(v) && k === "responseIds") setOwn(out, k, v.map((id) => (typeof id === "string" ? redactor.redactIdentifier(id, where) : walk(id, k, where))));
+      else if (k === "usage" && step.kind === "subagent" && v && typeof v === "object") setOwn(out, k, walkSubagentUsage(v as Record<string, unknown>, where));
+      else setOwn(out, k, walk(v, k, where));
     }
     return out;
   };

@@ -183,3 +183,12 @@ describe("pi authored-input provenance", () => {
     expect(() => projectSession(parsed, "prompts")).toThrow(/no verified pre-expansion input/);
   });
 });
+
+describe("pi adapter: malformed tool calls", () => {
+  // ass-3llz: the same crash as in the Claude Code adapter, through the shared TurnBuilder.
+  it.each([["an object", { n: "bash" }], ["a number", 7], ["null", null], ["missing", undefined]])("tolerates a toolCall whose name is %s", (_what, name) => {
+    const t = new PiTranscript().user("go").assistant([{ type: "toolCall", id: "c1", name, arguments: { command: "ls" } }]).toolResult("c1", "bash", "ok");
+    const tool = parsePi(t.toJsonl()).session.turns[0]!.steps.find((s) => s.kind === "tool");
+    expect(tool).toMatchObject({ name: "unknown", action: "other", result: { text: "ok" } });
+  });
+});

@@ -1,6 +1,6 @@
 ---
 id: ass-t3hc
-status: open
+status: closed
 deps: []
 links: [ass-jgn2]
 created: 2026-10-03T23:44:40Z

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parseClaudeCode } from "../src/adapters/claude-code.js";
 import { detectHarness } from "../src/adapters/index.js";
+import { DEFAULT_CONFIG } from "../src/config.js";
+import { prepareShare } from "../src/pipeline.js";
 import { computeStats } from "../src/stats.js";
 import { ClaudeTranscript, ccUsage } from "./helpers.js";
 
@@ -208,5 +210,20 @@ describe("claude-code adapter", () => {
     const { session } = parseClaudeCode(`${t.toJsonl()}{"type":"assist`);
     expect(session.turns[0]!.user).toEqual({ text: "see screenshot", images: 1 });
     expect(JSON.stringify(session)).not.toContain("AAAA");
+  });
+
+  // ass-3llz: a tool_use whose name is not a string used to throw "name.toLowerCase is not a function".
+  it.each([["an object", { n: "Bash" }], ["a number", 7], ["null", null], ["missing", undefined]])("tolerates a tool_use whose name is %s", (_what, name) => {
+    const t = new ClaudeTranscript()
+      .user("go")
+      .assistant("msg_1", [{ type: "tool_use", id: "tu_1", name, input: { command: "ls" } }], ccUsage(1, 1))
+      .toolResult("tu_1", "ok")
+      .assistant("msg_2", [{ type: "text", text: "done" }], ccUsage(1, 1));
+    const { session } = parseClaudeCode(t.toJsonl());
+    const tool = session.turns[0]!.steps.find((s) => s.kind === "tool");
+    expect(tool).toMatchObject({ name: "unknown", action: "other", result: { text: "ok" } });
+    // The whole pipeline, not only the adapter: stats and the report label the step by its name too.
+    const p = prepareShare(t.toJsonl(), { mode: "full", config: DEFAULT_CONFIG, machine: { homeDir: "/home/tester", username: "tester", hostname: "box" }, knownSecrets: [] });
+    expect(p.session.stats.tools).toEqual({ unknown: 1 });
   });
 });

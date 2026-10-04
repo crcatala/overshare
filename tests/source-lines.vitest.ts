@@ -230,54 +230,54 @@ describe("Claude Code", () => {
   });
 
   /**
-   * A transcript line whose `type` is a secret is dropped, and the type is kept as a key of `redaction.dropped`, which
-   * every mode publishes. That makes a finding that survives every mode, which is what the matrix needs; the mode only
-   * changes the turns, so the line must not depend on it. If those keys are ever sanitized, plant the value somewhere
-   * else that every mode keeps.
+   * The finding vehicle that survives every mode is a secret used as a model id: `session.models` is published whole in
+   * every mode and the Redactor does not walk it, so the re-scan finds it. The mode only changes the turns, so the line
+   * must not depend on it. (The vehicle used to be a secret entry type kept as a key of `redaction.dropped`, until that
+   * was sanitized, ass-t3hc.) If `models` is ever redacted, plant the value somewhere else that every mode keeps.
    */
-  const dropped = (type: string) =>
+  const withModel = (model: string) =>
     new ClaudeTranscript("aaaaaaaa-0000-0000-0000-000000000000", "/home/tester/work/demo")
       .user("first")
       .assistant("m1", [{ type: "text", text: "one" }], ccUsage(1, 1))
       .user("second")
-      .attachment({ type })
-      .assistant("m2", [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "ls" } }], ccUsage(1, 1))
+      .assistant("m2", [{ type: "text", text: "two" }], ccUsage(1, 1), model)
+      .assistant("m3", [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "ls" } }], ccUsage(1, 1))
       .toolResult("b1", "ok")
-      .assistant("m3", [{ type: "text", text: "done" }], ccUsage(1, 1))
+      .assistant("m4", [{ type: "text", text: "done" }], ccUsage(1, 1))
       .toJsonl();
   const MODES: ShareMode[] = ["full", "brief", "minimal", "prompts"];
 
   for (const mode of MODES) {
     it(`${mode} mode: a blocked and a suspicious finding both carry the line`, () => {
       const secret = fake.github();
-      const blocked = prepare(dropped(secret), mode);
-      expect(blocked.report.rescan).toEqual([{ rule: "github-v2", length: secret.length, location: "session · redaction.dropped (object key)", source: { hits: [{ line: 4 }], total: 1 } }]);
+      const blocked = prepare(withModel(secret), mode);
+      expect(blocked.report.rescan).toEqual([{ rule: "github-v2", length: secret.length, location: "session · models[1]", source: { hits: [{ line: 4 }], total: 1 } }]);
       const value = randomish(16, 41);
-      const suspicious = prepare(dropped(mediumKey(value)), mode);
-      expect(suspicious.report.suspicious).toEqual([{ rule: "secret-assignment", length: value.length, location: "session · redaction.dropped (object key)", occurrences: 1, source: { hits: [{ line: 4 }], total: 1 } }]);
+      const suspicious = prepare(withModel(mediumKey(value)), mode);
+      expect(suspicious.report.suspicious).toEqual([{ rule: "secret-assignment", length: value.length, location: "session · models[1]", occurrences: 2, source: { hits: [{ line: 4 }], total: 1 } }]);
     });
   }
 });
 
 describe("pi", () => {
-  /** header (line 1), user, assistant, user, [planted], assistant. */
-  const transcript = (type: string) => {
-    const t = new PiTranscript("01a0aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee", "/home/tester/work/demo")
+  /** header (line 1), user, assistant, user, assistant with the planted model id (line 5), assistant. */
+  const transcript = (model: string) =>
+    new PiTranscript("01a0aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee", "/home/tester/work/demo")
       .user("first")
       .assistant([{ type: "text", text: "one" }], piUsage(5, 5))
-      .user("second");
-    t.entry(type, {});
-    return t.assistant([{ type: "text", text: "done" }], piUsage(5, 5)).toJsonl();
-  };
+      .user("second")
+      .assistant([{ type: "text", text: "two" }], piUsage(5, 5), { model })
+      .assistant([{ type: "text", text: "done" }], piUsage(5, 5))
+      .toJsonl();
 
   for (const mode of ["full", "brief", "minimal"] as const) {
     it(`${mode} mode: a blocked and a suspicious finding both carry the line`, () => {
       const secret = fake.aws();
       const blocked = prepare(transcript(secret), mode);
-      expect(blocked.report.rescan).toEqual([{ rule: "aws-access_keys", length: secret.length, location: "session · redaction.dropped (object key)", source: { hits: [{ line: 5 }], total: 1 } }]);
+      expect(blocked.report.rescan).toEqual([{ rule: "aws-access_keys", length: secret.length, location: "session · models[1]", source: { hits: [{ line: 5 }], total: 1 } }]);
       const value = randomish(16, 41);
       const suspicious = prepare(transcript(mediumKey(value)), mode);
-      expect(suspicious.report.suspicious).toEqual([{ rule: "secret-assignment", length: value.length, location: "session · redaction.dropped (object key)", occurrences: 1, source: { hits: [{ line: 5 }], total: 1 } }]);
+      expect(suspicious.report.suspicious).toEqual([{ rule: "secret-assignment", length: value.length, location: "session · models[1]", occurrences: 2, source: { hits: [{ line: 5 }], total: 1 } }]);
     });
   }
 

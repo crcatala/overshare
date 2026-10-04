@@ -217,7 +217,9 @@ export class TurnBuilder {
   }
 
   /** Register a tool call (or subagent launch) so its result can be attached later. */
-  addToolCall(callId: string, name: string, input: unknown, meta: { timestamp?: string; responseId?: string }): void {
+  addToolCall(callId: string, rawName: unknown, input: unknown, meta: { timestamp?: string; responseId?: string }): void {
+    // A transcript can carry any JSON here; a name that is not a string is a malformed call, kept under a generic name (ass-3llz).
+    const name = typeof rawName === "string" ? rawName : "unknown";
     if (isSubagentCall(name, input)) {
       const step: SubagentStep = { kind: "subagent", id: callId, ...meta, ...describeSubagent(name, input) };
       this.addStep(step);

@@ -30,14 +30,18 @@ export type ViewKind = "user" | "assistant" | "tool" | "thinking" | "subagent" |
  * A piece of a message the right pane draws with its own formatting (see render.ts). Plain data, so it crosses the
  * worker boundary; all text is already stripped of control sequences and capped.
  */
-export type ViewBlock =
+export type ViewBlock = (
   | { type: "markdown"; text: string }
   | { type: "text"; text: string; style?: "dim" | "error" }
   /** A small heading for the part that follows ("result", "error"). */
   | { type: "label"; text: string; style?: "error" }
   | { type: "code"; text: string; lang?: string }
   /** One or more replacements in a file, drawn as a diff. */
-  | { type: "edit"; path?: string; edits: Array<{ old: string; new: string }> };
+  | { type: "edit"; path?: string; edits: Array<{ old: string; new: string }> }
+) & {
+  /** Part of what a tool or subagent returned, not of the call: a search leaves it out unless asked. */
+  output?: true;
+};
 
 /** One row of the viewer's message list, with its full content for the right pane. */
 export interface ViewItem {

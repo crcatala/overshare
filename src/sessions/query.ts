@@ -62,6 +62,36 @@ export function parseQuery(input: string, now = Date.now()): SessionFilter {
   return f;
 }
 
+/** A word shorter than this still matches, but is not highlighted: one letter would light up half of any text. */
+export const MIN_HIGHLIGHT = 2;
+
+const wordPatterns = new Map<string, RegExp>();
+const patternOf = (word: string): RegExp => {
+  let re = wordPatterns.get(word);
+  if (!re) wordPatterns.set(word, (re = new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu")));
+  return re;
+};
+
+/**
+ * Where the free words sit in `text`, as merged `[start, end)` ranges: the same case-insensitive substring rule `score`
+ * applies to `searchText`, so what is highlighted is what matched. Words under MIN_HIGHLIGHT are left out.
+ */
+export function hitRanges(text: string, words: readonly string[]): [number, number][] {
+  const found: [number, number][] = [];
+  for (const word of words) {
+    if (word.length < MIN_HIGHLIGHT) continue;
+    for (const m of text.matchAll(patternOf(word))) found.push([m.index, m.index + m[0].length]);
+  }
+  found.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const merged: [number, number][] = [];
+  for (const [start, end] of found) {
+    const last = merged[merged.length - 1];
+    if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+    else merged.push([start, end]);
+  }
+  return merged;
+}
+
 function score(s: SessionSummary, words: string[]): number {
   if (words.length === 0) return 1;
   const strong = `${s.title ?? ""} ${s.project ?? ""}`.toLowerCase();

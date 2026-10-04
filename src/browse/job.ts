@@ -76,10 +76,12 @@ function toolBlocks(name: string, summary: string, input: unknown, result: { tex
     blocks.push({ type: "text", text: cap(summary, 2_000) });
     if (args && Object.keys(args).length > 0) blocks.push({ type: "label", text: "input" }, { type: "code", text: cap(JSON.stringify(args, null, 2), 3_000), lang: "json" });
   }
+  const call = blocks.length;
   if (!result) blocks.push({ type: "text", text: "(no result recorded)", style: "dim" });
   else if (isError) blocks.push({ type: "label", text: "error", style: "error" }, { type: "code", text: cap(result.text, 4_000) });
   else if (quietResult && result.text.length <= 300) blocks.push({ type: "text", text: result.text, style: "dim" });
   else blocks.push({ type: "label", text: "result" }, { type: "code", text: cap(result.text, 4_000), lang: tool === "read" ? EXT_LANG.exec(path ?? "")?.[1] : undefined });
+  for (const b of blocks.slice(call)) b.output = true;
   return blocks;
 }
 
@@ -118,8 +120,8 @@ export function viewFromSession(session: NormalizedSession): SessionView {
           error: step.isError,
           blocks: [
             ...(step.description ? [{ type: "label", text: "task" } as const, { type: "text", text: cap(step.description, 2_000) } as const] : []),
-            { type: "label", text: "result" },
-            step.result ? { type: "markdown", text: cap(step.result.text, 4_000) } : { type: "text", text: "(no result recorded)", style: "dim" },
+            { type: "label", text: "result", output: true },
+            step.result ? { type: "markdown", text: cap(step.result.text, 4_000), output: true } : { type: "text", text: "(no result recorded)", style: "dim", output: true },
           ],
           body: `${cap(step.description ?? "", 2_000)}\n\n${step.result ? cap(step.result.text, 4_000) : "(no result recorded)"}`,
         });

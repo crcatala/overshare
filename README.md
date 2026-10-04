@@ -77,6 +77,13 @@ agent-share  7/7
 | `,` | settings: confirm before quitting, date format | |
 | `?` / `q` | help / clear filters, then quit (asks first unless you turned that off) | |
 
+**Why a session matched.** Free words must all appear (case-insensitive, any order) in the title, repo, branch, model or the
+session's prompts (the first ~6,000 characters of them; replies and tool output are not searched). Wherever a word is on screen it
+gets an amber background: in the repo, branch and title of a row, and in the preview. Most matches are in prompt text a row
+has no room for, so while you search the preview also quotes the prompt each word was found in, under **matched in prompts**
+(prompts the preview keeps are quoted as written; text only the search index has is lower-case). Words that only match the title,
+repo or branch are not quoted again. Words of one letter still match but are not highlighted.
+
 The filter chips under the title double as a key legend: the hotkey letter in each (**h**arness, **r**epo, **t**ime,
 **s**hared, **g**roup, s**o**rt) is bold and underlined. Changing a filter, the search or the sort selects the first session again
 and scrolls to it; grouping keeps the selection where it is.
@@ -93,6 +100,16 @@ choice as a dialog and adds three options that are saved and apply at every leve
 their prompt, indent tool calls (with thinking, subagents and events) one level further, and mark each row with an icon
 (`❯ ◆ ⚙`, the default) or with its kind in brackets (`[User]` `[Assistant]` `[Tool]` `[Thinking]` `[Subagent]` `[Skill]` `[Event]`). A kind keeps its colour in
 the list and in the heading of the content pane, whichever marker you pick.
+
+**Searching in the viewer.** `/` searches the session's messages with the same rule as the list (free words, all in one message,
+case-insensitive): the list narrows to the messages that hold them, with the number of hits each holds in the corner of its row
+(`×3`), and every hit is highlighted in the list rows and in the content pane. `enter` or `↓` finishes typing, `esc` clears. Under
+the header a line says how many messages match, and how many more would at other list levels (`+2 in hidden kinds (v)`) or in
+tool output (`+4 in tool output (o)`). A tool call's or subagent's result is left out by default, because words like "error" or
+"test" are in most of it; `o` includes it. `n`/`N` step to the next/previous hit: from the content pane a line at a time (the pane
+scrolls to put the hit near the top), then message by message; from the list message by message. `x` clears the search.
+Opening a session from a search in the list carries its words over: they are highlighted and the viewer starts on the first
+message that holds them, but the list is **not** narrowed (so `esc` still leaves the viewer); `/` then starts a search of its own.
 
 The content pane formats what it shows: an assistant reply as markdown (headings, lists, tables, quotes, highlighted code
 fences); a prompt as you typed it (not markdown); a `Bash` call as highlighted shell with its output below; an `Edit` (Claude

@@ -8,6 +8,10 @@
  *   esc / tab / ← / h  back to the list. The same movement keys drive whichever pane is focused:
  *   j/k ↑/↓ line · space/PgDn/ctrl-f and b/PgUp/ctrl-b page · ctrl-d/u half page · g/G first/last.
  *   Everywhere: J/K next/previous prompt · y copy the message · p publish. From the list, esc / q / ← / h leaves the viewer.
+ *   /        search the messages: free words, all in one message (tool output only with `o`); the list narrows to the
+ *            messages that hold them and every hit is highlighted. n/N next/previous hit (in the content pane, a line
+ *            at a time and then message by message), x clears. Opened from a search in the session list, the viewer
+ *            starts on the first hit with the words highlighted but the list not narrowed.
  *   v        cycle the list: prompts → conversation → everything           V  as a dialog, plus layout
  *            settings that persist: indent replies under their prompt, tool calls one level deeper, and whether rows are
  *            marked with an icon (❯) or the kind's name ([User])
@@ -17,11 +21,12 @@ import { sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import { branchLabel, plural, shortModel } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
-import { cut, fit, frame, isKey, padLines, pagingKey, st, wrap } from "./kit.js";
+import { cut, fit, frame, isKey, isPlain, isShift, padLines, pagingKey, st, w, wrap } from "./kit.js";
+import { markLine, splitWords, unstyled } from "./mark.js";
 import { SAVE_FAILED_MESSAGE, type MarkerStyle, type SettingsStore } from "./settings.js";
 import { renderItem } from "./render.js";
 import { Spinner } from "./spinner.js";
-import type { ShareSummary, SessionView, Source, ViewItem, ViewKind } from "./source.js";
+import type { ShareSummary, SessionView, Source, ViewBlock, ViewItem, ViewKind } from "./source.js";
 
 export const LEVELS = [
   { label: "user prompts only", hint: "what you asked", kinds: ["user"] as ViewKind[] },
@@ -51,6 +56,43 @@ export function marker(it: Pick<ViewItem, "kind" | "meta">, text: string, style:
 
 /** Columns each tree level moves a row to the right. */
 const INDENT = 2;
+/** Lines of the message kept above a hit that `n` / `N` brings into view. */
+const HIT_MARGIN = 2;
+
+/**
+ * What a search reads in a message, lower-cased once: its list row and the text its content pane draws, with a tool's or
+ * subagent's output kept apart so it can be left out. Messages with blocks are read from the blocks, not from `body`:
+ * the pane draws more of a long edit or file than `body` keeps, and a search must find what is on screen.
+ */
+interface Haystack {
+  inputs: string;
+  all: string;
+}
+const haystacks = new WeakMap<ViewItem, Haystack>();
+/** Headings the pane puts between the parts of a tool call: layout, not words. */
+const LAYOUT_LABEL = /^(?:input|result|error|task)$/;
+const textsOf = (b: ViewBlock): string[] => (b.type === "edit" ? [b.path ?? "", ...b.edits.flatMap((e) => [e.old, e.new])] : b.type === "label" && LAYOUT_LABEL.test(b.text) ? [] : [b.text]);
+function haystack(it: ViewItem): Haystack {
+  let h = haystacks.get(it);
+  if (!h) {
+    const call = [it.label];
+    const output: string[] = [];
+    if (it.blocks?.length) for (const b of it.blocks) (b.output ? output : call).push(...textsOf(b));
+    else call.push(it.body);
+    const inputs = call.join("\n").toLowerCase();
+    haystacks.set(it, (h = { inputs, all: [inputs, ...output.map((t) => t.toLowerCase())].join("\n") }));
+  }
+  return h;
+}
+const holds = (text: string, words: readonly string[]): boolean => words.every((word) => text.includes(word));
+
+/** The content pane's lines for a message with the search's hits marked, and which lines hold one. */
+interface Laid {
+  key: string;
+  lines: string[];
+  hitLines: number[];
+  hits: number;
+}
 
 export interface ViewerHooks {
   settings: SettingsStore;
@@ -87,12 +129,36 @@ export class SessionViewer {
   /** Aborted when the viewer closes: the reads still running stop, and what they would have delivered is dropped. */
   private readonly loading = new AbortController();
   private spinner = new Spinner();
+  /**
+   * The search: free words, all in one message. `filtering` narrows the list to the messages holding them; words handed
+   * over from the session list only highlight, so opening a session never hides messages the user did not ask to hide.
+   */
+  private query: string;
+  private words: string[];
+  private filtering = false;
+  private typing = false;
+  /** Whether a tool's or subagent's result counts as part of a message when searching (`o`). */
+  private includeOutput = false;
+  /** Where to put the content pane at the next draw, once the message is laid out and its hits are known. */
+  private jump?: "first" | "last";
+  /** The content line `n` / `N` last moved to. */
+  private hitLine = -1;
+  private laid = new WeakMap<ViewItem, Laid>();
+  /** Rendering (markdown above all) does not depend on the search, so typing more of a query only marks lines again. */
+  private rendered = new WeakMap<ViewItem, { width: number; lines: string[] }>();
+  private hitNote = "";
+  private paneWidth = 0;
+  private hitSets?: { view: SessionView; key: string; inputs: Set<ViewItem>; all: Set<ViewItem> };
 
   constructor(
     readonly session: SessionSummary,
     private source: Source,
     private hooks: ViewerHooks,
+    /** Free words from the session list's search: highlighted, and the viewer starts on the first message holding them. */
+    query = "",
   ) {
+    this.query = query;
+    this.words = splitWords(query);
     // Both reads run on worker threads, side by side: the list below paints "reading…" at once and the keys keep working.
     const { signal } = this.loading;
     let waiting = 2;
@@ -104,7 +170,11 @@ export class SessionViewer {
     };
     this.spinner.start(() => hooks.requestRender());
     source.view(session, signal).then(
-      (view) => arrived(() => void (this.view = view)),
+      (view) =>
+        arrived(() => {
+          this.view = view;
+          this.startOnFirstHit();
+        }),
       (err: unknown) => arrived(() => void (this.loadError = message(err))),
     );
     source.review(session, "brief", source.target, signal).then(
@@ -128,21 +198,140 @@ export class SessionViewer {
 
   private get items(): ViewItem[] {
     const kinds = LEVELS[this.level]!.kinds as readonly ViewKind[];
-    return (this.view?.items ?? []).filter((i) => kinds.includes(i.kind));
+    const listed = (this.view?.items ?? []).filter((i) => kinds.includes(i.kind));
+    return this.filtering && this.words.length ? listed.filter((i) => this.isHit(i)) : listed;
   }
 
-  private setLevel(level: number): void {
+  /** The messages that hold every word, with and without tool output. Memoised: finding them reads every message. */
+  private hits(): { inputs: Set<ViewItem>; all: Set<ViewItem> } {
+    const view = this.view!;
+    const key = this.words.join(" ");
+    if (this.hitSets?.view !== view || this.hitSets.key !== key) {
+      const inputs = new Set<ViewItem>();
+      const all = new Set<ViewItem>();
+      for (const it of view.items) {
+        const h = haystack(it);
+        if (!holds(h.all, this.words)) continue;
+        all.add(it);
+        if (holds(h.inputs, this.words)) inputs.add(it);
+      }
+      this.hitSets = { view, key, inputs, all };
+    }
+    return this.hitSets;
+  }
+
+  private isHit(it: ViewItem): boolean {
+    return this.words.length > 0 && !!this.view && (this.includeOutput ? this.hits().all : this.hits().inputs).has(it);
+  }
+
+  /** Run `change`, then stay on the same message if it is still listed, otherwise on the next one after it. */
+  private reselect(change: () => void): void {
     const before = this.items[this.cursor];
-    this.level = level;
+    change();
     const items = this.items;
-    // Stay on the same message if it is still listed, otherwise on the next one after it.
     if (before && this.view) {
       const all = this.view.items;
       const at = all.indexOf(before);
       const next = items.findIndex((i) => all.indexOf(i) >= at);
       this.cursor = next >= 0 ? next : Math.max(0, items.length - 1);
     } else this.cursor = 0;
+    this.show();
+  }
+
+  /** A different message is selected: its content starts at the top, or at its first hit when there is a search. */
+  private show(): void {
     this.scroll = 0;
+    this.hitLine = -1;
+    this.jump = this.words.length ? "first" : undefined;
+  }
+
+  private setLevel(level: number): void {
+    this.reselect(() => {
+      this.level = level;
+    });
+  }
+
+  /** The words arrived with the viewer: start on the first message that holds them. */
+  private startOnFirstHit(): void {
+    const first = this.words.length ? this.items.findIndex((it) => this.isHit(it)) : -1;
+    if (first < 0) return;
+    this.cursor = first;
+    this.show();
+  }
+
+  /** Typing in the search box: the list narrows with every key, and the first match is selected. */
+  private editQuery(text: string): void {
+    const words = splitWords(text);
+    if (words.length) {
+      this.query = text;
+      this.words = words;
+      this.filtering = true;
+      this.cursor = 0;
+      this.show();
+    } else {
+      // Nothing left to search for: the whole list is back, and the selection stays where it was.
+      this.reselect(() => {
+        this.query = text;
+        this.words = [];
+        this.filtering = false;
+      });
+    }
+  }
+
+  private clearSearch(): void {
+    this.typing = false;
+    this.reselect(() => {
+      this.query = "";
+      this.words = [];
+      this.filtering = false;
+    });
+  }
+
+  /** `/`: edit the search the user typed here, or start a new one over words that only came from the session list (they stay highlighted until the first key). */
+  private startTyping(): void {
+    this.typing = true;
+    if (!this.filtering) this.query = "";
+  }
+
+  private typingKey(data: string): void {
+    if (isKey(data, "enter") || isKey(data, "down")) this.typing = false;
+    else if (isKey(data, "escape")) this.clearSearch();
+    else if (isKey(data, "backspace")) this.editQuery(this.query.slice(0, -1));
+    else if (isKey(data, "ctrl+u")) this.editQuery("");
+    else if (!data.startsWith("\x1b") && data >= " ") this.editQuery(this.query + data);
+  }
+
+  /**
+   * `n` / `N`. In the content pane: the next or previous line with a hit in this message, and past its last one the next
+   * message that holds the words. In the list: the next or previous such message.
+   */
+  private step(dir: 1 | -1): void {
+    if (!this.words.length || !this.view) return;
+    const items = this.items;
+    const here = items[this.cursor];
+    if (this.pane === "content" && here && this.paneWidth) {
+      const lines = this.layout(here, this.paneWidth).hitLines;
+      const next = dir > 0 ? lines.find((l) => l > this.hitLine) : [...lines].reverse().find((l) => l < this.hitLine);
+      if (next !== undefined) {
+        this.hitLine = next;
+        this.scroll = Math.max(0, next - HIT_MARGIN);
+        return;
+      }
+    }
+    let i = this.cursor + dir;
+    while (i >= 0 && i < items.length && !this.isHit(items[i]!)) i += dir;
+    if (i < 0 || i >= items.length) return this.hooks.notify(dir > 0 ? "no later message holds the words" : "no earlier message holds the words");
+    this.cursor = i;
+    this.show();
+    if (dir < 0) this.jump = "last";
+  }
+
+  /** `o`: whether a tool call's or subagent's result counts when searching. */
+  private toggleOutput(): void {
+    this.reselect(() => {
+      this.includeOutput = !this.includeOutput;
+    });
+    this.hooks.notify(this.includeOutput ? "searching tool output too" : "searching without tool output");
   }
 
   /** Which pane the movement keys drive. */
@@ -151,10 +340,11 @@ export class SessionViewer {
   }
 
   onKey(data: string): void {
+    if (this.typing) return this.typingKey(data);
     const items = this.items;
     const move = (to: number) => {
       this.cursor = Math.max(0, Math.min(items.length - 1, to));
-      this.scroll = 0;
+      this.show();
     };
     const scrollTo = (to: number) => {
       this.scroll = Math.max(0, Math.min(this.maxScroll(), to));
@@ -171,7 +361,11 @@ export class SessionViewer {
       else this.sharedKey(data, items, move);
       return;
     }
-    if (isKey(data, "escape") || isKey(data, "q") || isKey(data, "left") || isKey(data, "h")) return this.hooks.close();
+    if (isKey(data, "escape") || isKey(data, "q") || isKey(data, "left") || isKey(data, "h")) {
+      // A search the user typed goes first; one handed over from the session list is not in the way of leaving.
+      if (this.filtering) return this.clearSearch();
+      return this.hooks.close();
+    }
     if (isKey(data, "enter") || isKey(data, "tab") || isKey(data, "right") || isKey(data, "l")) {
       if (items.length > 0) this.pane = "content";
     } else if (isKey(data, "down") || isKey(data, "j")) move(this.cursor + 1);
@@ -193,6 +387,11 @@ export class SessionViewer {
       move(i);
     } else if (isKey(data, "v")) this.setLevel((this.level + 1) % LEVELS.length);
     else if (data === "V" || isKey(data, "shift+v")) this.hooks.openDialog(this.viewDialog());
+    else if (data === "/" && this.view) this.startTyping();
+    else if (isPlain(data, "n")) this.step(1);
+    else if (isShift(data, "n")) this.step(-1);
+    else if (isPlain(data, "o") && this.words.length) this.toggleOutput();
+    else if (isPlain(data, "x") && this.words.length) this.clearSearch();
     else if (isKey(data, "y")) this.copyMessage(items[this.cursor]);
     else if (isKey(data, "p")) this.hooks.publish();
   }
@@ -246,9 +445,31 @@ export class SessionViewer {
   }
 
   footerKeys(): Array<[string, string]> {
+    if (this.typing) return [["enter", "done"], ["esc", "clear"]];
+    const search: Array<[string, string]> = [["/", "search"], ...(this.words.length ? ([["n/N", "next/prev hit"], ["o", "tool output"], ["x", "clear search"]] as Array<[string, string]>) : [])];
     return this.pane === "content"
-      ? [["j/k", "scroll"], ["space/b", "page"], ["g/G", "top/bottom"], ["J/K", "prompt"], ["y", "copy"], ["tab/esc", "back to list"], ["p", "publish"]]
-      : [["j/k", "message"], ["space/b", "page"], ["J/K", "prompt"], ["enter/tab", "read"], ["y", "copy"], ["v", "list level"], ["V", "view options"], ["p", "publish"], ["esc", "back"]];
+      ? [["j/k", "scroll"], ...search, ["space/b", "page"], ["g/G", "top/bottom"], ["J/K", "prompt"], ["y", "copy"], ["tab/esc", "back to list"], ["p", "publish"]]
+      : [["j/k", "message"], ...search, ["space/b", "page"], ["J/K", "prompt"], ["enter/tab", "read"], ["y", "copy"], ["v", "list level"], ["V", "view options"], ["p", "publish"], ["esc", "back"]];
+  }
+
+  /** The search box and what it found, under the header while there is a search: how many messages hold the words, and where else some do. */
+  private searchLine(width: number): string | undefined {
+    if (!this.typing && !this.query) return undefined;
+    const box = `${st.cyan("/")} ${this.query}${this.typing ? st.inv(" ") : ""}`;
+    if (!this.words.length || !this.view) return cut(this.typing ? `${box}${st.dim("   words to find, all in one message")}` : box, width);
+    const { inputs, all } = this.hits();
+    const kinds = LEVELS[this.level]!.kinds as readonly ViewKind[];
+    const shown = this.view.items.filter((i) => kinds.includes(i.kind));
+    const found = shown.filter((i) => this.isHit(i)).length;
+    const elsewhere = this.view.items.filter((i) => !kinds.includes(i.kind) && this.isHit(i)).length;
+    const output = this.includeOutput ? 0 : shown.filter((i) => all.has(i) && !inputs.has(i)).length;
+    const notes = [
+      found ? plural(found, "message") : "no message",
+      this.includeOutput && "tool output included",
+      elsewhere > 0 && `+${elsewhere} in hidden kinds (v)`,
+      output > 0 && `+${output} in tool output (o)`,
+    ].filter(Boolean);
+    return cut(`${box}${st.dim(`   ${notes.join(" · ")}`)}`, width);
   }
 
   private header(width: number): string[] {
@@ -284,6 +505,8 @@ export class SessionViewer {
               ? st.green(`✓ brief share is clean (${formatBytes(r.bytes)})`)
               : st.yellow(`! brief share: ${plural(r.findings.length, "finding")} redacted (${r.findings.slice(0, 3).map((f) => f.rule).join(", ")})`),
     );
+    const search = this.searchLine(width);
+    if (search) lines.push(search);
     return lines;
   }
 
@@ -308,7 +531,15 @@ export class SessionViewer {
     const rows = items.slice(this.listTop, this.listTop + inner).map((it, k) => {
       const i = this.listTop + k;
       const turn = it.kind === "user" ? st.dim(`#${it.turn} `) : "";
-      const row = `${i === this.cursor ? (listActive ? st.cyan("▌") : st.gray("▌")) : " "}${" ".repeat(this.depth(it.kind) * INDENT)}${marker(it, `${turn}${it.error ? st.red(it.label) : it.label}`, markers)}`;
+      const lead = `${i === this.cursor ? (listActive ? st.cyan("▌") : st.gray("▌")) : " "}${" ".repeat(this.depth(it.kind) * INDENT)}`;
+      let row = `${lead}${marker(it, `${turn}${it.error ? st.red(it.label) : it.label}`, markers)}`;
+      if (this.words.length) {
+        // The row shows one line of the message; the hits the message holds in all (what its pane highlights) are the part that may be out of sight.
+        const n = this.isHit(it) ? this.layout(it, rightW - 4).hits : 0;
+        const badge = n ? st.dim(` ×${n}`) : "";
+        // Cut first and mark what is left, so a word the cut runs through is not half-highlighted; the marker, the turn number and the indent were not searched.
+        row = markLine(fit(row, rowW - w(badge)), this.words, unstyled(`${lead}${marker(it, turn, markers)}`).length).line + badge;
+      }
       return i === this.cursor ? (listActive ? st.sel : st.selDim)(fit(row, rowW)) : row;
     });
     const left = frame(`${LEVELS[this.level]!.label} · ${items.length} of ${this.view.items.length}${shared ? " · shared ✓" : ""}`, padLines(rows, inner), leftW, {
@@ -328,17 +559,49 @@ export class SessionViewer {
       return { title: "message", lines: [st.dim("nothing to show")] };
     }
     const title = `${KINDS[it.kind].color(it.kind === "user" ? "prompt" : it.kind)}${it.meta ? ` · ${it.meta}` : ""}${it.error ? " · error" : ""}  ${st.dim(`turn ${it.turn}`)}`;
-    this.rightLines = renderItem(it, width);
+    const laid = this.layout(it, width);
+    this.rightLines = laid.lines;
     this.rightHeight = height;
+    this.paneWidth = width;
+    this.hitNote = laid.hits ? `${plural(laid.hits, "hit")} · n/N` : "";
+    if (this.jump) {
+      const line = this.jump === "last" ? laid.hitLines.at(-1) : laid.hitLines[0];
+      this.hitLine = line ?? -1;
+      // The first hit only moves the pane when it is out of sight; stepping to a hit always puts it near the top.
+      if (line !== undefined) this.scroll = this.jump === "first" && line < height ? 0 : Math.max(0, line - HIT_MARGIN);
+      this.jump = undefined;
+    }
     this.scroll = Math.min(this.scroll, this.maxScroll());
     return { title, lines: this.rightLines.slice(this.scroll, this.scroll + height), bottom: this.rightHint() };
   }
 
-  /** What the content panel's bottom border says: how much is hidden, and how to move the focus. */
+  /** A message's lines as the content pane draws them, with the search's hits marked; kept while the words and the width stay the same. */
+  private layout(it: ViewItem, width: number): Laid {
+    const key = `${width}\0${this.words.join(" ")}`;
+    let laid = this.laid.get(it);
+    if (laid?.key !== key) {
+      const hitLines: number[] = [];
+      let hits = 0;
+      let base = this.rendered.get(it);
+      if (base?.width !== width) this.rendered.set(it, (base = { width, lines: renderItem(it, width) }));
+      const lines = base.lines.map((line, i) => {
+        const marked = markLine(line, this.words);
+        if (marked.hits) {
+          hitLines.push(i);
+          hits += marked.hits;
+        }
+        return marked.line;
+      });
+      this.laid.set(it, (laid = { key, lines, hitLines, hits }));
+    }
+    return laid;
+  }
+
+  /** What the content panel's bottom border says: the hits, how much is hidden, and how to move the focus. */
   private rightHint(): string | undefined {
     const more = this.rightLines.length - this.rightHeight - this.scroll;
     const hidden = more > 0 ? `↓ ${more} more lines` : "";
-    if (this.pane === "content") return [hidden, "j/k scroll", "space/b page", "y copy", "tab/esc back"].filter(Boolean).join(" · ");
-    return more > 0 ? `${hidden} · enter to read` : undefined;
+    if (this.pane === "content") return [this.hitNote, hidden, "j/k scroll", "space/b page", "y copy", "tab/esc back"].filter(Boolean).join(" · ");
+    return more > 0 ? `${[this.hitNote, hidden].filter(Boolean).join(" · ")} · enter to read` : this.hitNote || undefined;
   }
 }

@@ -114,6 +114,14 @@ describe("viewFromSession", () => {
     expect(view.items.find((i) => i.kind === "tool")!.body).toContain("out 31mtext");
   });
 
+  it("flags the blocks that are a tool's result, so a search can leave them out", () => {
+    const view = viewFromSession(parseSession(transcript(), "claude-code").session);
+    const tool = view.items.find((i) => i.kind === "tool")!;
+    // the command is the call; the "error" heading and the output under it are the result
+    expect(tool.blocks!.map((b) => `${b.type}${b.output ? ":output" : ""}`)).toEqual(["code", "label:output", "code:output"]);
+    expect(view.items.filter((i) => i.kind !== "tool").every((i) => !i.blocks)).toBe(true);
+  });
+
   it("truncates huge tool output instead of carrying it all", () => {
     const t = new ClaudeTranscript()
       .user("dump it")

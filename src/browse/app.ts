@@ -8,7 +8,9 @@
  *             ctrl-r re-reads sessions written since launch (selection and filters stay)
  *             changing a filter, the search or the sort jumps back to the first session; grouping keeps the selection
  *   search    /  free words plus harness:pi project:x branch:y model:opus tool:Bash since:7d shared:no workers:yes
- *   open      enter → viewer (message list ↔ content); v cycles prompts / conversation / everything
+ *             the free words are highlighted in the rows and the preview; the preview quotes the prompts they were found in
+ *   open      enter → viewer (message list ↔ content); v cycles prompts / conversation / everything;
+ *             the search's words come along: highlighted, and the viewer starts on the first message that holds them
  *   publish   p → mode (t: target, gist or R2) → review → confirm; yes uploads exactly what was reviewed
  */
 import { SHARE_TARGETS } from "../config.js";
@@ -23,6 +25,8 @@ import { ago, branchLabel, DATE_FORMATS, dateFormat, dayBucket, durationMs, plur
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { copyToClipboard, MODE_HINT, PublishFlow } from "./flow.js";
 import { box, columns, composite, cut, fit, hr, isKey, isPlain, isShift, padLines, pagingKey, Screen, st, w, wrap, type PageMove } from "./kit.js";
+import { markLine, snippet } from "./mark.js";
+import { MIN_HIGHLIGHT } from "../sessions/query.js";
 import { memorySettings, SAVE_FAILED_MESSAGE, type SettingsPatch, type SettingsStore } from "./settings.js";
 import { destinationLabel, type Source } from "./source.js";
 import { SessionViewer } from "./viewer.js";
@@ -67,6 +71,8 @@ const SORT_KEY: Record<SortField, (s: SessionSummary) => number | string> = {
 /** Width of the list's branch column, and the narrowest title the list keeps to make room for it. */
 const BRANCH_COL = 16;
 const MIN_TITLE = 28;
+/** Most "matched in prompts" lines the preview shows. */
+const MAX_SNIPPETS = 3;
 
 const cycle = <T>(list: T[], current: T): T => list[(list.indexOf(current) + 1) % list.length]!;
 
@@ -488,7 +494,7 @@ export class BrowserApp extends Screen {
         this.viewer?.dispose();
         this.viewer = undefined;
       },
-    });
+    }, this.searchWords().join(" "));
   }
 
   private openFlow(s: SessionSummary): void {
@@ -616,6 +622,7 @@ export class BrowserApp extends Screen {
     const lw = Math.max(30, Math.floor(width * 0.56));
     const rw = Math.max(10, width - lw - 3);
     const entries = this.entries();
+    const words = this.searchWords();
     const sel = Math.max(0, entries.findIndex((e) => "idx" in e && e.idx === this.cursor));
     if (sel < this.topLine) this.topLine = "header" in (entries[sel - 1] ?? {}) ? sel - 1 : sel;
     if (sel >= this.topLine + bodyH) this.topLine = sel - bodyH + 1;
@@ -624,13 +631,19 @@ export class BrowserApp extends Screen {
     // While typing, `x` would land in the search box, so point at the key that works there.
     if (this.view.length === 0) rows.push(st.dim(this.typing ? "  no sessions match — esc clears the search" : "  no sessions match — x clears filters"));
     for (const e of entries.slice(this.topLine, this.topLine + bodyH)) {
-      rows.push("header" in e ? st.dim(`── ${e.header} ${"─".repeat(Math.max(0, lw - w(e.header) - 4))}`) : this.row(this.view[e.idx]!, e.idx === this.cursor, lw));
+      rows.push("header" in e ? st.dim(`── ${e.header} ${"─".repeat(Math.max(0, lw - w(e.header) - 4))}`) : this.row(this.view[e.idx]!, e.idx === this.cursor, lw, words));
     }
-    const preview = this.current ? this.preview(this.current, rw) : [];
+    const preview = this.current ? this.preview(this.current, rw, words) : [];
     return [...head, ...columns(padLines(rows, bodyH), padLines(preview.slice(0, bodyH), bodyH), lw, rw), hr(width), this.footer(width)];
   }
 
-  private row(s: SessionSummary, selected: boolean, width: number): string {
+  /** The free words of the search: what the rows and the preview highlight. */
+  private searchWords(): string[] {
+    return this.query ? parseQuery(this.query, this.now()).words : [];
+  }
+
+  private row(s: SessionSummary, selected: boolean, width: number, words: readonly string[]): string {
+    const mark = (text: string) => markLine(text, words).line;
     const shared = sharesFor(this.source.shares, s.harness, s.id).length > 0;
     const harness = s.harness === "pi" ? st.magenta("π ") : st.yellow("CC");
     const fmt = dateFormat(this.settings.get().dateFormat);
@@ -640,27 +653,63 @@ export class BrowserApp extends Screen {
     const project = s.pending ? "…" : (s.project ?? "?");
     const title = s.pending ? st.dim("reading…") : (s.title ?? "(untitled)");
     // A guessed branch (from the repo's reflog, not the transcript) is marked with ~.
-    const branch = branchW ? `${fit(s.branch ? st.dim(`${s.branchGuess ? "~" : ""}${s.branch}`) : "", branchW)} ` : "";
-    const cells = `${selected ? st.cyan("▌") : " "}${fit(fmt.format(s.mtimeMs, this.now()), fmt.width + 1)}${harness} ${fit(st.dim(project), 14)} ${branch}${fit(title, width - fixed - (branchW ? branchW + 1 : 0))} ${shared ? st.green("✓") : " "}`;
+    const branch = branchW ? `${mark(fit(s.branch ? st.dim(`${s.branchGuess ? "~" : ""}${s.branch}`) : "", branchW))} ` : "";
+    const cells = `${selected ? st.cyan("▌") : " "}${fit(fmt.format(s.mtimeMs, this.now()), fmt.width + 1)}${harness} ${mark(fit(st.dim(project), 14))} ${branch}${mark(fit(title, width - fixed - (branchW ? branchW + 1 : 0)))} ${shared ? st.green("✓") : " "}`;
     return selected ? st.sel(fit(cells, width)) : cells;
   }
 
-  private preview(s: SessionSummary, width: number): string[] {
-    if (s.pending) return [st.dim(s.harness === "pi" ? "pi" : "Claude Code"), st.dim(formatBytes(s.size)), "", st.dim("reading this session…")];
+  /**
+   * Where the search's words are, for the words the list row and the header do not already show: a short stretch of the
+   * prompt each is in. The prompts kept in their own case come first; text only the search index has is lower-cased.
+   */
+  private matchSnippets(s: SessionSummary, words: readonly string[], width: number): string[] {
+    const shown = [s.title, s.project, s.branch, s.models.join(" ")].join("\n").toLowerCase();
+    // A word of one letter cannot be found in text (see MIN_HIGHLIGHT), so there is nothing to quote for it.
+    let need = words.filter((word) => word.length >= MIN_HIGHLIGHT && !shown.includes(word));
+    const own = [...new Set([s.firstPrompt, ...s.promptHead, ...s.promptTail, s.lastPrompt].filter((t): t is string => !!t))];
     const out: string[] = [];
-    out.push(...wrap(st.bold(s.title ?? "(untitled)"), width).slice(0, 2));
-    out.push(st.dim([s.harness === "pi" ? "pi" : "Claude Code", s.models.map(shortModel).join(", "), branchLabel(s), sessionDuration(s)].filter(Boolean).join(" · ")));
+    for (const pool of [own, s.searchText.split("\n")]) {
+      while (need.length && out.length < MAX_SNIPPETS) {
+        // The prompt holding the most of the words still unexplained.
+        let best: string | undefined;
+        let most = 0;
+        for (const text of pool) {
+          const lower = text.toLowerCase();
+          const n = need.filter((word) => lower.includes(word)).length;
+          if (n > most) [best, most] = [text, n];
+        }
+        if (!best) break;
+        // The snippet is a stretch around the first word it holds: a word elsewhere in the prompt is not explained until
+        // a snippet shows it, so only the words that are in the lines shown count as done (the next round takes the rest).
+        const line = snippet(best, need, width - 2);
+        if (!line) break;
+        out.push(line);
+        const lower = line.toLowerCase();
+        need = need.filter((word) => !lower.includes(word));
+      }
+    }
+    return out;
+  }
+
+  private preview(s: SessionSummary, width: number, words: readonly string[] = []): string[] {
+    if (s.pending) return [st.dim(s.harness === "pi" ? "pi" : "Claude Code"), st.dim(formatBytes(s.size)), "", st.dim("reading this session…")];
+    const mark = (line: string) => markLine(line, words).line;
+    const out: string[] = [];
+    out.push(...wrap(st.bold(s.title ?? "(untitled)"), width).slice(0, 2).map(mark));
+    out.push(mark(st.dim([s.harness === "pi" ? "pi" : "Claude Code", s.models.map(shortModel).join(", "), branchLabel(s), sessionDuration(s)].filter(Boolean).join(" · "))));
     out.push(st.dim(`${plural(s.prompts, "prompt")} · ${plural(s.calls, "model call")} · ${formatBytes(s.size)}${s.subagents ? ` · ${plural(s.subagents, "subagent")}` : ""}`));
     const tools = toolSummary(s.tools);
     if (tools) out.push(st.dim(tools));
     const last = sharesFor(this.source.shares, s.harness, s.id).at(-1);
     if (last) out.push(st.green(`✓ shared ${ago(Date.parse(last.sharedAt), this.now())} (${last.mode})`));
-    out.push("", st.cyan("first prompt"), ...wrap(s.firstPrompt ?? "", width).slice(0, 4).map((l) => st.dim(l)));
-    if (s.lastPrompt && s.lastPrompt !== s.firstPrompt) out.push("", st.cyan("latest prompt"), ...wrap(s.lastPrompt, width).slice(0, 3).map((l) => st.dim(l)));
-    if (s.lastReply) out.push("", st.cyan("last reply"), ...wrap(s.lastReply, width).slice(0, 5).map((l) => st.dim(l)));
+    const found = words.length ? this.matchSnippets(s, words, width) : [];
+    if (found.length) out.push("", st.cyan("matched in prompts"), ...found.map((l) => mark(`${st.dim("· ")}${cut(l, width - 2)}`)));
+    out.push("", st.cyan("first prompt"), ...wrap(s.firstPrompt ?? "", width).slice(0, 4).map((l) => mark(st.dim(l))));
+    if (s.lastPrompt && s.lastPrompt !== s.firstPrompt) out.push("", st.cyan("latest prompt"), ...wrap(s.lastPrompt, width).slice(0, 3).map((l) => mark(st.dim(l))));
+    if (s.lastReply) out.push("", st.cyan("last reply"), ...wrap(s.lastReply, width).slice(0, 5).map((l) => mark(st.dim(l))));
     if (s.promptHead.length > 2) {
       out.push("", st.cyan(`prompts (${s.prompts})`));
-      s.promptHead.slice(0, 6).forEach((p, i) => out.push(`${st.dim(`${i + 1}.`)} ${cut(p, width - 3)}`));
+      s.promptHead.slice(0, 6).forEach((p, i) => out.push(`${st.dim(`${i + 1}.`)} ${mark(cut(p, width - 3))}`));
       if (s.prompts > 6) out.push(st.dim(`   … ${s.prompts - 6} more`));
     }
     return out;
@@ -740,7 +789,7 @@ export class BrowserApp extends Screen {
         row("j/k  ↑/↓", "move · home/end"),
         row("space  b", "page down · up (also PgDn PgUp, ctrl-f ctrl-b)"),
         row("ctrl-d/u", "half a page down · up"),
-        row("/", "search (harness:pi since:7d tool:Bash shared:no …)"),
+        row("/", "search (harness:pi since:7d tool:Bash shared:no …); the words are highlighted"),
         row("h r t s", "cycle harness · repo · time · shared"),
         row("g  o", "cycle grouping · sort field"),
         st.dim("  changing a filter, the search or the sort selects the first session again"),
@@ -758,6 +807,8 @@ export class BrowserApp extends Screen {
         row("space  b", "page down / up in whichever pane has the focus; g/G top/bottom"),
         row("y", "copy the selected message to the clipboard"),
         row("v  V", "cycle prompts → conversation → everything · dialog + layout"),
+        row("/  n  N", "search the messages (all words in one) · next · previous hit"),
+        row("o  x", "include tool output in the search · clear the search"),
         "",
         st.dim("any key closes this"),
       ],

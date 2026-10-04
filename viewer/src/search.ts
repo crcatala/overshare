@@ -76,6 +76,8 @@ function stepFields(step: Step, cwd: string | undefined): (Field | undefined)[] 
       return [field(step.tool, [step.agents.join(", "), step.description].filter(Boolean).join("\n")), field(`${step.tool} output`, step.result?.text, "output")];
     case "event":
       return [field(step.event.replace("_", " "), [step.text, step.detail].filter(Boolean).join("\n"))];
+    default:
+      return []; // a kind from a newer format: drawn as a placeholder, so nothing to find in it
   }
 }
 

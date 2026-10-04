@@ -1,0 +1,62 @@
+/**
+ * Turns a fetched share into the session the viewer renders, whichever format version wrote it.
+ *
+ * The viewer only understands the current format (`SCHEMA_VERSION`). A share from another version is
+ * handled by its position relative to that:
+ *   - same version: used as is.
+ *   - newer (made by a newer agent-share): rendered best effort, with a notice. Additive changes (new
+ *     optional fields, new step kinds) mostly work; the renderer shows what it can't read as a placeholder.
+ *   - older: upgraded step by step through MIGRATIONS, each one a pure function from one version's JSON to
+ *     the next's. A version with no path to the current one is refused with a message saying so.
+ *
+ * Migrations load on demand (a dynamic import, so its own chunk): a current share never fetches one.
+ */
+import { SCHEMA_VERSION, type NormalizedSession } from "../../src/schema.ts";
+
+/** A migration takes a share of version N (it may mutate it; it was just parsed) and returns it as version N+1. */
+export type Migration = (share: Record<string, unknown>) => Record<string, unknown>;
+export type Migrations = Record<number, () => Promise<{ default: Migration }>>;
+
+/**
+ * Migrations by the version they upgrade *from*. Empty: agentshare/2 is the oldest format this viewer opens
+ * (v1 was dropped before any other reader existed). When the format changes incompatibly:
+ *   1. bump SCHEMA_VERSION,
+ *   2. add `2: () => import("./migrations/v2-to-v3.ts")` here, exporting `default` that returns the v3 shape,
+ *   3. freeze a v3 share in tests/fixtures/shares/ (the tests fail until you do).
+ */
+export const MIGRATIONS: Migrations = {};
+
+const SCHEMA = /^agentshare\/(\d+)$/;
+
+/** `agentshare/2` → 2; undefined for anything else. */
+export function schemaVersion(schema: unknown): number | undefined {
+  const m = typeof schema === "string" ? SCHEMA.exec(schema) : null;
+  return m ? Number(m[1]) : undefined;
+}
+
+export interface ReadShare {
+  session: NormalizedSession;
+  /** Shown above the transcript when the share may not display completely. */
+  notice?: string;
+}
+
+export async function readShare(data: unknown, migrations: Migrations = MIGRATIONS): Promise<ReadShare> {
+  const current = schemaVersion(SCHEMA_VERSION)!;
+  let doc = data as Record<string, unknown> | null;
+  const version = schemaVersion(doc?.schema);
+  if (!doc || typeof doc !== "object" || version === undefined) {
+    const found = typeof doc?.schema === "string" ? doc.schema : "none";
+    throw new Error(`This isn't an agent-share session (format: ${found}).`);
+  }
+  let notice: string | undefined;
+  if (version > current) {
+    notice = `This session was shared with a newer agent-share (${doc.schema}) than this viewer reads (${SCHEMA_VERSION}). Some of it may be missing or shown as a placeholder.`;
+  }
+  for (let v = version; v < current; v++) {
+    const load = migrations[v];
+    if (!load) throw new Error(`This session was shared in an older format (${doc.schema}) that this viewer can no longer open.`);
+    doc = { ...(await load()).default(doc), schema: `agentshare/${v + 1}` };
+  }
+  if (!Array.isArray(doc.turns)) throw new Error("This session has no turns to show.");
+  return { session: doc as unknown as NormalizedSession, ...(notice ? { notice } : {}) };
+}

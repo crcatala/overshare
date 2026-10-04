@@ -171,6 +171,15 @@ button.theme::before {
   font-size: 1.2em;
   color: var(--err);
 }
+/* The share may not show completely (a newer format than this viewer reads). */
+.compat-notice {
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  color: var(--warn);
+  font-size: var(--fs-sm);
+}
 .end {
   margin-top: 40px;
   color: var(--faint);
@@ -681,6 +690,14 @@ pre.diff > span {
 }
 .k-event.is-error .tline {
   color: var(--err);
+}
+/* A step this viewer can't draw (see unsupported() in transcript.ts). */
+.k-unsupported .body {
+  color: var(--faint);
+  font-size: var(--fs-sm);
+}
+.k-unsupported .tname {
+  margin-right: 8px;
 }
 .sub-desc {
   color: var(--ink-2);

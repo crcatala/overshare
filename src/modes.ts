@@ -217,9 +217,9 @@ function briefTurn(turn: Turn): Turn {
     } else if (s.kind === "event") {
       const { detail: _detail, ...rest } = s;
       steps.push(rest);
-    } else {
+    } else if (s.kind === "text") {
       steps.push(s);
-    }
+    } // else a kind from a newer format: a view that shows less can't tell what it would leave out, so it leaves the step out
   }
   flush();
   const user = turn.user ? { ...turn.user, expanded: undefined } : undefined;

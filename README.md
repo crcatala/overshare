@@ -391,6 +391,19 @@ server):
 | `…&ui=log.brief.dark.L.toc-all` | open with these view settings (see *View settings*) |
 | `…&turn=3` | open at prompt 3 |
 
+Shares outlive the viewer that wrote them, and the viewer is always the latest build, so it reads
+shares by the format version in them (`"schema": "agentshare/N"`):
+
+- **Same version**: shown as is.
+- **Newer version** (shared with a newer agent-share): shown best effort under a notice. Anything the
+  viewer doesn't recognise, like a new kind of step, appears as a labelled placeholder instead of
+  breaking the page; a turn that can't be read at all is replaced by a placeholder too.
+- **Older version**: upgraded in the browser by small migrations (`viewer/src/compat.ts`), loaded only
+  when a share needs one. A version with no migration says it can no longer be opened.
+
+Adding optional fields never needs a new version. `src/schema.ts` says what does, and the shares frozen
+in `tests/fixtures/shares/` keep every supported version rendering.
+
 Transcripts are untrusted: anyone can make a gist and send a link to your viewer. The
 header says where the share was loaded from (for gists, the owner as GitHub reports it)
 and that the content isn't verified. Markdown is sanitized with DOMPurify and may not

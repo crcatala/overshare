@@ -7,12 +7,13 @@ import "./styles/hybrid.css";
 import "./styles/log.css";
 import { plural } from "../../src/format.ts";
 import { projectSession, promptsUnavailableReason } from "../../src/modes.ts";
-import { SCHEMA_VERSION, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
+import type { NormalizedSession, ShareMode } from "../../src/schema.ts";
 import { beacon } from "./beacon.ts";
 import { clearHits, pulseHits, refreshHits, showHits } from "./findhits.ts";
 import { relayoutTables, releaseTables, setTableStyle } from "./asciitable.ts";
 import { h, hideTooltip, toast } from "./dom.ts";
 import { attribution } from "./attribution.ts";
+import { readShare } from "./compat.ts";
 import { renderHeader, renderMinibar, type Controls } from "./header.ts";
 import { closeMenus } from "./menu.ts";
 import { closeHoverCard } from "./popover.ts";
@@ -32,6 +33,8 @@ const app = document.getElementById("app") as HTMLElement;
 const root = document.documentElement;
 
 let shared: NormalizedSession | undefined;
+/** Why this share may not show completely (see compat.ts). */
+let notice: string | undefined;
 let provenance: Provenance | undefined;
 let state: HashState = parseHash(location.hash);
 /** Listeners and observers of the current render, dropped on the next one. */
@@ -315,7 +318,7 @@ function render(opts: { keepPlace?: boolean; turn?: number } = {}): void {
   const minibar = renderMinibar(session, turns, controls);
 
   const end = h("footer", { class: "end" }, h("span", {}, `end of session · ${plural(turns.filter((t) => t.ordinal).length, "prompt")}`), attribution());
-  const page = h("div", { class: "page" }, header, transcript, end);
+  const page = h("div", { class: "page" }, header, notice ? h("p", { class: "compat-notice", role: "status" }, notice) : null, transcript, end);
   app.replaceChildren(minibar.el, page, ...rail("left", "Contents", "≡", toc.el), ...rail("right", "Tokens", "∑", tokens.el));
   updateDock();
 
@@ -480,6 +483,7 @@ async function main(): Promise<void> {
   const turn = openAt;
   openAt = undefined;
   shared = undefined;
+  notice = undefined;
   provenance = undefined;
   activeTurn = undefined;
   navCursor = undefined;
@@ -491,11 +495,12 @@ async function main(): Promise<void> {
   }
   try {
     const loaded = await loadSource(state.source);
-    const data = loaded.data as NormalizedSession;
-    if (!data || data.schema !== SCHEMA_VERSION) throw new Error(`Unsupported share format (${(data as { schema?: string })?.schema ?? "unknown"}).`);
+    const read = await readShare(loaded.data);
+    const data = read.session;
     const reason = data.mode === "prompts" ? promptsUnavailableReason(data) : undefined;
     if (reason) throw new Error(reason);
     shared = data;
+    notice = read.notice;
     provenance = loaded.provenance;
     render({ turn });
   } catch (err) {

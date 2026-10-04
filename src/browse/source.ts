@@ -110,6 +110,8 @@ export interface IndexFeed {
   progress(): { done: number; total: number } | undefined;
   /** Called after `Source.sessions` changed (rows filled in or dropped). Returns the unsubscribe. */
   subscribe(listener: () => void): () => void;
+  /** List the sessions again: new ones appear, changed ones are read again, vanished ones go (`subscribe` listeners hear about it). */
+  refresh(): void;
   /** Stop reading and persist what has been read. */
   stop(): void;
 }

@@ -428,6 +428,85 @@ describe("IndexJob (incremental index)", () => {
     expect(job.sessions.map((s) => s.id)).toEqual(["sess-0", "sess-2"]);
     expect(cachedIds().sort()).toEqual(["0", "2"]);
   });
+
+  describe("refresh (ass-gnso)", () => {
+    const addTitle = (file: string, title: string) => writeFileSync(file, `${readFileSync(file, "utf8")}${JSON.stringify({ type: "ai-title", aiTitle: title })}\n`);
+    /** A job that has read everything, over `n` sessions. */
+    async function ready(n: number) {
+      const env = setup(n);
+      const job = new IndexJob({ roots: env.roots, cachePath: env.cachePath, sliceMs: 0 });
+      await vi.runAllTimersAsync();
+      return { ...env, job };
+    }
+
+    it("picks up a session that appeared as a placeholder, newest first, and reads it", async () => {
+      const { dir, job } = await ready(2);
+      const file = join(dir, "claude", "-home-x", "sess-new.jsonl");
+      writeFileSync(file, new ClaudeTranscript("sess-new", "/home/tester/work/demo").user("a brand new prompt").toJsonl());
+      utimesSync(file, new Date(2026, 0, 2), new Date(2026, 0, 2));
+      const rows = job.sessions;
+      let heard = 0;
+      job.subscribe(() => heard++);
+      job.refresh();
+      expect(job.sessions).toBe(rows); // the same array, changed in place: the source holds it
+      expect(job.sessions.map((s) => s.id)).toEqual(["sess-new", "sess-0", "sess-1"]);
+      expect(job.sessions[0]!.pending).toBe(true);
+      expect(job.progress()).toEqual({ done: 2, total: 3 });
+      expect(heard).toBe(1); // listeners hear about the new row at once
+      await vi.runAllTimersAsync();
+      expect(job.sessions[0]).toMatchObject({ id: "sess-new", firstPrompt: "a brand new prompt" });
+      expect(job.sessions.some((s) => s.pending)).toBe(false);
+      expect(job.progress()).toBeUndefined();
+    });
+
+    it("re-reads a session that grew, keeping its old row on screen until then, and leaves the others alone", async () => {
+      const { files, job } = await ready(3);
+      const before = [...job.sessions];
+      addTitle(files[1]!, "A newer title");
+      job.refresh();
+      const grown = job.sessions.find((s) => s.id === "sess-1")!;
+      expect(grown).toBe(before.find((s) => s.id === "sess-1")); // not a placeholder: the row does not flicker
+      expect(grown.title).toBe("Title 1");
+      expect(job.progress()).toEqual({ done: 2, total: 3 });
+      await vi.runAllTimersAsync();
+      expect(job.sessions.find((s) => s.id === "sess-1")!.title).toBe("A newer title");
+      // The rows that did not change are the very objects they were: nothing else was read.
+      for (const id of ["sess-0", "sess-2"]) expect(job.sessions.find((s) => s.id === id)).toBe(before.find((s) => s.id === id));
+    });
+
+    it("drops a session whose file is gone, and the cache forgets it", async () => {
+      const { files, job, cachedIds } = await ready(3);
+      rmSync(files[1]!);
+      job.refresh();
+      expect(job.sessions.map((s) => s.id)).toEqual(["sess-0", "sess-2"]);
+      expect(job.progress()).toBeUndefined(); // nothing to read
+      expect(cachedIds().sort()).toEqual(["0", "2"]);
+    });
+
+    it("with nothing changed it reads nothing and starts no work", async () => {
+      const { job } = await ready(3);
+      const before = [...job.sessions];
+      let heard = 0;
+      job.subscribe(() => heard++);
+      job.refresh();
+      expect(job.sessions).toEqual(before);
+      expect(job.progress()).toBeUndefined();
+      expect(vi.getTimerCount()).toBe(0);
+      expect(heard).toBe(1);
+    });
+
+    it("during a running index it keeps what was read and queues the rest once", async () => {
+      const { files, roots, cachePath } = setup(4);
+      const job = new IndexJob({ roots, cachePath, sliceMs: 0 });
+      await slices(1); // sess-0 is read
+      addTitle(files[0]!, "Edited while reading");
+      job.refresh();
+      expect(job.progress()).toEqual({ done: 0, total: 4 }); // sess-0 changed, so everything is still to be read
+      await vi.runAllTimersAsync();
+      expect(job.sessions.some((s) => s.pending)).toBe(false);
+      expect(job.sessions.map((s) => s.title)).toEqual(["Edited while reading", "Title 1", "Title 2", "Title 3"]);
+    });
+  });
 });
 
 describe("summarizeRaw keeps the last thing the assistant said", () => {

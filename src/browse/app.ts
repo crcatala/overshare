@@ -5,6 +5,7 @@
  *   list      h harness · r repo · t time · s shared · g group · o sort   (x clears filters)
  *             Shift+key opens the same choice as a dialog: H R T S G O     (R: type / to filter the repo list)
  *             space/ctrl-f/PgDn and b/ctrl-b/PgUp page · ctrl-d/ctrl-u half a page · , settings
+ *             ctrl-r re-reads sessions written since launch (selection and filters stay)
  *             changing a filter, the search or the sort jumps back to the first session; grouping keeps the selection
  *   search    /  free words plus harness:pi project:x branch:y model:opus tool:Bash since:7d shared:no workers:yes
  *   open      enter → viewer (message list ↔ content); v cycles prompts / conversation / everything
@@ -375,6 +376,7 @@ export class BrowserApp extends Screen {
     else if (data === "/") this.typing = true;
     else if (data === "?") this.help = true;
     else if (data === ",") this.dialog = this.settingsDialog();
+    else if (isKey(data, "ctrl+r")) this.refreshIndex();
     // one-key cycles …
     else if (isPlain(data, "h")) {
       this.harness = cycle(HARNESSES, this.harness);
@@ -409,6 +411,12 @@ export class BrowserApp extends Screen {
     else if (isPlain(data, "p") && this.current) this.openFlow(this.current);
     else if (isPlain(data, "y") && this.current) this.copyLink(this.current);
     this.cursor = Math.max(0, Math.min(Math.max(0, this.view.length - 1), Math.floor(this.cursor)));
+  }
+
+  /** ctrl-r: pick up sessions that were written since the list was built. The selection and the filters stay (rows arrive through the index subscription). */
+  private refreshIndex(): void {
+    if (!this.source.index) this.message = "nothing to refresh";
+    else this.source.index.refresh();
   }
 
   /** Quitting asks first unless the user turned that off in the settings. */
@@ -564,6 +572,7 @@ export class BrowserApp extends Screen {
             k("Shift+", "dialog"),
             k("enter", "open"),
             k("p", "publish"),
+            k("ctrl-r", "refresh"),
             k(",", "settings"),
             k("?", "help"),
             k("q", "quit"),
@@ -737,6 +746,7 @@ export class BrowserApp extends Screen {
         st.dim("  changing a filter, the search or the sort selects the first session again"),
         row("H R T S G O", "Shift: pick from a dialog (R: / filters the repo list; O: field + direction)"),
         row("x", "clear search + filters"),
+        row("ctrl-r", "refresh: read sessions written since launch (selection and filters stay)"),
         row(",", "settings: confirm before quitting · date format"),
         row("enter  p  y", "open viewer · publish · copy link"),
         row("t", "in the publish dialog: switch the target (gist · R2) for this publish"),

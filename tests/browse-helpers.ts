@@ -23,6 +23,7 @@ export const KEY = {
   ctrlF: "\x06",
   ctrlB: "\x02",
   ctrlD: "\x04",
+  ctrlR: "\x12",
   ctrlU: "\x15",
   end: "\x1b[F",
 } as const;
@@ -120,6 +121,11 @@ export interface FakeSourceOptions {
   sessions?: SessionSummary[];
   /** Ids that start as stat-only placeholders; `source.fill(id)` reads one, like the index would. */
   pending?: string[];
+  /**
+   * Makes the fake index refreshable: `ctrl-r` calls this to change `sessions` in place (add, replace, remove rows), as the real
+   * index does, and the browser is told afterwards.
+   */
+  refresh?: (sessions: SessionSummary[]) => void;
   /** Use this index feed (e.g. a real `IndexJob` whose `sessions` are passed too) instead of the fake one. */
   index?: IndexFeed;
   shares?: SharesFile;
@@ -153,6 +159,8 @@ export interface FakeSource extends Source {
   fill(id: string): void;
   /** Whether the browser told the index to stop (it quit). */
   stopped: boolean;
+  /** How many times the browser asked the index to refresh. */
+  refreshes: number;
 }
 
 export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
@@ -169,7 +177,7 @@ export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
   const full = opts.sessions ?? sampleSessions();
   const sessions = full.map((s) => (opts.pending?.includes(s.id) ? placeholderOf(s) : s));
   const listeners = new Set<() => void>();
-  const feed: IndexFeed | undefined = opts.pending
+  const feed: IndexFeed | undefined = opts.pending || opts.refresh
     ? {
         progress: () => {
           const left = sessions.filter((s) => s.pending).length;
@@ -178,6 +186,11 @@ export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
         subscribe: (l) => {
           listeners.add(l);
           return () => void listeners.delete(l);
+        },
+        refresh: () => {
+          source.refreshes++;
+          opts.refresh?.(sessions);
+          for (const l of listeners) l();
         },
         stop: () => {
           source.stopped = true;
@@ -188,6 +201,7 @@ export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
     sessions: opts.index ? full : sessions,
     index: feed,
     stopped: false,
+    refreshes: 0,
     fill(id) {
       const at = sessions.findIndex((s) => s.id === id);
       sessions[at] = full.find((s) => s.id === id)!;

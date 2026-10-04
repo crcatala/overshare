@@ -64,6 +64,19 @@ describe("fileSettings", () => {
     expect(loadSettings(path)).toEqual(b.get());
   });
 
+  it("saves the text marker style to the file and a new run reads it back", () => {
+    const path = join(dir, "browse.json");
+    expect(fileSettings(path).update({ viewer: { markers: "text" } })).toBe(true);
+    expect(JSON.parse(readFileSync(path, "utf8")).viewer.markers).toBe("text");
+    expect(fileSettings(path).get().viewer.markers).toBe("text");
+    // Switching back, and other viewer fields, leave each other alone.
+    const store = fileSettings(path);
+    store.update({ viewer: { indentTools: true } });
+    expect(loadSettings(path).viewer).toEqual({ indentReplies: false, indentTools: true, markers: "text" });
+    store.update({ viewer: { markers: "icon" } });
+    expect(loadSettings(path).viewer).toEqual({ indentReplies: false, indentTools: true, markers: "icon" });
+  });
+
   it("survives a corrupt file and a hand-edited partial file", () => {
     const path = join(dir, "browse.json");
     writeFileSync(path, "{ not json");

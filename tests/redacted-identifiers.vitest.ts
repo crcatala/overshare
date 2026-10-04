@@ -73,10 +73,53 @@ describe("Redactor.redactIdentifier surrogates", () => {
     expect(out).toEqual({ "[REDACTED:github-v2#2]": 1, "[REDACTED:github-v2]": 2, "claude-opus-5-5": 3 });
   });
 
-  it("a key that already looks like a token does not overwrite a redacted one", () => {
-    const redactor = r();
-    const out = redactor.redactIdentifierKeys({ [ghp(1)]: 1, "[REDACTED:github-v2]": 2 });
-    expect(Object.values(out).sort()).toEqual([1, 2]);
+  it("a key that is an own `__proto__` stays an own key", () => {
+    const record = JSON.parse('{"__proto__": 1, "claude-opus-5-5": 2}') as Record<string, number>;
+    const out = r().redactIdentifierKeys(record);
+    expect(Object.keys(out)).toEqual(["__proto__", "claude-opus-5-5"]);
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+    expect(JSON.stringify(out)).toBe('{"__proto__":1,"claude-opus-5-5":2}');
+  });
+
+  describe("an id that is already shaped like a token (a transcript that was redacted before)", () => {
+    const literals = ["[REDACTED:github-v2]", "[REDACTED:github-v2#2]", "[REDACTED:identifier]"];
+
+    it("never equals the surrogate of a secret, whichever comes first", () => {
+      for (const literal of literals) {
+        for (const order of ["literal-first", "literal-last"] as const) {
+          const redactor = r();
+          const secrets = [ghp(1), ghp(2), ghp(3)];
+          const inputs = order === "literal-first" ? [literal, ...secrets] : [...secrets, literal];
+          const out = inputs.map((id) => redactor.redactIdentifier(id));
+          expect(new Set(out).size, `${order} ${literal}: ${out.join(" ")}`).toBe(inputs.length);
+          // Each value keeps its token on every later call.
+          expect(inputs.map((id) => redactor.redactIdentifier(id))).toEqual(out);
+        }
+      }
+    });
+
+    it("is replaced by a token of ours, and a second different one by another", () => {
+      const redactor = r();
+      expect(redactor.redactIdentifier("[REDACTED:github-v2#2]")).toBe("[REDACTED:identifier]");
+      expect(redactor.redactIdentifier("[REDACTED:aws]")).toBe("[REDACTED:identifier#2]");
+    });
+
+    it("keys and values agree: the same raw id is the same token as a key and as a value", () => {
+      const redactor = r();
+      const [a, b] = [ghp(1), ghp(2)];
+      const raw = ["[REDACTED:github-v2]", a, b];
+      const values = raw.map((id) => redactor.redactIdentifier(id));
+      const keys = Object.keys(redactor.redactIdentifierKeys(Object.fromEntries(raw.map((id, i) => [id, i]))));
+      expect(keys).toEqual(values);
+      expect(new Set(keys).size).toBe(3);
+    });
+
+    it("does not count as a finding: it is not a secret", () => {
+      const redactor = r();
+      redactor.redactIdentifier("[REDACTED:github-v2]");
+      expect(redactor.findings).toEqual([]);
+      expect(redactor.secretCount).toBe(0);
+    });
   });
 });
 
@@ -156,6 +199,19 @@ describe("two secret-shaped response ids (ass-lka8)", () => {
     expect(p.session.responses.map((r) => r.id)).toEqual(["[REDACTED:github-v2]"]);
     const stepIds = p.session.turns.flatMap((t) => t.steps.map((s) => s.responseId).filter(Boolean));
     expect(new Set(stepIds)).toEqual(new Set(["[REDACTED:github-v2]"]));
+  });
+
+  it("a response id that is already a token cannot take another response's place, whichever comes first", () => {
+    const literal = "[REDACTED:github-v2#2]";
+    for (const ids of [[literal, one, two], [one, two, literal]]) {
+      const t = new ClaudeTranscript("aaaaaaaa-0000-0000-0000-000000000000", "/home/tester/work/demo").user("go");
+      ids.forEach((id, i) => t.assistant(id, [{ type: "text", text: `reply ${i}` }], ccUsage(10 + i, 1)));
+      const p = prepare(t.toJsonl());
+      const redacted = p.session.responses.map((r) => r.id);
+      expect(new Set(redacted).size, redacted.join(" ")).toBe(3);
+      const rendered = renderTranscript(JSON.parse(p.json) as NormalizedSession).turns;
+      expect(new Set(redacted.map((id) => rendered[0]!.responseSteps.get(id))).size).toBe(3);
+    }
   });
 
   it("ordinary response ids are unchanged", () => {

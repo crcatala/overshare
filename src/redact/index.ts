@@ -84,6 +84,8 @@ export class Redactor {
   readonly #surrogates = new Map<string, string>();
   /** How many distinct values each redacted form (`[REDACTED:rule]`) has been given a surrogate for. */
   readonly #perForm = new Map<string, number>();
+  /** Every surrogate handed out, so none is ever issued twice. */
+  readonly #issued = new Set<string>();
   private readonly allow: Set<string>;
   private readonly deny: RegExp[];
   private readonly homeRes: RegExp[];
@@ -136,34 +138,40 @@ export class Redactor {
    * values must stay different once redacted: a redacted id gets a surrogate, `[REDACTED:rule]` for the first distinct
    * value and `[REDACTED:rule#2]`, `#3`, ... for the next ones, the same for the same value everywhere (ass-lka8).
    * The index counts values, so it says nothing about the secret.
+   *
+   * An id that is already shaped like a token (`[REDACTED...`) is the transcript's own text, not ours, and could equal a
+   * surrogate issued for a secret, in either order of appearance. It is replaced too, by `[REDACTED:identifier]`, so
+   * every token in the payload was issued here and no two values share one.
    */
   redactIdentifier(id: string, where = ""): string {
     if (!id) return id;
     const out = this.redactSecrets(id, where);
-    return out === id ? id : this.surrogate(id, out);
+    if (out === id) return id.includes("[REDACTED") ? this.surrogate(id, "[REDACTED:identifier]") : id;
+    return this.surrogate(id, out);
   }
 
-  /** A record keyed by identifiers (stats by model id), its keys redacted like `redactIdentifier`; two keys never merge. */
+  /**
+   * A record keyed by identifiers (stats by model id), its keys redacted like `redactIdentifier`. Distinct keys give
+   * distinct tokens, so no two entries merge, and a key such as `__proto__` stays an own key (`fromEntries` defines it
+   * rather than assigning it).
+   */
   redactIdentifierKeys<V>(record: Record<string, V>, where = ""): Record<string, V> {
-    const out: Record<string, V> = {};
-    for (const [key, value] of Object.entries(record)) {
-      const redacted = this.redactIdentifier(key, where);
-      // A key that is a token already (the transcript wrote `[REDACTED:rule]` itself) must not overwrite another entry.
-      let name = redacted;
-      for (let n = 2; Object.hasOwn(out, name); n++) name = `${redacted}~${n}`;
-      out[name] = value;
-    }
-    return out;
+    return Object.fromEntries(Object.entries(record).map(([key, value]) => [this.redactIdentifier(key, where), value]));
   }
 
   private surrogate(raw: string, form: string): string {
     const known = this.#surrogates.get(raw);
     if (known !== undefined) return known;
-    const n = (this.#perForm.get(form) ?? 0) + 1;
-    this.#perForm.set(form, n);
-    // The index goes inside the last token, so the result still reads as one: `[REDACTED:rule#2]`, `msg_[REDACTED:rule#2]`.
+    // The index goes inside the last token, so the result still reads as one: `[REDACTED:rule#2]`, `msg:[REDACTED:rule#2]`.
     const close = form.lastIndexOf("]");
-    const token = n === 1 ? form : close < 0 ? `${form}#${n}` : `${form.slice(0, close)}#${n}${form.slice(close)}`;
+    let n = this.#perForm.get(form) ?? 0;
+    let token: string;
+    do {
+      n++;
+      token = n === 1 ? form : close < 0 ? `${form}#${n}` : `${form.slice(0, close)}#${n}${form.slice(close)}`;
+    } while (this.#issued.has(token));
+    this.#perForm.set(form, n);
+    this.#issued.add(token);
     this.#surrogates.set(raw, token);
     return token;
   }

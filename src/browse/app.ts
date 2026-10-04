@@ -647,11 +647,11 @@ export class BrowserApp extends Screen {
     if (f.step === "suspicious") {
       const r = f.review!;
       inner.push(st.yellow(st.bold(`${plural(r.suspicious.length, "suspicious value")} could not be redacted`)), ...wrap(st.dim("They look like they could be secrets, are still in the payload and would be published as they are."), width - 6), "");
-      for (const i of r.suspicious.slice(0, 8)) inner.push(...wrap(`${st.yellow("?")} ${i.rule} ${st.dim(`(${plural(i.length, "char")}${i.occurrences > 1 ? `, ×${i.occurrences}` : ""}) @ ${i.location}`)}`, width - 6));
+      for (const i of r.suspicious.slice(0, 8)) inner.push(...wrap(`${st.yellow("?")} ${i.rule} ${st.dim(`(${plural(i.length, "char")}${i.occurrences > 1 ? `, ×${i.occurrences}` : ""}) @ ${i.location}${i.lines ? ` · ${i.lines}` : ""}`)}`, width - 6));
       if (r.suspicious.length > 8) inner.push(st.dim(`  … ${r.suspicious.length - 8} more`));
       inner.push(
         "",
-        ...wrap(`Look at these turns in ${st.cyan(stripControls(f.session.path))} (turn numbers as in this viewer), and publish only if they are fine.`, width - 6),
+        ...wrap(`Look at these places in ${st.cyan(stripControls(f.session.path))} (turn numbers as in this viewer, line numbers of that file), and publish only if they are fine.`, width - 6),
         ...wrap(st.dim("Add a value that is fine to redact.allowlist to stop being asked. Secrets with no recognizable format are not detected at all."), width - 6),
         "",
         `${st.key("c")} ${st.dim("continue anyway")}  ${st.key("n")} ${st.dim("back")}  ${st.key("esc")} ${st.dim("cancel")}`,
@@ -669,7 +669,12 @@ export class BrowserApp extends Screen {
       } else if (f.loading || !r) inner.push(st.dim(`${f.spinnerFrame} scanning for secrets…`));
       else {
         inner.push(`${formatBytes(r.bytes)} payload · ${plural(r.redactions, "redaction")}`);
-        if (r.blocked) inner.push(st.red("✗ blocked: unredacted secrets remain"));
+        if (r.blocked) {
+          inner.push(st.red("✗ blocked: unredacted secrets remain"));
+          for (const i of r.issues.slice(0, 4)) inner.push(...wrap(st.dim(`  ${i.rule}${i.length === undefined ? "" : ` (${plural(i.length, "char")})`}${i.location ? ` @ ${i.location}` : ""}${i.lines ? ` · ${i.lines}` : ""}`), width - 6));
+          if (r.issues.length > 4) inner.push(st.dim(`  … ${r.issues.length - 4} more`));
+          if (r.issues.some((i) => i.lines)) inner.push(...wrap(st.dim(`line numbers are of ${stripControls(f.session.path)}`), width - 6));
+        }
         else if (r.clean) inner.push(st.green("✓ clean"));
         else if (r.findings.length) inner.push(st.yellow(`! ${plural(r.findings.length, "finding")} — redacted, please review`));
         for (const x of r.findings.slice(0, 3)) inner.push(st.dim(`  ${x.rule} @ ${x.where}`));

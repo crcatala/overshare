@@ -80,7 +80,7 @@ describe("session viewer", () => {
 
   it("reports the redaction status of a brief share once it has scanned", async () => {
     const d = await open({
-      review: (_, mode) => ({ mode, clean: false, blocked: false, findings: [{ rule: "github-token", where: "turn 1", context: "x" }], suspicious: [], knownSources: [], redactions: 1, bytes: 1000 }),
+      review: (_, mode) => ({ mode, clean: false, blocked: false, findings: [{ rule: "github-token", where: "turn 1", context: "x" }], issues: [], suspicious: [], knownSources: [], redactions: 1, bytes: 1000 }),
     });
     expect(d.text()).toContain("! brief share: 1 finding redacted (github-token)");
   });

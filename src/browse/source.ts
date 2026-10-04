@@ -60,8 +60,10 @@ export interface ShareReview {
   /** The final re-scan found unredacted secrets: publishing must be refused. */
   blocked: boolean;
   findings: Array<{ rule: string; where: string }>;
+  /** What the final re-scan found (never the value): why publishing is refused when `blocked`. `lines` are lines of the transcript file. */
+  issues: Array<{ rule: string; length?: number; location?: string; lines?: string }>;
   /** Medium-confidence matches still in the payload (never the value): publishing needs an extra confirmation. */
-  suspicious: Array<{ rule: string; length: number; location: string; occurrences: number }>;
+  suspicious: Array<{ rule: string; length: number; location: string; occurrences: number; lines?: string }>;
   /** Which machine sources supplied known secret values (counts only). */
   knownSources: KnownSourceUse[];
   redactions: number;

@@ -2,6 +2,7 @@ import { formatBytes, formatCacheSummary, formatSessionCost, formatTokens, forma
 import type { ShareReport } from "./pipeline.js";
 import { SECRET_CATEGORIES, type RedactionCategory } from "./redact/index.js";
 import { KNOWN_SOURCE_LABELS, type KnownSourceUse } from "./redact/known-values.js";
+import { formatSourceLines } from "./redact/source-lines.js";
 import { stripControls } from "./sanitize.js";
 import { totalTokens } from "./schema.js";
 
@@ -62,7 +63,8 @@ export function formatReport(r: ShareReport, opts: { maxFindings?: number; color
   lines.push("", dim(`Known values: ${formatKnownSources(r.knownSources)}`));
   if (r.rescan.length) {
     lines.push(red(bold(`Final re-scan: ${plural(r.rescan.length, "issue")} — publishing blocked`)));
-    for (const i of r.rescan) lines.push(red(`  ✗ ${i.rule}${i.length === undefined ? "" : ` (${plural(i.length, "char")})`}${i.location ? ` @ ${i.location}` : ""}`));
+    for (const i of r.rescan) lines.push(red(`  ✗ ${i.rule}${i.length === undefined ? "" : ` (${plural(i.length, "char")})`}${i.location ? ` @ ${i.location}` : ""}${i.source ? ` · ${formatSourceLines(i.source)}` : ""}`));
+    if (r.rescan.some((i) => i.source)) lines.push(dim(`  Line numbers are of the transcript${opts.transcriptPath ? ` (${stripControls(opts.transcriptPath)})` : ""}.`));
   } else {
     lines.push(green("Final re-scan: clean ✓"));
   }
@@ -70,11 +72,11 @@ export function formatReport(r: ShareReport, opts: { maxFindings?: number; color
     const max = opts.maxFindings ?? 25;
     lines.push(yellow(bold(`Suspicious: ${plural(r.suspicious.length, "value")} could not be redacted and ${r.suspicious.length === 1 ? "is" : "are"} still in the payload`)));
     for (const i of r.suspicious.slice(0, max)) {
-      lines.push(yellow(`  ? ${i.rule} (${plural(i.length, "char")}${i.occurrences > 1 ? `, ×${i.occurrences}` : ""}) `) + dim(`@ ${i.location}`));
+      lines.push(yellow(`  ? ${i.rule} (${plural(i.length, "char")}${i.occurrences > 1 ? `, ×${i.occurrences}` : ""}) `) + dim(`@ ${i.location}${i.source ? ` · ${formatSourceLines(i.source)}` : ""}`));
     }
     if (r.suspicious.length > max) lines.push(dim(`  … ${r.suspicious.length - max} more (use --all-findings)`));
     lines.push(
-      dim(`  Look at these places in the transcript${opts.transcriptPath ? ` (${stripControls(opts.transcriptPath)})` : ""} (turn numbers as in \`agent-share browse\`).`),
+      dim(`  Look at these places in the transcript${opts.transcriptPath ? ` (${stripControls(opts.transcriptPath)})` : ""} (turn numbers as in \`agent-share browse\`, line numbers of the file).`),
       dim("  A value that is fine can be added to redact.allowlist. This check cannot see secrets that have no recognizable format."),
     );
   }

@@ -85,7 +85,7 @@ export function sampleView(): SessionView {
   return { items, turns: 2, tools: { Bash: 12, Edit: 3, Read: 7 }, stats: { cost: "$1.20", tokens: "2.1M", duration: "32m 0s", toolCalls: 22, subagents: 0, files: { read: 7, edited: 3, written: 1 } } };
 }
 
-const clean = (mode: ShareMode): ShareReview => ({ mode, clean: true, blocked: false, findings: [], suspicious: [], knownSources: [], redactions: 0, bytes: 12_345 });
+const clean = (mode: ShareMode): ShareReview => ({ mode, clean: true, blocked: false, findings: [], issues: [], suspicious: [], knownSources: [], redactions: 0, bytes: 12_345 });
 
 /** What the list has for a session before its file is read: the stat fields only (see `IndexJob`). */
 export function placeholderOf(s: SessionSummary): SessionSummary {

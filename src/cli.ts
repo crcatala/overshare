@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError, Option } from "commander";
@@ -33,6 +33,16 @@ interface SessionOptions {
 
 const EXPORT_FORMATS = ["json", "html"] as const;
 type ExportFormat = (typeof EXPORT_FORMATS)[number];
+
+/**
+ * Write a file only its owner can read. `writeFileSync`'s `mode` applies only when the file is created, so an
+ * existing file (an earlier export, a 0644 file made by something else) is tightened first, before the new
+ * content goes in.
+ */
+function writePrivate(path: string, content: string): void {
+  if (existsSync(path)) chmodSync(path, 0o600);
+  writeFileSync(path, content, { mode: 0o600 });
+}
 
 const HTML_EXPORT_NOTE = `
 Before you send this file:
@@ -145,7 +155,7 @@ withSessionOptions(program.command("export"), "full")
       return;
     }
     const content = template ? embedShare(template, prepared.json) : prepared.json;
-    writeFileSync(opts.output, content, { mode: 0o600 });
+    writePrivate(opts.output, content);
     console.error(`\nWrote ${opts.output} (${formatBytes(Buffer.byteLength(content))}${template ? `: viewer + ${formatBytes(prepared.report.bytes)} session` : ""})`);
     // Shown even with --quiet: the file is what gets forwarded, and unlike a link it cannot be taken back.
     if (template) console.error(HTML_EXPORT_NOTE);

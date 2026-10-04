@@ -52,3 +52,7 @@ Step 1 prototyped on branch feat/single-file-html-export (PR pending): 'agent-sh
 **2026-10-04T18:22:30Z**
 
 Added a reminder printed after every HTML export (even with -q): review the report, cannot be revoked, frozen viewer. Rationale: export has no confirm step, unlike publish/browse. Whether to also offer the format from browse behind the review gate is split into ass-r9yd (needs product review).
+
+**2026-10-04T18:45:02Z**
+
+Review follow-ups: (fixed) export now tightens an existing output file to 0600 before writing; writeFileSync's mode only applies to new files, so a 0644 file kept its mode (pre-existing for JSON too). Added CLI tests for that and for the blocked-share HTML refusal. (deferred, known constraint) The Vite plugin throws if the viewer build ever has a second script chunk. compat.ts documents migrations as dynamic imports, so adding the first one would fail the hosted viewer build, not just the standalone one. Cheap mitigation: catch in the plugin, warn, delete a stale standalone.html. Proper fix: a separate standalone build with inlineDynamicImports so old shares can still be migrated inside the file. Do one of these before adding a migration.

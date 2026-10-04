@@ -81,6 +81,37 @@ describe("cli", { timeout: 30_000 }, () => {
     expect(readFileSync(noExt, "utf8")).toContain("<!doctype html>");
   });
 
+  it("export tightens an existing output file to 0600 (the mode only applies to a new file)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "as-perm-"));
+    for (const name of ["share.json", "share.html"]) {
+      const out = join(dir, name);
+      writeFileSync(out, "old", { mode: 0o644 });
+      chmodSync(out, 0o644); // umask may have narrowed it
+      expect(cli(["export", sessionFile(), "--mode", "full", "-o", out, "-q"]).status).toBe(0);
+      expect(statSync(out).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it("export refuses to write an HTML file when the re-scan blocks the share, but still writes JSON for inspection", () => {
+    // A session id skips content redaction, so a known secret there is caught only by the re-scan (see pipeline.vitest.ts).
+    const secret = fake.envValue();
+    const dir = mkdtempSync(join(tmpdir(), "as-blocked-"));
+    const session = join(dir, "s.jsonl");
+    writeFileSync(session, new ClaudeTranscript(secret).user("hi").toJsonl());
+    const secrets = join(dir, "secrets.env");
+    writeFileSync(secrets, `LEAKED=${secret}\n`);
+
+    const html = join(dir, "out.html");
+    const refused = cli(["export", session, "--mode", "brief", "--secrets-file", secrets, "-o", html, "-q"]);
+    expect(refused.status).toBe(3);
+    expect(refused.stderr).toContain("Refusing to write an HTML file");
+    expect(existsSync(html)).toBe(false);
+
+    const json = join(dir, "out.json");
+    expect(cli(["export", session, "--mode", "brief", "--secrets-file", secrets, "-o", json, "-q"]).status).toBe(0);
+    expect(existsSync(json)).toBe(true);
+  });
+
   it("exports prompts-only content and accepts prompts in CLI help/report", () => {
     const out = join(mkdtempSync(join(tmpdir(), "as-prompts-")), "share.json");
     const file = sessionFile(fake.github());

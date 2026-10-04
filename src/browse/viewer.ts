@@ -9,7 +9,8 @@
  *   j/k ↑/↓ line · space/PgDn/ctrl-f and b/PgUp/ctrl-b page · ctrl-d/u half page · g/G first/last.
  *   Everywhere: J/K next/previous prompt · y copy the message · p publish. From the list, esc / q / ← / h leaves the viewer.
  *   v        cycle the list: prompts → conversation → everything           V  as a dialog, plus layout
- *            settings that persist: indent replies under their prompt, and tool calls one level deeper
+ *            settings that persist: indent replies under their prompt, tool calls one level deeper, and whether rows are
+ *            marked with an icon (❯) or the kind's name ([User])
  */
 import { formatBytes } from "../format.js";
 import { sharesFor } from "../sessions/shares.js";
@@ -17,7 +18,7 @@ import type { SessionSummary } from "../sessions/summary.js";
 import { branchLabel, plural, shortModel } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { cut, fit, frame, isKey, padLines, pagingKey, st, wrap } from "./kit.js";
-import { SAVE_FAILED_MESSAGE, type SettingsStore } from "./settings.js";
+import { SAVE_FAILED_MESSAGE, type MarkerStyle, type SettingsStore } from "./settings.js";
 import { renderItem } from "./render.js";
 import { Spinner } from "./spinner.js";
 import type { ShareSummary, SessionView, Source, ViewItem, ViewKind } from "./source.js";
@@ -28,14 +29,25 @@ export const LEVELS = [
   { label: "everything", hint: "tool calls, thinking, skills, subagents, events", kinds: ["user", "assistant", "tool", "thinking", "subagent", "event"] as ViewKind[] },
 ] as const;
 
-const ICON: Record<ViewKind, (s: string) => string> = {
-  user: (s) => `${st.cyan("❯")} ${s}`,
-  assistant: (s) => `${st.green("◆")} ${s}`,
-  tool: (s) => `${st.yellow("⚙")} ${st.dim(s)}`,
-  thinking: (s) => `${st.gray("…")} ${st.gray(s)}`,
-  subagent: (s) => `${st.magenta("⛭")} ${st.dim(s)}`,
-  event: (s) => `${st.blue("⚑")} ${st.dim(s)}`,
+/** What marks a kind of row in the list, and the colour that kind keeps in the list and in the content pane's heading. */
+const KINDS: Record<ViewKind, { icon: string; name: string; color: (s: string) => string; /** Dim the row's text. */ quiet?: "dim" | "gray" }> = {
+  user: { icon: "❯", name: "User", color: st.cyan },
+  assistant: { icon: "◆", name: "Assistant", color: st.green },
+  tool: { icon: "⚙", name: "Tool", color: st.yellow, quiet: "dim" },
+  thinking: { icon: "…", name: "Thinking", color: st.gray, quiet: "gray" },
+  subagent: { icon: "⛭", name: "Subagent", color: st.magenta, quiet: "dim" },
+  event: { icon: "⚑", name: "Event", color: st.blue, quiet: "dim" },
 };
+
+/** A loaded skill is an event, but it reads better under its own name. */
+const markerName = (it: Pick<ViewItem, "kind" | "meta">): string => (it.kind === "event" && it.meta === "skill" ? "Skill" : KINDS[it.kind].name);
+
+/** The list row's marker and text: `❯ text` with the icon style, `[User] text` with the text style, in the kind's colour. */
+export function marker(it: Pick<ViewItem, "kind" | "meta">, text: string, style: MarkerStyle): string {
+  const k = KINDS[it.kind];
+  const body = k.quiet === "dim" ? st.dim(text) : k.quiet === "gray" ? st.gray(text) : text;
+  return `${k.color(style === "text" ? `[${markerName(it)}]` : k.icon)} ${body}`;
+}
 
 /** Columns each tree level moves a row to the right. */
 const INDENT = 2;
@@ -217,8 +229,19 @@ export class SessionViewer {
         { title: "Message list", items: LEVELS.map((l, i) => ({ label: l.label, value: i, hint: l.hint })), current: () => this.level, apply: (v) => this.setLevel(v as number) },
         layout("Indent assistant replies", "indentReplies"),
         layout("Indent tool calls further", "indentTools"),
+        {
+          title: "Row markers",
+          items: [
+            { label: "icon", value: "icon", hint: "❯ ◆ ⚙" },
+            { label: "text", value: "text", hint: "[User] [Tool]" },
+          ],
+          current: () => this.hooks.settings.get().viewer.markers,
+          apply: (v) => {
+            if (!this.hooks.settings.update({ viewer: { markers: v as MarkerStyle } })) this.hooks.notify(SAVE_FAILED_MESSAGE);
+          },
+        },
       ],
-      { onClose: () => this.hooks.closeDialog() },
+      { window: 13, onClose: () => this.hooks.closeDialog() }, // all four sections at once, so none hides below the fold
     );
   }
 
@@ -281,10 +304,11 @@ export class SessionViewer {
     this.cursor = Math.min(this.cursor, Math.max(0, items.length - 1));
     if (this.cursor < this.listTop) this.listTop = this.cursor;
     if (this.cursor >= this.listTop + inner) this.listTop = this.cursor - inner + 1;
+    const { markers } = this.hooks.settings.get().viewer;
     const rows = items.slice(this.listTop, this.listTop + inner).map((it, k) => {
       const i = this.listTop + k;
       const turn = it.kind === "user" ? st.dim(`#${it.turn} `) : "";
-      const row = `${i === this.cursor ? (listActive ? st.cyan("▌") : st.gray("▌")) : " "}${" ".repeat(this.depth(it.kind) * INDENT)}${ICON[it.kind](`${turn}${it.error ? st.red(it.label) : it.label}`)}`;
+      const row = `${i === this.cursor ? (listActive ? st.cyan("▌") : st.gray("▌")) : " "}${" ".repeat(this.depth(it.kind) * INDENT)}${marker(it, `${turn}${it.error ? st.red(it.label) : it.label}`, markers)}`;
       return i === this.cursor ? (listActive ? st.sel : st.selDim)(fit(row, rowW)) : row;
     });
     const left = frame(`${LEVELS[this.level]!.label} · ${items.length} of ${this.view.items.length}${shared ? " · shared ✓" : ""}`, padLines(rows, inner), leftW, {
@@ -303,7 +327,7 @@ export class SessionViewer {
       this.rightHeight = height;
       return { title: "message", lines: [st.dim("nothing to show")] };
     }
-    const title = `${it.kind === "user" ? "prompt" : it.kind}${it.meta ? ` · ${it.meta}` : ""}${it.error ? " · error" : ""}  ${st.dim(`turn ${it.turn}`)}`;
+    const title = `${KINDS[it.kind].color(it.kind === "user" ? "prompt" : it.kind)}${it.meta ? ` · ${it.meta}` : ""}${it.error ? " · error" : ""}  ${st.dim(`turn ${it.turn}`)}`;
     this.rightLines = renderItem(it, width);
     this.rightHeight = height;
     this.scroll = Math.min(this.scroll, this.maxScroll());

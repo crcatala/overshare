@@ -88,8 +88,10 @@ session list: `j`/`k` or the arrows move (a message in the list, a line in the c
 `b`/`PgUp`/`ctrl-b` page, `ctrl-d`/`ctrl-u` half a page, `g`/`G` first/last. `v` cycles the list between your prompts, the
 conversation, and everything (tool calls, thinking, subagents, skills); `J`/`K` jump between prompts from either pane. `y` copies the
 selected message to the clipboard (OSC 52, like the share link) as plain text: for a tool call, its input and result too. `V` opens the same
-choice as a dialog and adds two layout options that are saved and apply at every level: indent assistant replies under
-their prompt, and indent tool calls (with thinking, subagents and events) one level further.
+choice as a dialog and adds three options that are saved and apply at every level: indent assistant replies under
+their prompt, indent tool calls (with thinking, subagents and events) one level further, and mark each row with an icon
+(`❯ ◆ ⚙`, the default) or with its kind in brackets (`[User]` `[Assistant]` `[Tool]` `[Thinking]` `[Subagent]` `[Skill]` `[Event]`). A kind keeps its colour in
+the list and in the heading of the content pane, whichever marker you pick.
 
 The content pane formats what it shows: an assistant reply as markdown (headings, lists, tables, quotes, highlighted code
 fences); a prompt as you typed it (not markdown); a `Bash` call as highlighted shell with its output below; an `Edit` (Claude
@@ -109,7 +111,7 @@ Preferences live in `~/.config/agent-share/browse.json` (`AGENT_SHARE_BROWSE_SET
 field, falls back to its default.
 
 ```json
-{ "confirmQuit": true, "dateFormat": "relative", "viewer": { "indentReplies": false, "indentTools": false } }
+{ "confirmQuit": true, "dateFormat": "relative", "viewer": { "indentReplies": false, "indentTools": false, "markers": "icon" } }
 ```
 
 | Setting | Values | Where |
@@ -118,6 +120,7 @@ field, falls back to its default.
 | `dateFormat` | `relative` (default, `5h ago`) · `smart` (`14:05` today, `Jul 14`, `2025-07-14`) · `short` (`Jul 14 14:05`) · `date` (`2026-07-14`) · `datetime` (`2026-07-14 14:05`); local time except relative | `,` |
 | `viewer.indentReplies` | indent assistant replies one level under their prompt (default `false`) | `V` in a session |
 | `viewer.indentTools` | indent tool calls, thinking, subagents and events one level deeper than replies (default `false`) | `V` in a session |
+| `viewer.markers` | `icon` (default, `❯ ◆ ⚙ …`) or `text` (`[User] [Assistant] [Tool] [Thinking] [Subagent] [Skill] [Event]`) to mark each row of the message list | `V` in a session |
 
 `ctrl-c` always quits immediately, without asking.
 

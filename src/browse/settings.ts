@@ -3,7 +3,7 @@
  * live in their own file instead of rewriting a hand-edited `config.json`.
  *
  *   ~/.config/agent-share/browse.json   (`AGENT_SHARE_BROWSE_SETTINGS` overrides)
- *   { "confirmQuit": true, "dateFormat": "relative", "viewer": { "indentReplies": false, "indentTools": false } }
+ *   { "confirmQuit": true, "dateFormat": "relative", "viewer": { "indentReplies": false, "indentTools": false, "markers": "icon" } }
  *
  * Reading is forgiving (a missing, corrupt or partly invalid file falls back to defaults per field) because a
  * preference must never stop the browser from opening.
@@ -23,13 +23,18 @@ export interface BrowseSettings {
     indentReplies: boolean;
     /** Indent tool calls (and thinking, subagents, events) one level deeper than the replies. */
     indentTools: boolean;
+    /** How the message list marks each row's kind: a symbol (`❯`) or its name in brackets (`[User]`). */
+    markers: MarkerStyle;
   };
 }
+
+export const MARKER_STYLES = ["icon", "text"] as const;
+export type MarkerStyle = (typeof MARKER_STYLES)[number];
 
 export const DEFAULT_SETTINGS: BrowseSettings = {
   confirmQuit: true,
   dateFormat: DEFAULT_DATE_FORMAT,
-  viewer: { indentReplies: false, indentTools: false },
+  viewer: { indentReplies: false, indentTools: false, markers: "icon" },
 };
 
 export type SettingsPatch = Partial<Omit<BrowseSettings, "viewer">> & { viewer?: Partial<BrowseSettings["viewer"]> };
@@ -46,6 +51,7 @@ export function normalizeSettings(raw: unknown): BrowseSettings {
     viewer: {
       indentReplies: bool(v.indentReplies, DEFAULT_SETTINGS.viewer.indentReplies),
       indentTools: bool(v.indentTools, DEFAULT_SETTINGS.viewer.indentTools),
+      markers: MARKER_STYLES.find((m) => m === v.markers) ?? DEFAULT_SETTINGS.viewer.markers,
     },
   };
 }

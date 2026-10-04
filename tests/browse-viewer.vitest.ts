@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ViewItem } from "../src/browse/source.js";
 import { drive, KEY, sampleView, viewerPanes } from "./browse-helpers.js";
 import { memorySettings } from "../src/browse/settings.js";
+import { marker } from "../src/browse/viewer.js";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -133,6 +134,8 @@ describe("view options (V)", () => {
     expect(text).toContain("Message list");
     expect(text).toContain("Indent assistant replies");
     expect(text).toContain("Indent tool calls further");
+    expect(text).toContain("Row markers"); // shown without scrolling the dialog
+    expect(text).toContain("[User] [Tool]");
   });
 
   it("is flat by default", async () => {
@@ -170,13 +173,13 @@ describe("view options (V)", () => {
     const d = await open({ settings });
     // The cursor starts on the current level (conversation); two steps down is "yes" under "Indent assistant replies".
     await d.press("V", KEY.down, KEY.down, KEY.space); // replies: yes (stay open)
-    expect(settings.get().viewer).toEqual({ indentReplies: true, indentTools: false });
+    expect(settings.get().viewer).toEqual({ indentReplies: true, indentTools: false, markers: "icon" });
     await d.press(KEY.down, KEY.down, KEY.enter); // past "no", onto "yes" under "Indent tool calls further"; choose and close
-    expect(settings.get().viewer).toEqual({ indentReplies: true, indentTools: true });
+    expect(settings.get().viewer).toEqual({ indentReplies: true, indentTools: true, markers: "icon" });
     expect(d.text()).not.toContain("Indent tool calls further"); // closed
     expect(indentOf(d, "Fixed: the default")).toBe(2); // conversation level
     await d.press("v", "v", "v"); // around the cycle and back
-    expect(settings.get().viewer).toEqual({ indentReplies: true, indentTools: true });
+    expect(settings.get().viewer).toEqual({ indentReplies: true, indentTools: true, markers: "icon" });
     await d.press("v");
     expect(indentOf(d, "Bash  npm test")).toBe(4);
   });
@@ -186,7 +189,7 @@ describe("view options (V)", () => {
     const d = await open({ settings });
     await d.press("V", KEY.down, KEY.enter); // conversation → everything
     expect(d.text()).toContain("everything · 8 of 8");
-    expect(settings.get().viewer).toEqual({ indentReplies: true, indentTools: false });
+    expect(settings.get().viewer).toEqual({ indentReplies: true, indentTools: false, markers: "icon" });
   });
 
   it("says so in the footer when a layout option could not be saved, and still applies it for this run", async () => {
@@ -210,6 +213,73 @@ describe("view options (V)", () => {
     const d = await open({ settings });
     await d.press(KEY.esc, KEY.down, KEY.enter); // back to the list, open the second session
     expect(indentOf(d, "Fixed: the default")).toBe(2);
+  });
+});
+
+describe("row markers and kind colours", () => {
+  const CYAN = "\x1b[36m";
+  const GREEN = "\x1b[32m";
+  const YELLOW = "\x1b[33m";
+
+  it("marks rows with icons by default", async () => {
+    const d = await open();
+    await d.press("v"); // everything
+    const text = d.text();
+    expect(text).toContain("❯ #1 fix the bug");
+    expect(text).toContain("⚙ Bash  npm test");
+    expect(text).not.toMatch(/\[(User|Assistant|Tool|Thinking)\]/);
+  });
+
+  it("names the kind in brackets with the text style, in the colour the icon had", () => {
+    expect(marker({ kind: "user" }, "hi", "icon")).toBe(`${CYAN}❯\x1b[39m hi`);
+    expect(marker({ kind: "user" }, "hi", "text")).toBe(`${CYAN}[User]\x1b[39m hi`);
+    expect(marker({ kind: "assistant" }, "hi", "text")).toBe(`${GREEN}[Assistant]\x1b[39m hi`);
+    expect(marker({ kind: "tool" }, "Bash", "text")).toMatch(new RegExp(`^${YELLOW.replace("[", "\\[")}\\[Tool\\]`));
+    for (const [kind, name] of [["thinking", "Thinking"], ["subagent", "Subagent"], ["event", "Event"]] as const) {
+      expect(marker({ kind }, "x", "text")).toContain(`[${name}]`);
+    }
+  });
+
+  it("calls a loaded skill [Skill], and other events [Event]", () => {
+    expect(marker({ kind: "event", meta: "skill" }, "Skill loaded: ticket", "text")).toContain("[Skill]");
+    expect(marker({ kind: "event", meta: "compaction" }, "Context compacted", "text")).toContain("[Event]");
+    expect(marker({ kind: "event", meta: "skill" }, "x", "icon")).toContain("⚑"); // the icon style is unchanged
+  });
+
+  it("the V dialog switches the list to text markers and saves the choice", async () => {
+    const settings = memorySettings();
+    const d = await open({ settings });
+    await d.press("v"); // everything
+    await d.press("V", KEY.end); // the last item: "text" under "Row markers"
+    expect(d.text()).toContain("Row markers");
+    await d.press(KEY.up, KEY.space); // "icon": choose, stay open
+    expect(settings.get().viewer.markers).toBe("icon");
+    await d.press(KEY.down, KEY.enter); // "text": choose and close
+    expect(settings.get().viewer.markers).toBe("text");
+    const text = d.text();
+    expect(text).toContain("[User] #1 fix the bug");
+    expect(text).toContain("[Thinking] thinking (800 chars)");
+    expect(text).toContain("[Tool] Bash  npm test");
+    expect(text).toContain("[Assistant] Fixed: the default");
+    expect(text).not.toMatch(/[❯◆⚙⚑]/u);
+  });
+
+  it("starts in text mode when the saved setting says so", async () => {
+    const d = await open({ settings: memorySettings({ viewer: { markers: "text" } }) });
+    expect(d.text()).toContain("[User] #1 fix the bug");
+  });
+
+  it("colours the content pane's heading word by kind, whatever the marker style", async () => {
+    for (const markers of ["icon", "text"] as const) {
+      const d = await open({ settings: memorySettings({ viewer: { markers } }) });
+      d.lines(130, 34);
+      const raw = (): string => d.app.render(130).join("\n");
+      expect(raw()).toContain(`${CYAN}prompt\x1b[39m`);
+      await d.press(KEY.down); // the reply
+      expect(raw()).toContain(`${GREEN}assistant\x1b[39m`);
+      await d.press("v", KEY.down, KEY.down); // everything: thinking, then Bash
+      expect(raw()).toContain(`${YELLOW}tool\x1b[39m`);
+    }
   });
 });
 

@@ -55,5 +55,17 @@ export async function readShare(data: unknown, migrations: Migrations = MIGRATIO
     doc = { ...(await load()).default(doc), schema: `agentshare/${v + 1}` };
   }
   if (!Array.isArray(doc.turns)) throw new Error("This session has no turns to show.");
-  return { session: doc as unknown as NormalizedSession, ...(newer ? { newer } : {}) };
+  return { session: { ...doc, turns: tidyTurns(doc.turns) } as unknown as NormalizedSession, ...(newer ? { newer } : {}) };
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/**
+ * The shape every pass after this one iterates without checking: turns that are objects, each with a list
+ * of steps that are objects. What a step holds is checked where it is read (an unreadable one becomes a
+ * placeholder); this only keeps one malformed turn or step from failing the token rail, a view or the
+ * search for the whole session.
+ */
+function tidyTurns(turns: unknown[]): Record<string, unknown>[] {
+  return turns.filter(isObject).map((turn) => ({ ...turn, steps: Array.isArray(turn.steps) ? turn.steps.filter(isObject) : [] }));
 }

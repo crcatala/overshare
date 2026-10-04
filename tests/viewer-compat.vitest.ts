@@ -15,7 +15,7 @@ const { renderCompatNotice } = await import("../viewer/src/notice.ts");
 const { renderTokenRail } = await import("../viewer/src/tokens.ts");
 const { renderHeader } = await import("../viewer/src/header.ts");
 const { renderToc } = await import("../viewer/src/toc.ts");
-const { buildIndex } = await import("../viewer/src/search.ts");
+const { buildIndex, search } = await import("../viewer/src/search.ts");
 const { availableModes, projectSession, promptsUnavailableReason } = await import("../src/modes.ts");
 const { VARIANTS } = await import("../viewer/src/variants.ts");
 
@@ -81,6 +81,23 @@ describe("reading a share by its format version", () => {
     await expect(readShare({ schema: SCHEMA_VERSION })).rejects.toThrow("no turns");
   });
 
+  it("keeps a malformed turn or step from failing the passes after it", async () => {
+    const good = { kind: "text", id: "g", text: "needle" };
+    const turn = (index: number, extra: object) => ({ index, user: { text: `prompt ${index}` }, steps: [good], ...extra });
+    const { session } = await readShare({
+      ...sample(),
+      mode: "full",
+      turns: [turn(0, {}), turn(1, { steps: undefined }), turn(2, { steps: [null, "text", 7, [], good] }), null, "turn", turn(5, {})],
+    });
+    expect(session.turns.map((t) => t.index)).toEqual([0, 1, 2, 5]);
+    expect(session.turns.map((t) => t.steps.length)).toEqual([1, 0, 1, 1]);
+
+    const { turns } = renderTranscript(session);
+    renderTokenRail(session, turns, () => {}, () => {});
+    for (const view of ["brief", "minimal", "prompts"] as const) projectSession(session, view);
+    expect(buildIndex(session).filter((d) => d.id.startsWith("s-"))).toHaveLength(3);
+  });
+
   it("parses versions strictly", () => {
     expect(schemaVersion("agentshare/2")).toBe(2);
     expect(schemaVersion("agentshare/12")).toBe(12);
@@ -124,6 +141,18 @@ describe("a step the viewer can't draw", () => {
     expect(el.querySelector("#turn-1 .k-unsupported")?.textContent).toContain("couldn't be shown");
     expect(el.querySelector("#turn-2")?.textContent).toContain("after");
     expect(turns.map((t) => t.ordinal)).toEqual([1, 2, 3]);
+  });
+
+  it("keeps the rest of the session searchable when a step's data is not what its kind says", () => {
+    const wrong = [
+      { kind: "text", id: "a", text: 5 },
+      { kind: "tool", id: "b", name: "Bash", action: "exec", summary: 7, input: "str", result: { text: 5 } },
+      { kind: "event", id: "c", event: 5, text: "x" },
+    ];
+    const s = withSteps([...wrong, { kind: "text", id: "z", text: "the needle" }]);
+    const docs = buildIndex(s);
+    expect(docs.map((d) => d.id)).toEqual(["turn-0-prompt", "s-0-3"]);
+    expect(search(docs, ["needle"], false)).toHaveLength(1);
   });
 
   it("keeps it out of the outline and the search, and out of views that show less", () => {

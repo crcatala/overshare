@@ -1,6 +1,7 @@
 import { markCacheEvents } from "./cache.js";
 import { safeLabel } from "./redact/labels.js";
 import { addUsage, contextTokens, emptyUsage, totalsOf, totalTokens, type NormalizedSession, type SessionStats } from "./schema.js";
+import { bumpOwn } from "./own-keys.js";
 
 /**
  * Compute session statistics from a full (unprojected) session.
@@ -36,7 +37,7 @@ export function computeStats(session: NormalizedSession): SessionStats {
       if (step.kind === "tool") {
         stats.toolCalls += 1;
         const name = safeLabel(step.name, "tool");
-        stats.tools[name] = (stats.tools[name] ?? 0) + 1;
+        bumpOwn(stats.tools, name);
         if (step.isError) stats.toolErrors += 1;
         for (const f of step.files ?? []) {
           if (step.action === "read") files.read.add(f);
@@ -47,7 +48,7 @@ export function computeStats(session: NormalizedSession): SessionStats {
         stats.toolCalls += 1;
         stats.subagents += 1;
         const tool = safeLabel(step.tool, "tool");
-        stats.tools[tool] = (stats.tools[tool] ?? 0) + 1;
+        bumpOwn(stats.tools, tool);
         if (step.isError) stats.toolErrors += 1;
       } else if (step.kind === "thinking") {
         stats.thinking.blocks += step.blocks;

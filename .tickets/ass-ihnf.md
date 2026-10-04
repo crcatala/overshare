@@ -1,6 +1,6 @@
 ---
 id: ass-ihnf
-status: open
+status: closed
 deps: []
 links: [ass-bfoq]
 created: 2026-10-04T04:21:45Z

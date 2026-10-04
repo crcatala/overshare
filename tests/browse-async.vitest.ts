@@ -173,7 +173,7 @@ describe.each([false, true])("source that ignores the abort: %s", (ignore) => {
       await d.press(KEY.enter);
       expect(d.text()).toContain("Publish full to");
       await d.press("y");
-      expect(d.source.published).toEqual([{ id: "s1", mode: "full" }]);
+      expect(d.source.published).toEqual([{ id: "s1", mode: "full", target: "gist" }]);
       expect(d.source.publishedReviewIds).toEqual(["review-2"]); // the full review, not the brief one
     });
 
@@ -241,7 +241,7 @@ describe.each([false, true])("source that ignores the abort: %s", (ignore) => {
       d.app.handleInput("Y");
       d.app.handleInput(KEY.enter);
       await vi.advanceTimersByTimeAsync(0);
-      expect(d.source.published).toEqual([{ id: "s1", mode: "brief" }]);
+      expect(d.source.published).toEqual([{ id: "s1", mode: "brief", target: "gist" }]);
       expect(d.text()).toContain("publishing…");
       await d.press(KEY.esc, "n"); // cannot back out of an upload in progress
       expect(d.app.flow).toBeDefined();
@@ -255,7 +255,7 @@ describe.each([false, true])("source that ignores the abort: %s", (ignore) => {
       const d = drive();
       await d.press("p", KEY.enter); // confirm step for review-1 of brief
       // Another review of the same session and mode replaces the payload the user confirmed.
-      await d.source.review(d.app.flow!.session, "brief", new AbortController().signal);
+      await d.source.review(d.app.flow!.session, "brief", "gist", new AbortController().signal);
       await d.press("y");
       expect(d.source.publishedReviewIds).toEqual(["review-1"]);
       expect(d.source.published).toEqual([]);
@@ -275,7 +275,7 @@ describe.each([false, true])("source that ignores the abort: %s", (ignore) => {
       expect(d.text()).toContain("continue anyway");
       expect(d.source.published).toEqual([]);
       await d.press("c", "y");
-      expect(d.source.published).toEqual([{ id: "s1", mode: "brief" }]);
+      expect(d.source.published).toEqual([{ id: "s1", mode: "brief", target: "gist" }]);
       expect(d.source.suspiciousConfirmed).toEqual([true]);
     });
 

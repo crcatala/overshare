@@ -299,15 +299,15 @@ describe("browse source", () => {
     const sessions = indexed(value);
     const publisher = recordingPublisher();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher });
-    const review = await source.review(sessions[0]!, "full", new AbortController().signal);
+    const review = await source.review(sessions[0]!, "full", "gist", new AbortController().signal);
     expect(review.blocked).toBe(false);
     expect(review.suspicious).toEqual([{ rule: "secret-assignment", length: value.length, location: "turn 3 · Bash · input (object key)", occurrences: 1, lines: "line 6" }]);
     expect(leaked(JSON.stringify(review), value, "")).toEqual([]);
 
-    await expect(source.publish(sessions[0]!, "full", { reviewId: review.id })).rejects.toThrow(/suspicious values .* not confirmed/);
+    await expect(source.publish(sessions[0]!, "full", { target: "gist", reviewId: review.id })).rejects.toThrow(/suspicious values .* not confirmed/);
     expect(publisher.payloads).toEqual([]);
     // Refusing must not have thrown the reviewed payload away: confirming now uploads exactly that payload.
-    await source.publish(sessions[0]!, "full", { reviewId: review.id, suspiciousConfirmed: true });
+    await source.publish(sessions[0]!, "full", { target: "gist", reviewId: review.id, suspiciousConfirmed: true });
     expect(publisher.payloads).toHaveLength(1);
   });
 });

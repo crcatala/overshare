@@ -8,8 +8,9 @@
  *             changing a filter, the search or the sort jumps back to the first session; grouping keeps the selection
  *   search    /  free words plus harness:pi project:x branch:y model:opus tool:Bash since:7d shared:no workers:yes
  *   open      enter → viewer (message list ↔ content); v cycles prompts / conversation / everything
- *   publish   p → mode → review → confirm; yes uploads exactly what was reviewed
+ *   publish   p → mode (t: target, gist or R2) → review → confirm; yes uploads exactly what was reviewed
  */
+import { SHARE_TARGETS } from "../config.js";
 import { formatBytes } from "../format.js";
 import { stripControls } from "../sanitize.js";
 import { formatKnownSources } from "../report.js";
@@ -22,7 +23,7 @@ import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { copyToClipboard, MODE_HINT, PublishFlow } from "./flow.js";
 import { box, columns, composite, cut, fit, hr, isKey, isPlain, isShift, padLines, pagingKey, Screen, st, w, wrap, type PageMove } from "./kit.js";
 import { memorySettings, SAVE_FAILED_MESSAGE, type SettingsPatch, type SettingsStore } from "./settings.js";
-import type { Source } from "./source.js";
+import { destinationLabel, type Source } from "./source.js";
 import { SessionViewer } from "./viewer.js";
 
 type HarnessFilter = HarnessName | undefined;
@@ -504,6 +505,7 @@ export class BrowserApp extends Screen {
       if (isKey(data, "j") || isKey(data, "down")) f.moveMode(1);
       else if (isKey(data, "k") || isKey(data, "up")) f.moveMode(-1);
       else if (data >= "1" && data <= String(SHARE_MODES.length)) f.setMode(Number(data) - 1);
+      else if (isKey(data, "t")) f.cycleTarget();
       else if (isKey(data, "enter")) f.next();
     } else if (f.step === "suspicious") {
       // Not enter, for the same reason as the confirm step: continuing must be a deliberate key.
@@ -671,6 +673,12 @@ export class BrowserApp extends Screen {
         `${st.key("c")} ${st.dim("continue anyway")}  ${st.key("n")} ${st.dim("back")}  ${st.key("esc")} ${st.dim("cancel")}`,
       );
     } else if (f.step === "mode" || f.step === "confirm") {
+      // Where this publish goes: the configured default unless switched with `t`, and a target that cannot publish says so here.
+      const targets = SHARE_TARGETS.map((t) => {
+        const label = f.preflightOf(t).error ? `${t} ✗` : t;
+        return t === f.target ? `${st.cyan("›")} ${st.bold(label)}` : `  ${st.dim(label)}`;
+      });
+      inner.push(`${st.dim("to")}  ${targets.join(" ")}`, st.dim(`${destinationLabel(f.target)} · ${f.target === this.source.target ? "your default" : "this publish only"}`), "");
       SHARE_MODES.forEach((m, i) => {
         const on = i === f.modeIdx;
         inner.push(`${on ? st.cyan("›") : " "} ${st.dim(`${i + 1}`)} ${on ? st.bold(m.padEnd(8)) : m.padEnd(8)} ${st.dim(MODE_HINT[m])}`);
@@ -701,8 +709,8 @@ export class BrowserApp extends Screen {
       inner.push("");
       inner.push(
         f.step === "mode"
-          ? `${st.key("enter")} ${st.dim("continue")}  ${st.key("j/k")} ${st.dim("mode")}  ${st.key("esc")} ${st.dim("cancel")}`
-          : `${st.bold(`Publish ${f.mode} to ${this.source.destination}?`)} ${st.key("y")}/${st.key("n")}`,
+          ? `${st.key("enter")} ${st.dim("continue")}  ${st.key("j/k")} ${st.dim("mode")}  ${st.key("t")} ${st.dim("target")}  ${st.key("esc")} ${st.dim("cancel")}`
+          : `${st.bold(`Publish ${f.mode} to ${destinationLabel(f.target)}?`)} ${st.key("y")}/${st.key("n")}`,
       );
     } else if (f.step === "busy") inner.push(st.dim("publishing…"));
     else if (f.step === "error") inner.push(st.red("✗ publishing failed:"), ...wrap(f.failure ?? "unknown error", width - 6).slice(0, 6), "", `${st.key("enter")} ${st.dim("back")}  ${st.key("esc")} ${st.dim("close")}`);
@@ -731,6 +739,7 @@ export class BrowserApp extends Screen {
         row("x", "clear search + filters"),
         row(",", "settings: confirm before quitting · date format"),
         row("enter  p  y", "open viewer · publish · copy link"),
+        row("t", "in the publish dialog: switch the target (gist · R2) for this publish"),
         "",
         st.bold("Viewer"),
         row("j/k  J/K", "message (or scroll, in the content pane) · previous/next prompt"),

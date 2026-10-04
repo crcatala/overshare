@@ -131,6 +131,9 @@ field, falls back to its default.
   cover only the sessions read so far, and a row cannot be opened or published until it has been read. The cache is saved
   as it goes, so quitting midway keeps what was read. The cache and `shares.json` are written
   readable by you only (0600), since they hold prompt text and unlisted share links.
+- **Target.** The publish dialog names where the share goes, starting on your configured `target`; `t` switches between gist and R2 for
+  that one publish (the config is never rewritten). A target that is not set up (no `r2` section, no credentials) is marked `✗`, says what
+  is missing and cannot be published to. The review is made for the target on screen, so switching scans again and what you reviewed is what is uploaded there.
 - **Shared marks.** Every successful `publish` (CLI or browser) is recorded in `~/.local/state/agent-share-session/shares.json`
   (`AGENT_SHARE_SHARES` overrides). The browser shows a ✓ on those sessions and can filter by them.
 - **What gets published.** The publish dialog reviews the chosen mode with the real pipeline and uploads exactly the payload you
@@ -321,7 +324,7 @@ included a full `env` dump with a dozen API keys and an age secret key.
 ```
 
 Environment overrides: `AGENT_SHARE_VIEWER_URL`, `AGENT_SHARE_TARGET` (`gist` | `r2`).
-`publish --target r2` overrides the target per run. `--secrets-file <file>` (on
+`publish --target r2` overrides the target per run; in `browse`, press `t` in the publish dialog. `--secrets-file <file>` (on
 `report`/`export`/`publish`) adds exact values to redact: `UPPER_SNAKE=value` lines are
 split at the first `=`; any other line is redacted whole (so base64 padding or an `=`
 inside a bare secret never drops or partly reveals it). Values under 4 characters are

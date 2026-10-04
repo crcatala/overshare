@@ -3,8 +3,11 @@
  * or the redaction pipeline.
  *
  *   view     the session as a local message list (parse only, unredacted: it is the user's own machine)
- *   review   the real publish pipeline for one share mode: redaction findings, final re-scan, payload size
+ *   review   the real publish pipeline for one share mode and target: redaction findings, final re-scan, payload size
  *   publish  upload exactly what `review` showed (cached), then remember it in shares.json
+ *
+ * The target (gist or R2) is a per-publish choice: `Source.target` is the configured default the dialog starts on, and
+ * every call that depends on the destination takes the one in play. Nothing here writes a target back to the config.
  *
  * `view` and `review` are asynchronous and cancellable: the heavy work runs on a worker thread (see `runner.ts`),
  * so the UI keeps drawing and handling keys. A caller that no longer wants the answer aborts its signal, and must
@@ -87,10 +90,12 @@ export interface ShareReview {
 
 /**
  * A review as the browser holds it. `id` names this exact scan: `publish` uploads only the payload of the review
- * with the id it is given, so what is on screen and what is uploaded cannot drift apart.
+ * with the id it is given, so what is on screen and what is uploaded cannot drift apart. `target` is where this review
+ * was made for, and the only place it can be published to.
  */
 export interface ShareSummary extends ShareReview {
   id: string;
+  target: ShareTarget;
 }
 
 export interface Preflight {
@@ -118,20 +123,29 @@ export interface Source {
   index?: IndexFeed;
   /** Live view of shares.json; updated after a successful publish. */
   shares: SharesFile;
-  /** Where a publish will go, for confirmation text. */
-  destination: string;
+  /** The configured default target: where the publish dialog starts. A switch there is for one publish and never changes this. */
+  target: ShareTarget;
   /** Rejects with an `AbortError` once `signal` aborts. */
   view(s: SessionSummary, signal: AbortSignal): Promise<SessionView>;
   /** Rejects with an `AbortError` once `signal` aborts, or e.g. `PromptsUnavailableError` for legacy pi sessions in prompts mode. */
-  review(s: SessionSummary, mode: ShareMode, signal: AbortSignal): Promise<ShareSummary>;
-  preflight(): Preflight;
+  review(s: SessionSummary, mode: ShareMode, target: ShareTarget, signal: AbortSignal): Promise<ShareSummary>;
+  /** Whether `target` can publish at all (missing credentials or settings) and what is wrong with the share before the upload. */
+  preflight(target: ShareTarget): Preflight;
   /**
-   * Uploads the payload of the review `reviewId` named, and nothing else: a payload that is gone or was replaced by a
-   * newer review is refused. `suspiciousConfirmed`: the user has seen the suspicious values of that payload and chose to publish anyway.
+   * Uploads the payload of the review `reviewId` named, to the `target` it was made for, and nothing else: a payload that is
+   * gone, was replaced by a newer review or was reviewed for another target is refused. `suspiciousConfirmed`: the user has seen the suspicious values of that payload and chose to publish anyway.
    */
-  publish(s: SessionSummary, mode: ShareMode, opts: { reviewId: string; suspiciousConfirmed?: boolean }): Promise<{ url: string; warnings: string[] }>;
+  publish(s: SessionSummary, mode: ShareMode, opts: { reviewId: string; target: ShareTarget; suspiciousConfirmed?: boolean }): Promise<{ url: string; warnings: string[] }>;
   /** The browser is closing: stop all background work. */
   close(): void;
+}
+
+/** `publish` was given a review the source no longer holds (evicted, spent, replaced, or made for another target): the caller must review again. */
+export class StaleReviewError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StaleReviewError";
+  }
 }
 
 export const destinationLabel = (target: ShareTarget): string => (target === "gist" ? "a secret (unlisted) gist" : "the public R2 bucket (unlisted id)");
@@ -167,7 +181,7 @@ interface Flight {
 
 export function createSource(opts: SourceOptions): Source {
   const { config, sessions } = opts;
-  const target = opts.target ?? config.target;
+  const defaultTarget = opts.target ?? config.target;
   const shares = loadShares();
   const runner = opts.runner ?? workerRunner();
   const prepared = new Map<string, Reviewed>();
@@ -176,7 +190,8 @@ export function createSource(opts: SourceOptions): Source {
   const makePublisher = opts.publisher ?? createPublisher;
   const everything = new AbortController();
 
-  const key = (s: SessionSummary, mode: ShareMode) => `${s.path}|${s.mtimeMs}|${s.size}|${mode}`;
+  // The target is part of the key: a review made for one destination is never the one uploaded to another.
+  const key = (s: SessionSummary, mode: ShareMode, target: ShareTarget) => `${s.path}|${s.mtimeMs}|${s.size}|${mode}|${target}`;
 
   /** Reject as soon as `signal` aborts, whatever the underlying job is doing. */
   const until = <T>(signal: AbortSignal, work: Promise<T>): Promise<T> =>
@@ -187,15 +202,15 @@ export function createSource(opts: SourceOptions): Source {
       work.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
     });
 
-  const start = (s: SessionSummary, mode: ShareMode): Flight => {
-    const k = key(s, mode);
+  const start = (s: SessionSummary, mode: ShareMode, target: ShareTarget): Flight => {
+    const k = key(s, mode, target);
     const ctl = new AbortController();
     const flight: Flight = {
       waiters: 0,
       abort: () => ctl.abort(),
       done: runner.run({ kind: "review", path: s.path, harness: s.harness, mode, config }, AbortSignal.any([ctl.signal, everything.signal])).then((result) => {
         if (result.kind !== "review") throw new Error("unexpected job result");
-        const entry: Reviewed = { summary: { id: randomUUID(), ...result.review }, payload: result.payload, session: result.session };
+        const entry: Reviewed = { summary: { id: randomUUID(), target, ...result.review }, payload: result.payload, session: result.session };
         prepared.set(k, entry);
         while (prepared.size > keep) prepared.delete(prepared.keys().next().value!);
         return entry;
@@ -211,19 +226,19 @@ export function createSource(opts: SourceOptions): Source {
     sessions,
     index: opts.index,
     shares,
-    destination: destinationLabel(target),
+    target: defaultTarget,
     async view(s, signal) {
       const result = await runner.run({ kind: "view", path: s.path, harness: s.harness }, AbortSignal.any([signal, everything.signal]));
       if (result.kind !== "view") throw new Error("unexpected job result");
       return result.view;
     },
-    async review(s, mode, signal) {
+    async review(s, mode, target, signal) {
       // A caller that is already gone must not start (or join) a scan: its abort listener would never fire.
       if (signal.aborted) throw abortError();
-      const k = key(s, mode);
+      const k = key(s, mode, target);
       const hit = prepared.get(k);
       if (hit) return hit.summary;
-      const flight = flights.get(k) ?? start(s, mode);
+      const flight = flights.get(k) ?? start(s, mode, target);
       flight.waiters++;
       // The scan stops once nobody is waiting for it any more, and is forgotten at once so that a retry made
       // right away starts a fresh scan instead of joining the cancelled one.
@@ -239,7 +254,7 @@ export function createSource(opts: SourceOptions): Source {
         signal.removeEventListener("abort", release);
       }
     },
-    preflight() {
+    preflight(target) {
       const warnings = preflightWarnings(config, target);
       try {
         makePublisher(config, target);
@@ -251,15 +266,16 @@ export function createSource(opts: SourceOptions): Source {
     async publish(s, mode, opts) {
       // Only ever upload the payload of the review the user was shown. If it has been evicted or replaced, re-preparing
       // here would upload content nobody looked at, so make the user review again.
-      const share = prepared.get(key(s, mode));
-      if (!share || share.summary.id !== opts.reviewId) throw new Error("The reviewed payload is no longer available; go back and review it again before publishing.");
+      const { target } = opts;
+      const share = prepared.get(key(s, mode, target));
+      if (!share || share.summary.id !== opts.reviewId) throw new StaleReviewError("The reviewed payload is no longer available; go back and review it again before publishing.");
       if (share.summary.blocked) throw new Error("Refusing to publish: the final re-scan found unredacted secrets.");
       if (share.summary.suspicious.length && !opts.suspiciousConfirmed) throw new Error("Refusing to publish: suspicious values are still in the payload and were not confirmed.");
       const json = new TextDecoder("utf-8", { fatal: true }).decode(share.payload);
-      if (Buffer.byteLength(json) !== share.summary.bytes) throw new Error("The reviewed payload does not match its review; go back and review it again before publishing.");
+      if (Buffer.byteLength(json) !== share.summary.bytes) throw new StaleReviewError("The reviewed payload does not match its review; go back and review it again before publishing.");
       const publisher = makePublisher(config, target);
       const { result, warnings } = await publishPrepared(publisher, config, target, { json, session: share.session });
-      prepared.delete(key(s, mode));
+      prepared.delete(key(s, mode, target));
       // Mirror shares.json in memory so the list marks it as shared right away.
       const fresh = loadShares();
       for (const k of Object.keys(shares)) delete shares[k];

@@ -107,7 +107,7 @@ export class SessionViewer {
       (view) => arrived(() => void (this.view = view)),
       (err: unknown) => arrived(() => void (this.loadError = message(err))),
     );
-    source.review(session, "brief", signal).then(
+    source.review(session, "brief", source.target, signal).then(
       (report) => arrived(() => void (this.report = report)),
       (err: unknown) => arrived(() => void (this.reportError = message(err))),
     );

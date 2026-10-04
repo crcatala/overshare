@@ -9,11 +9,16 @@
  * for a mode the user has left, or after the dialog closed, is dropped (each request has its own abort signal),
  * and the confirm step cannot be reached until the review of the mode on screen has arrived. A mode the pipeline
  * refuses (e.g. prompts mode on a legacy pi session) is reported on that mode only; it never crashes the flow.
+ *
+ * The target (gist or R2) starts at the configured default and `t` cycles it for this publish only. A review belongs to
+ * a (mode, target) pair, so a switch drops the scan on screen and shows (or starts) the one for the new target; the
+ * upload goes to the target of the review it sends. A target that cannot publish says what is missing and stays blocked.
  */
 import { stripControls } from "../sanitize.js";
+import { SHARE_TARGETS, type ShareTarget } from "../config.js";
 import type { ShareMode } from "../schema.js";
 import { SHARE_MODES } from "../schema.js";
-import type { Preflight, ShareSummary, Source } from "./source.js";
+import { StaleReviewError, type Preflight, type ShareSummary, type Source } from "./source.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import { sharesFor } from "../sessions/shares.js";
 import { Spinner } from "./spinner.js";
@@ -40,10 +45,13 @@ export class PublishFlow {
   failure?: string;
   /** The user passed the suspicious-values step for the current mode. */
   private suspiciousConfirmed = false;
-  readonly preflight: Preflight;
-  private reviews = new Map<ShareMode, ShareSummary>();
-  /** A mode the pipeline refused, by mode. */
-  private refused = new Map<ShareMode, string>();
+  /** Where this publish goes: the configured default until `cycleTarget` changes it. Never written back to the config. */
+  target: ShareTarget;
+  /** What each target needs, read once when the dialog opens. */
+  private preflights = new Map<ShareTarget, Preflight>();
+  private reviews = new Map<string, ShareSummary>();
+  /** A (mode, target) the pipeline refused. */
+  private refused = new Map<string, string>();
   private timer?: ReturnType<typeof setTimeout>;
   /** The request whose answer is wanted: aborted when the mode changes or the flow closes. */
   private inflight?: AbortController;
@@ -56,7 +64,8 @@ export class PublishFlow {
     /** Called when the flow is finished or cancelled. */
     readonly onClose: () => void,
   ) {
-    this.preflight = source.preflight();
+    this.target = source.target;
+    for (const t of SHARE_TARGETS) this.preflights.set(t, source.preflight(t));
     this.scan();
   }
 
@@ -68,12 +77,22 @@ export class PublishFlow {
   get mode(): ShareMode {
     return SHARE_MODES[this.modeIdx]!;
   }
+  /** What the target in play needs: an `error` blocks the publish, `warnings` are shown. */
+  get preflight(): Preflight {
+    return this.preflightOf(this.target);
+  }
+  preflightOf(target: ShareTarget): Preflight {
+    return this.preflights.get(target)!;
+  }
+  private slot(mode: ShareMode = this.mode, target: ShareTarget = this.target): string {
+    return `${target}:${mode}`;
+  }
   get review(): ShareSummary | undefined {
-    return this.reviews.get(this.mode);
+    return this.reviews.get(this.slot());
   }
   /** Why this mode cannot be published, if the pipeline refused it. */
   get refusal(): string | undefined {
-    return this.refused.get(this.mode);
+    return this.refused.get(this.slot());
   }
   get alreadyShared(): boolean {
     return sharesFor(this.source.shares, this.session.harness, this.session.id).length > 0;
@@ -84,23 +103,26 @@ export class PublishFlow {
   }
 
   private scan(): void {
-    const mode = this.mode;
-    // Whatever was being scanned for another mode is not wanted any more.
+    const { mode, target } = this;
+    const slot = this.slot();
+    // Whatever was being scanned for another mode or target is not wanted any more.
     this.inflight?.abort();
     this.inflight = undefined;
     clearTimeout(this.timer);
-    if (this.reviews.has(mode) || this.refused.has(mode)) {
+    // A target that cannot publish shows what it lacks instead of a scan nobody can use.
+    if (this.reviews.has(slot) || this.refused.has(slot) || this.preflight.error) {
       this.loading = false;
       this.spinner.stop();
       return;
     }
     this.loading = true;
     this.spinner.start(this.redraw);
-    this.timer = setTimeout(() => this.request(mode), SCAN_DEBOUNCE_MS);
+    this.timer = setTimeout(() => this.request(mode, target), SCAN_DEBOUNCE_MS);
     this.redraw();
   }
 
-  private request(mode: ShareMode): void {
+  private request(mode: ShareMode, target: ShareTarget): void {
+    const slot = this.slot(mode, target);
     const ctl = new AbortController();
     this.inflight = ctl;
     // An answer counts only while its request is still the current one.
@@ -112,9 +134,9 @@ export class PublishFlow {
       this.spinner.stop();
       this.redraw();
     };
-    this.source.review(this.session, mode, ctl.signal).then(
-      (review) => arrive(() => this.reviews.set(mode, review)),
-      (err: unknown) => arrive(() => this.refused.set(mode, stripControls(err instanceof Error ? err.message : String(err)))),
+    this.source.review(this.session, mode, target, ctl.signal).then(
+      (review) => arrive(() => this.reviews.set(slot, review)),
+      (err: unknown) => arrive(() => this.refused.set(slot, stripControls(err instanceof Error ? err.message : String(err)))),
     );
   }
 
@@ -125,6 +147,12 @@ export class PublishFlow {
   }
   moveMode(delta: number): void {
     this.setMode(Math.max(0, Math.min(SHARE_MODES.length - 1, this.modeIdx + delta)));
+  }
+  /** Publish somewhere else this time: the next target, wrapping. What was reviewed for the old one is not what would be uploaded to the new one. */
+  cycleTarget(): void {
+    if (this.step !== "mode") return;
+    this.target = SHARE_TARGETS[(SHARE_TARGETS.indexOf(this.target) + 1) % SHARE_TARGETS.length]!;
+    this.scan();
   }
 
   /** Whether this mode's payload holds suspicious values, which need their own confirmation. */
@@ -150,7 +178,8 @@ export class PublishFlow {
       const review = this.review;
       if (!review) return;
       this.step = "busy";
-      this.source.publish(this.session, this.mode, { reviewId: review.id, suspiciousConfirmed: this.suspiciousConfirmed }).then(
+      const slot = this.slot();
+      this.source.publish(this.session, this.mode, { reviewId: review.id, target: review.target, suspiciousConfirmed: this.suspiciousConfirmed }).then(
         ({ url, warnings }) => {
           this.url = url;
           this.warnings = warnings;
@@ -158,6 +187,9 @@ export class PublishFlow {
           this.redraw();
         },
         (err: unknown) => {
+          // The source dropped this review (its cache is smaller than every mode x target the user can visit): ours is stale too,
+          // and would fail the same way for ever. Forget it, so going back scans again.
+          if (err instanceof StaleReviewError) this.reviews.delete(slot);
           this.failure = stripControls(err instanceof Error ? err.message : String(err));
           this.step = "error";
           this.redraw();
@@ -167,6 +199,7 @@ export class PublishFlow {
       this.onClose();
     } else if (this.step === "error") {
       this.step = "mode";
+      this.scan();
     }
     this.redraw();
   }

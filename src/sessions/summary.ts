@@ -12,6 +12,7 @@ import { projectNameFromCwd, stripInjectedContext } from "../adapters/shared.js"
 import { stripControls } from "../sanitize.js";
 import type { HarnessName } from "../schema.js";
 import { guessBranch } from "./branch.js";
+import { bumpOwn } from "../own-keys.js";
 
 /** Kept per session: enough to recognise it and to search what was asked. */
 const PROMPT_CHARS = 400;
@@ -124,7 +125,7 @@ class Collector {
   }
 
   tool(name: unknown): void {
-    if (typeof name === "string" && name) this.tools[name] = (this.tools[name] ?? 0) + 1;
+    if (typeof name === "string" && name) bumpOwn(this.tools, name);
   }
 
   get promptHead(): string[] {

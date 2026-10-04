@@ -1,4 +1,5 @@
 import { estimateCost } from "../pricing.js";
+import { bumpOwn } from "../own-keys.js";
 import {
   SCHEMA_VERSION,
   emptyUsage,
@@ -367,7 +368,7 @@ export function baseSession(harness: HarnessName, sessionId: string): Normalized
 }
 
 export function bump(counts: DropCounts, key: string, n = 1): void {
-  counts[key] = (counts[key] ?? 0) + n;
+  bumpOwn(counts, key, n);
 }
 
 export function projectNameFromCwd(cwd: string | undefined): string | undefined {

@@ -1,3 +1,4 @@
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -141,5 +142,34 @@ describe("withBranchGuess", () => {
     const s = summarizeRaw({ harness: "pi", id: "pi-1", path: "/p.jsonl", mtimeMs: Date.now(), size: 1 }, t.toJsonl());
     expect(s.branch).toBeUndefined();
     expect(withBranchGuess({ ...s, endedAt: "2026-09-12T00:00:00Z" })).toMatchObject({ branch: "spike/x", branchGuess: true });
+  });
+});
+
+describe("a hostile working directory cannot freeze the browser", () => {
+  // A FIFO blocks a plain readFileSync forever, and a synchronous hang cannot be timed out from inside the test:
+  // run the guess in a child process and require it to return.
+  const guessInChild = (cwd: string) => {
+    const r = spawnSync("node_modules/.bin/tsx", ["-e", `import { guessBranch } from "./src/sessions/branch.ts"; console.log(String(guessBranch(${JSON.stringify(cwd)}, 0)))`], { timeout: 20_000, encoding: "utf8" });
+    return { hung: r.error !== undefined, out: r.stdout.trim() };
+  };
+
+  it.each([
+    ["a FIFO named .git", (d: string) => execFileSync("mkfifo", [join(d, ".git")])],
+    ["a FIFO named HEAD", (d: string) => (mkdirSync(join(d, ".git", "logs"), { recursive: true }), execFileSync("mkfifo", [join(d, ".git", "HEAD")]))],
+    ["a FIFO named logs/HEAD", (d: string) => (mkdirSync(join(d, ".git", "logs"), { recursive: true }), writeFileSync(join(d, ".git", "HEAD"), "ref: refs/heads/main\n"), execFileSync("mkfifo", [join(d, ".git", "logs", "HEAD")]))],
+  ])("returns instead of waiting on %s", (_name, plant) => {
+    const cwd = join(root, "hostile");
+    mkdirSync(cwd);
+    plant(cwd);
+    const { hung, out } = guessInChild(cwd);
+    expect(hung).toBe(false);
+    // a FIFO reflog is just "no reflog": the current branch is still found
+    expect(out).toBe(_name.includes("logs") ? "main" : "undefined");
+  });
+
+  it("does not read a reflog over the size limit", () => {
+    const cwd = repo("big", "ref: refs/heads/main\n", [line("2026-09-10T10:00:00Z", "checkout: moving from main to feat/x")]);
+    writeFileSync(join(cwd, ".git", "logs", "HEAD"), `${"x".repeat(4_100_000)}\n${line("2026-09-10T10:00:00Z", "checkout: moving from main to feat/x")}\n`);
+    expect(guessBranch(cwd, T("2026-09-12T00:00:00Z"))).toBe("main"); // the oversized reflog is ignored; HEAD answers
   });
 });

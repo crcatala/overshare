@@ -13,7 +13,7 @@
  * The working directory comes from the transcript, so it is untrusted: only these four things are read (`.git`,
  * a `gitdir:` pointer in it, and `HEAD` / `logs/HEAD` there), and only a plain branch name comes back.
  */
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { stripControls } from "../sanitize.js";
 
@@ -35,12 +35,25 @@ const MAX_BRANCH_CHARS = 100;
 const SHA = /^[0-9a-f]{7,40}$/;
 const CHECKOUT = /^\S+ \S+ .*? (\d{9,11}) [+-]\d{4}\tcheckout: moving from (\S+) to (\S+)$/;
 
+/**
+ * A small text file, or undefined. Only a regular file is read, and never in a way that can wait: the path comes from a
+ * transcript, and a FIFO there (named `.git`, `HEAD` or `logs/HEAD`) would block a plain `readFileSync` for good, freezing
+ * the whole browser. So the file is opened non-blocking, checked on the open descriptor (no race with a swap after a
+ * `stat`), and read in a bounded way: more than `max` bytes means "too big", not "read it all".
+ */
 const readText = (path: string, max = 1_000_000): string | undefined => {
+  let fd: number | undefined;
   try {
-    if (statSync(path).size > max) return undefined;
-    return readFileSync(path, "utf8");
+    fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+    if (!fstatSync(fd).isFile()) return undefined;
+    const buf = Buffer.alloc(max + 1);
+    let n = 0;
+    for (let got = 1; got > 0 && n <= max; n += got) got = readSync(fd, buf, n, max + 1 - n, null);
+    return n > max ? undefined : buf.toString("utf8", 0, n);
   } catch {
     return undefined;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 };
 

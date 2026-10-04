@@ -116,6 +116,16 @@ describe("renderItem", () => {
     expect(lines).toContain("+ changed");
   });
 
+  it("wraps a long path in an edit header and in a file label, so the file name and the counts survive", () => {
+    const path = "/home/someone/workspace/some-long-project-name/packages/frontend/src/components/billing/InvoiceCurrencyPicker.tsx";
+    const edit = plain(renderItem(item({ kind: "tool", body: "x", blocks: [{ type: "edit", path, edits: [{ old: "a", new: "b" }] }] }), 40));
+    const header = edit.slice(0, edit.findIndex((l) => l.startsWith("-")));
+    expect(header.join("").replace(/\s/g, "")).toBe(`${path}+1−1`);
+    const label = plain(renderItem(item({ kind: "tool", body: "x", blocks: [{ type: "label", text: path }, { type: "label", text: path, style: "error" }] }), 40));
+    expect(label.join("").replace(/[\s✗]/g, "")).toBe(path + path);
+    for (const l of [...edit, ...label]) expect(l.length).toBeLessThanOrEqual(40);
+  });
+
   it("separates blocks with a blank line, but not a label from what it labels", () => {
     const lines = plain(renderItem(item({ kind: "tool", body: "x", blocks: [{ type: "code", text: "ls", lang: "bash" }, { type: "label", text: "result" }, { type: "code", text: "a\nb" }] }), 40));
     expect(lines).toEqual(["▏ ls", "", "result", "▏ a", "▏ b"]);

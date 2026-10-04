@@ -117,7 +117,8 @@ function diffBlock(path: string | undefined, edits: Array<{ old: string; new: st
       });
     }
   });
-  return [`${st.bold(path ?? "(file)")}  ${st.green(`+${added}`)} ${st.red(`−${removed}`)}`, ...body];
+  // Wrapped, never cut: a long path would otherwise lose its end, which is the file name, and the counts after it.
+  return [...wrap(`${st.bold(path ?? "(file)")}  ${st.green(`+${added}`)} ${st.red(`−${removed}`)}`, width), ...body];
 }
 
 function blockLines(b: ViewBlock, width: number): string[] {
@@ -127,7 +128,7 @@ function blockLines(b: ViewBlock, width: number): string[] {
     case "text":
       return b.text.split("\n").flatMap((l) => (l ? wrap(b.style === "error" ? st.red(l) : b.style === "dim" ? st.dim(l) : l, width) : [""]));
     case "label":
-      return [b.style === "error" ? st.red(`✗ ${b.text}`) : st.bold(st.cyan(b.text))];
+      return wrap(b.style === "error" ? st.red(`✗ ${b.text}`) : st.bold(st.cyan(b.text)), width);
     case "code":
       return codeLines(b.text, b.lang, width);
     case "edit": {

@@ -1,4 +1,5 @@
 import { scan, shannonEntropy } from "@sanity-labs/secret-scan";
+import { findAwsSecretKeys, findTokenFormats } from "./token-formats.js";
 
 /**
  * Pattern-based secret detection.
@@ -8,6 +9,10 @@ import { scan, shannonEntropy } from "@sanity-labs/secret-scan";
  * many "keyword + generic token" rules fire constantly on source code and diffs
  * (e.g. `100644` as a GitHub App key, `merge` as a DockerHub token). We trust the
  * anchored rules outright and require everything else to look like a real secret.
+ *
+ * Two things sit beside that scanner: `token-formats.ts` (provider formats recognised by their prefix, plus an AWS
+ * secret key found next to its key id) and the strong-context rules below (an auth header, `curl -u`, `password=`),
+ * where the position alone says "credential" and the value only has to be plausible, not statistically random.
  */
 
 export interface PatternMatch {
@@ -51,6 +56,18 @@ const HEX_HASH = /^(sha\d*[-:])?[0-9a-f]{7,128}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const INTEGRITY = /^sha(256|384|512)-[A-Za-z0-9+/=]+$/;
 
+/**
+ * Identifiers, filenames and model ids are mostly readable words; random tokens are not. Counts lowercase runs only:
+ * random base62 is mostly letters, but rarely 4+ lowercase in a row.
+ */
+function readable(value: string, threshold = 0.4): boolean {
+  const wordChars = (value.match(/[a-z]{4,}/g) ?? []).reduce((n, w) => n + w.length, 0);
+  return wordChars / value.length >= threshold;
+}
+
+/** `csrfTokenValue`, `GetApiKeyFromStore`: whole-string camelCase / PascalCase words. Random base62 essentially never is. */
+const WORDS_IN_CASE = /^(?:[a-z]{2,}(?:[A-Z][a-z]{2,})+|(?:[A-Z][a-z]{2,}){2,})$/;
+
 /** Heuristic "does this look like a random credential rather than code/prose". */
 export function looksLikeSecret(value: string): boolean {
   if (value.length < 20) return false;
@@ -58,12 +75,24 @@ export function looksLikeSecret(value: string): boolean {
   if (HEX_HASH.test(value) || UUID.test(value) || INTEGRITY.test(value)) return false;
   if (value.includes("/") || value.includes("\\")) return false; // paths, model ids, escaped text
   if (/\.[A-Za-z][A-Za-z0-9]{0,4}$/.test(value)) return false; // file names
-  // Identifiers, filenames and model ids are mostly readable words; random tokens are not.
-  // Count lowercase runs only: random base62 is mostly letters, but rarely 4+ lowercase in a row.
-  const wordChars = (value.match(/[a-z]{4,}/g) ?? []).reduce((n, w) => n + w.length, 0);
-  if (wordChars / value.length >= 0.4) return false;
+  if (readable(value)) return false;
   // Short strings cannot reach high entropy, so scale the bar with length (max 4 bits/char).
   return shannonEntropy(value) >= Math.min(4, Math.log2(value.length) - 0.5);
+}
+
+/**
+ * The bar for a value in a place that only holds credentials (`Authorization:` header, `curl -u`): not a placeholder,
+ * some variety, a digit or long mixed-case text, and not readable words or camelCase. Far below `looksLikeSecret`, whose near-maximal entropy requirement
+ * is right for a bare string in prose and wrong for a 21-character password in a header, which it rejects.
+ */
+export function looksLikeCredential(value: string): boolean {
+  if (value.length < 8 || isPlaceholderValue(value) || WORDS_IN_CASE.test(value)) return false;
+  // A digit, or both letter cases over enough characters that a word-like string would not do this by chance.
+  const digit = /\d/.test(value);
+  if (!digit && !(value.length >= 16 && /[a-z]/.test(value) && /[A-Z]/.test(value))) return false;
+  // Without a digit the string must not be mostly readable words; with one, only clearly word-built strings are rejected.
+  if (readable(value, digit ? 0.6 : 0.4)) return false;
+  return shannonEntropy(value) >= 2.75;
 }
 
 const PLACEHOLDER_VALUE =
@@ -90,12 +119,16 @@ export function isLiteralSecretValue(value: string): boolean {
 }
 
 export const SENSITIVE_KEY =
-  /(pass(word|wd|phrase)?|pwd|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|bearer|credential|session[_-]?token|^token$|[_-]token$)/i;
+  /(pass(word|wd|phrase)?|pwd|psw|(^|[_.-])pw($|[_.-])|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|bearer|credential|session[_-]?token|^token$|[_-]token$)/i;
 
 const ASSIGNMENT =
-  /\b((?:[A-Za-z_][\w.-]*?)?(?:pass(?:word|wd|phrase)?|pwd|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|token|credential)[\w-]*)["']?\s*(?:[:=]|=>)\s*(["'`]?)([^\s"'`,;]{8,})\2/gi;
+  /\b((?:[A-Za-z_][\w.-]*?)?(?:pass(?:word|wd|phrase)?|pwd|psw|[_.-]pw(?![A-Za-z])|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|token|credential)[\w-]*)["']?\s*(?:[:=]|=>)\s*(["'`]?)([^\s"'`,;]{8,})\2/gi;
 const URL_CREDENTIALS = /\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@'"]+:([^\s@/'"]+)@/gi;
-const AUTH_HEADER = /\b(?:authorization|x-api-key|api-key|x-auth-token)["']?\s*[:=]\s*["']?(?:bearer|basic|token)?\s*([A-Za-z0-9._~+/=-]{16,})/gi;
+// Header and header-like names that carry a credential: `Authorization`, `X-Api-Key`, `X-Amz-Security-Token`,
+// `Private-Token` (GitLab). Reached through curl's `-H`/`--header` as well, since the header text is what matches.
+const AUTH_HEADER = /\b(?:(?:proxy-)?authorization|x-[a-z0-9-]*(?:api-?key|auth-?token|access-?token|security-?token|secret|token|key)|api-?key|private-token)["']?\s*[:=]\s*["']?(?:bearer|basic|token)?\s*([A-Za-z0-9._~+/=-]{12,})/gi;
+// `curl -u user:password` / `--user user:password`; a bare `-u user` prompts for the password and has none to match.
+const CURL_USER = /\bcurl\b[^\n]*?\s(?:-u|--user)(?:\s+|=)["']?[^\s:"']+:([^\s"'`;|&<>)]{4,})/g;
 const AGE_SECRET_KEY = /AGE-SECRET-KEY-1[0-9A-Z]{58}/g;
 const PEM_BLOCK = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
 
@@ -141,10 +174,17 @@ function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] 
   }
   for (const m of text.matchAll(AUTH_HEADER)) {
     const value = m[1] ?? "";
-    if (isPlaceholderValue(value) || !looksLikeSecret(value)) continue;
+    if (!looksLikeCredential(value)) continue;
     const start = m.index + m[0].lastIndexOf(value);
     found.push({ rule: "auth-header", start, end: start + value.length, confidence: "high" });
   }
+  for (const m of text.matchAll(CURL_USER)) {
+    const value = m[1] ?? "";
+    if (isPlaceholderValue(value)) continue;
+    const start = m.index + m[0].lastIndexOf(`:${value}`) + 1;
+    found.push({ rule: "curl-user-password", start, end: start + value.length, confidence: "high" });
+  }
+  found.push(...findTokenFormats(text), ...findAwsSecretKeys(text));
   return resolveOverlaps(
     found.filter((f) => {
       const value = text.slice(f.start, f.end);
@@ -178,7 +218,8 @@ function insidePlaceholder(text: string, index: number): boolean {
 }
 
 function resolveOverlaps(matches: PatternMatch[]): PatternMatch[] {
-  const sorted = [...matches].sort((a, b) => b.end - b.start - (a.end - a.start));
+  // Longest wins; on a tie the higher confidence does, so a span two rules both find is reported (and blocks) as high.
+  const sorted = [...matches].sort((a, b) => b.end - b.start - (a.end - a.start) || Number(b.confidence === "high") - Number(a.confidence === "high"));
   const kept: PatternMatch[] = [];
   for (const m of sorted) {
     if (kept.every((k) => m.end <= k.start || m.start >= k.end)) kept.push(m);

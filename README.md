@@ -188,9 +188,20 @@ Layers, in order (see `src/redact/`):
    (~1,100 TruffleHog-derived rules). Prefix-anchored rules (GitHub, Anthropic, OpenAI,
    AWS, Stripe, Slack, JWT, private keys, connection strings…) are trusted; generic
    keyword rules must also look random (entropy, mixed letters/digits, not a hash/UUID,
-   not a fragment of a longer token). Plus own rules: `password=`-style assignments,
-   URL credentials, auth headers, sensitive JSON keys, age secret keys, PEM blocks.
+   not a fragment of a longer token). Plus own rules: `password=`-style assignments
+   (including `psw` and `_pw` names), URL credentials, auth headers (`Authorization`, `X-Api-Key`,
+   `Private-Token`, …), `curl -u user:password`, sensitive JSON keys, age secret keys, PEM blocks.
    Documentation examples (`…EXAMPLE`, sequential runs) are ignored.
+
+   Two parts are hand-written rather than taken from that library (`src/redact/token-formats.ts`):
+   a table of about 60 provider token formats recognised by their own prefix when printed bare
+   (GitLab, Vercel, Supabase, Neon, Notion, OpenRouter, Perplexity, Google API keys, Slack `xapp-`, …),
+   and an AWS secret access key found within a few lines of its access key id, whatever the
+   variable is called. Lengths in the table are lower bounds, a body must look random, and
+   prefixes short enough to occur in ordinary text (`re_`, `rnd_`, `SK…`) are reported at medium
+   confidence. Values in an auth header or `curl -u` get a lower randomness bar than values in
+   free text, since the position already says "credential", but identifiers (`csrfTokenValue`)
+   and readable words are still left alone.
 4. **Paths/PII** — home directory → `~` (also path slugs like `-home-<user>-…`),
    username → `[user]`, emails → `[email]` (no-reply/example addresses kept). Repo and
    project names are kept. Hostname redaction is opt-in.

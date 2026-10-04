@@ -395,9 +395,10 @@ Shares outlive the viewer that wrote them, and the viewer is always the latest b
 shares by the format version in them (`"schema": "agentshare/N"`):
 
 - **Same version**: shown as is.
-- **Newer version** (shared with a newer agent-share): shown best effort under a notice. Anything the
-  viewer doesn't recognise, like a new kind of step, appears as a labelled placeholder instead of
-  breaking the page; a turn that can't be read at all is replaced by a placeholder too.
+- **Newer version** (shared with a newer agent-share): shown best effort under a notice that names both
+  formats, counts the parts it couldn't show and links to the first. Anything the viewer doesn't
+  recognise, like a new kind of step, appears as a labelled placeholder instead of breaking the page;
+  a turn that can't be read at all is replaced by a placeholder too.
 - **Older version**: upgraded in the browser by small migrations (`viewer/src/compat.ts`), loaded only
   when a share needs one. A version with no migration says it can no longer be opened.
 

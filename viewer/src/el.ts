@@ -32,3 +32,14 @@ export function svg(tag: string, attrs: Record<string, string>, ...children: SVG
   el.append(...children);
   return el;
 }
+
+/** A warning triangle, sized by the CSS of whatever holds it. */
+export function warnIcon(): SVGElement {
+  return svg(
+    "svg",
+    { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.8", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" },
+    svg("path", { d: "M12 3.2 2.6 19.4a1 1 0 0 0 .9 1.5h17a1 1 0 0 0 .9-1.5L12 3.2Z" }),
+    svg("path", { d: "M12 9.6v4.6" }),
+    svg("circle", { cx: "12", cy: "17.1", r: "0.6" }),
+  );
+}

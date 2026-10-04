@@ -36,8 +36,8 @@ export function schemaVersion(schema: unknown): number | undefined {
 
 export interface ReadShare {
   session: NormalizedSession;
-  /** Shown above the transcript when the share may not display completely. */
-  notice?: string;
+  /** Set when the share is newer than this viewer: the two formats, for a notice above the transcript. */
+  newer?: { shared: string; viewer: string };
 }
 
 export async function readShare(data: unknown, migrations: Migrations = MIGRATIONS): Promise<ReadShare> {
@@ -48,15 +48,12 @@ export async function readShare(data: unknown, migrations: Migrations = MIGRATIO
     const found = typeof doc?.schema === "string" ? doc.schema : "none";
     throw new Error(`This isn't an agent-share session (format: ${found}).`);
   }
-  let notice: string | undefined;
-  if (version > current) {
-    notice = `This session was shared with a newer agent-share (${doc.schema}) than this viewer reads (${SCHEMA_VERSION}). Some of it may be missing or shown as a placeholder.`;
-  }
+  const newer = version > current ? { shared: String(doc.schema), viewer: SCHEMA_VERSION } : undefined;
   for (let v = version; v < current; v++) {
     const load = migrations[v];
     if (!load) throw new Error(`This session was shared in an older format (${doc.schema}) that this viewer can no longer open.`);
     doc = { ...(await load()).default(doc), schema: `agentshare/${v + 1}` };
   }
   if (!Array.isArray(doc.turns)) throw new Error("This session has no turns to show.");
-  return { session: doc as unknown as NormalizedSession, ...(notice ? { notice } : {}) };
+  return { session: doc as unknown as NormalizedSession, ...(newer ? { newer } : {}) };
 }

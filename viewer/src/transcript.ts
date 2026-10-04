@@ -9,6 +9,7 @@ import { formatCost, formatDuration, formatTokens, plural } from "../../src/form
 import { contextTokens, type EventStep, type NormalizedSession, type ResponseUsage, type Step, type SubagentStep, type ThinkingStep, type ToolGroupStep, type ToolResult, type ToolStep, type Turn } from "../../src/schema.ts";
 import { commandName, groupCalls, groupShell, isExecTool, type CallCount } from "./commands.ts";
 import { h, markdown } from "./dom.ts";
+import { warnIcon } from "./el.ts";
 import { stepTokens, turnSubagents, turnSubagentsLine, type TurnSubagents } from "./subagents.ts";
 import { firstLine, lineDiff, preview, splitLines, trimContext, type DiffLine } from "./text.ts";
 import { cacheEventOf } from "./usageinfo.ts";
@@ -386,7 +387,7 @@ function renderStep(step: Step, id: string, ctx: Ctx): HTMLElement {
  */
 function unsupported(id: string, kind: unknown, iso: string | undefined, broken = false): HTMLElement {
   const name = typeof kind === "string" && kind ? kind : "unknown";
-  const el = entry("unsupported", id, "?", iso, h("span", { class: "tname" }, name), h("span", { class: "tmeta" }, broken ? "couldn't be shown" : "not supported by this viewer"));
+  const el = entry("unsupported", id, "?", iso, warnIcon(), h("span", { class: "tname" }, name), h("span", { class: "tmeta" }, broken ? "couldn't be shown" : "not supported by this viewer"));
   el.dataset.kind = name;
   return el;
 }

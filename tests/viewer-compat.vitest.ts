@@ -11,6 +11,7 @@ import { SCHEMA_VERSION, type NormalizedSession } from "../src/schema.ts";
 (globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
 const { MIGRATIONS, readShare, schemaVersion } = await import("../viewer/src/compat.ts");
 const { renderTranscript } = await import("../viewer/src/transcript.ts");
+const { renderCompatNotice } = await import("../viewer/src/notice.ts");
 const { renderTokenRail } = await import("../viewer/src/tokens.ts");
 const { renderHeader } = await import("../viewer/src/header.ts");
 const { renderToc } = await import("../viewer/src/toc.ts");
@@ -36,15 +37,14 @@ const sample = () => parsed(frozen(current)[0]!.json);
 describe("reading a share by its format version", () => {
   it("reads the current version as is, without a notice", async () => {
     const read = await readShare(sample());
-    expect(read.notice).toBeUndefined();
+    expect(read.newer).toBeUndefined();
     expect(read.session.schema).toBe(SCHEMA_VERSION);
   });
 
   it("reads a newer version best effort and says so", async () => {
     const read = await readShare({ ...sample(), schema: `agentshare/${current + 1}` });
     expect(read.session.turns.length).toBeGreaterThan(0);
-    expect(read.notice).toContain(`agentshare/${current + 1}`);
-    expect(read.notice).toContain("newer");
+    expect(read.newer).toEqual({ shared: `agentshare/${current + 1}`, viewer: SCHEMA_VERSION });
   });
 
   it("refuses an older version no migration reaches the current one from", async () => {
@@ -63,7 +63,7 @@ describe("reading a share by its format version", () => {
     expect(seen).toEqual([`from agentshare/${current - 2}`, `from agentshare/${current - 1}`]);
     expect(read.session.schema).toBe(SCHEMA_VERSION);
     expect(read.session.title).toBe("was renamed");
-    expect(read.notice).toBeUndefined();
+    expect(read.newer).toBeUndefined();
     expect(load).not.toHaveBeenCalled();
   });
 
@@ -104,6 +104,7 @@ describe("a step the viewer can't draw", () => {
     expect(placeholder.dataset.kind).toBe("diagram");
     expect(placeholder.textContent).toContain("not supported by this viewer");
     expect(placeholder.id).toBe("s-0-1");
+    expect(placeholder.querySelector("svg")).not.toBeNull();
   });
 
   it("shows a placeholder for a step whose data is not what its kind says, and keeps the rest of the turn", () => {
@@ -136,6 +137,35 @@ describe("a step the viewer can't draw", () => {
   });
 });
 
+describe("the notice for a newer format", () => {
+  const formats = { shared: "agentshare/3", viewer: "agentshare/2" };
+
+  it("names both formats and counts what couldn't be shown, with a link to the first", () => {
+    const goToFirst = vi.fn();
+    const el = renderCompatNotice(formats, { count: 3, goToFirst });
+    expect(el.getAttribute("role")).toBe("status");
+    expect(el.querySelector(".compat-title")?.textContent).toBe("Shared with a newer agent-share");
+    expect(Array.from(el.querySelectorAll("code"), (c) => c.textContent)).toEqual(["agentshare/3", "agentshare/2"]);
+    expect(el.textContent).toContain("3 parts can't be shown.");
+    const go = el.querySelector<HTMLButtonElement>("button.compat-go")!;
+    expect(go.textContent).toBe("Jump to the first ↓");
+    go.click();
+    expect(goToFirst).toHaveBeenCalledOnce();
+  });
+
+  it("says 'it' for a single part", () => {
+    const el = renderCompatNotice(formats, { count: 1, goToFirst: () => {} });
+    expect(el.textContent).toContain("1 part can't be shown.");
+    expect(el.querySelector("button.compat-go")?.textContent).toBe("Jump to it ↓");
+  });
+
+  it("has no count and no link when nothing was left out of the view", () => {
+    const el = renderCompatNotice(formats, { count: 0, goToFirst: () => {} });
+    expect(el.textContent).toContain("Parts of it may be missing.");
+    expect(el.querySelector("button")).toBeNull();
+  });
+});
+
 describe("frozen shares", () => {
   it("has a frozen share for the current format, and one directory per version it opens", () => {
     // Bumping SCHEMA_VERSION fails here until a share in the new format is frozen
@@ -153,8 +183,8 @@ describe("frozen shares", () => {
   it.each(files.map((f) => [`agentshare/${f.version} ${f.name}`, f] as const))("%s opens and renders in every view", async (_label, file) => {
     const raw = parsed(file.json);
     expect(raw.schema).toBe(`agentshare/${file.version}`);
-    const { session, notice } = await readShare(raw);
-    expect(notice).toBeUndefined();
+    const { session, newer } = await readShare(raw);
+    expect(newer).toBeUndefined();
     expect(session.schema).toBe(SCHEMA_VERSION);
 
     const reachable = availableModes(session.mode, !promptsUnavailableReason(session));

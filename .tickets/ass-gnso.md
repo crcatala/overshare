@@ -1,6 +1,6 @@
 ---
 id: ass-gnso
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-10-01T21:13:55Z

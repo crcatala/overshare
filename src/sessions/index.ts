@@ -121,6 +121,7 @@ export interface IndexJobOptions extends IndexOptions {
  * The incremental index: `sessions` is complete from the first instant (cache hits as they were, every other
  * file as a stat-only placeholder with `pending` set) and is filled in place, newest first, while the event
  * loop stays free. Each change is announced through `subscribe` once per slice, not once per file.
+ * `refresh` lists the files again while the browser is open and queues the new and changed ones the same way.
  * The cache is saved periodically and when the job finishes or is stopped, so quitting midway keeps what was read.
  */
 export class IndexJob {
@@ -129,7 +130,8 @@ export class IndexJob {
   private readonly path: string;
   private readonly done: Record<string, SessionSummary>;
   private readonly queue: SessionRef[];
-  private readonly total: number;
+  private readonly opts: IndexJobOptions;
+  private total: number;
   private readonly sliceMs: number;
   private readonly saveEveryMs: number;
   private readonly now: () => number;
@@ -140,6 +142,7 @@ export class IndexJob {
 
   constructor(opts: IndexJobOptions = {}) {
     const { path, cached, refs, next, stale } = plan(opts);
+    this.opts = opts;
     this.path = path;
     this.done = next;
     this.queue = stale;
@@ -163,6 +166,43 @@ export class IndexJob {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => void this.listeners.delete(listener);
+  }
+
+  /**
+   * Look at the files again: sessions that appeared are added as placeholders, ones that grew keep their old row until they are
+   * read again, ones that disappeared are removed. Only new and changed files are read (one `stat` per unchanged file), and
+   * listeners hear about the new rows at once. `sessions` stays the same array, so whoever holds it sees the change.
+   */
+  refresh(): void {
+    const refs = listRefs(this.opts);
+    const shown = new Map(this.sessions.map((s) => [s.path, s]));
+    const rows: SessionSummary[] = [];
+    const wanted = new Set<string>();
+    this.queue.length = 0;
+    for (const ref of refs) {
+      wanted.add(ref.path);
+      const hit = this.done[ref.path];
+      if (hit && hit.mtimeMs === ref.mtimeMs && hit.size === ref.size) rows.push(hit);
+      else {
+        // The row on screen (the old summary, or a placeholder) stays until the new one has been read.
+        rows.push(shown.get(ref.path) ?? placeholder(ref));
+        this.queue.push(ref);
+      }
+    }
+    for (const path of Object.keys(this.done)) {
+      if (!wanted.has(path)) {
+        delete this.done[path];
+        this.unsaved = true;
+      }
+    }
+    this.total = refs.length;
+    this.sessions.splice(0, this.sessions.length, ...rows);
+    if (this.queue.length > 0) this.timer ??= setImmediate(() => this.slice());
+    else {
+      if (this.timer) clearImmediate(this.timer);
+      this.finish();
+    }
+    for (const l of this.listeners) l();
   }
 
   /** Stop reading and persist what has been read so far. Safe to call repeatedly (and from an `exit` handler). */
@@ -198,8 +238,12 @@ export class IndexJob {
         this.sessions[at] = summary;
         this.unsaved = true;
       } catch {
-        // unreadable or vanished: leave it out
+        // unreadable or vanished: leave it out, and forget what was cached for it (a file that changed has an older entry)
         this.sessions.splice(at, 1);
+        if (Object.hasOwn(this.done, ref.path)) {
+          delete this.done[ref.path];
+          this.unsaved = true;
+        }
       }
     } while (this.queue.length > 0 && this.now() - started < this.sliceMs);
     if (this.queue.length === 0) this.finish();

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { drive, KEY, listColumn, manySessions, order, sampleSessions, selectedNumber, summary, TITLES } from "./browse-helpers.js";
+import { drive, KEY, listColumn, manySessions, NOW, order, sampleSessions, selectedNumber, summary, TITLES } from "./browse-helpers.js";
 import { IndexJob } from "../src/sessions/index.js";
 import { ClaudeTranscript } from "./helpers.js";
 import { memorySettings } from "../src/browse/settings.js";
@@ -638,5 +638,114 @@ describe("while the index is still running", () => {
     expect(cached.map((p) => p.match(/sess-(\d)/)![1]).sort()).toEqual(["0", "1"]);
     await vi.runAllTimersAsync();
     expect(job.sessions.filter((x) => !x.pending)).toHaveLength(2); // nothing is read after the quit
+  });
+});
+
+describe("ctrl-r refresh (ass-gnso)", () => {
+  const fresh = (id: string, title: string, mtimeMs: number) => summary({ id, title, project: "billing", mtimeMs });
+
+  it("asks the index to refresh, and the footer and help list the key", async () => {
+    const d = drive({ refresh: () => {} });
+    expect(d.text(200)).toContain("ctrl-r refresh");
+    await d.press(KEY.ctrlR);
+    expect(d.source.refreshes).toBe(1);
+    await d.press("?");
+    expect(d.text()).toContain("ctrl-r");
+    expect(d.text()).toContain("read sessions written since launch");
+  });
+
+  it("shows a session that appeared, and one that was rewritten, without moving the selection", async () => {
+    const d = drive({
+      refresh: (rows) => {
+        rows.unshift(fresh("n1", "Brand new session", NOW)); // newest of all
+        const at = rows.findIndex((s) => s.id === "s3");
+        rows[at] = { ...rows[at]!, title: "Onboarding empty state (renamed)", mtimeMs: NOW - 1000 };
+      },
+    });
+    await d.press(KEY.down, KEY.down); // Onboarding empty state
+    expect(d.text()).toMatch(/▌.*Onboarding empty state/);
+    await d.press(KEY.ctrlR);
+    const titles = order(d.lines(), [...TITLES, "Brand new session", "Onboarding empty state (renamed)"]);
+    expect(titles[0]).toBe("Brand new session");
+    expect(titles).toContain("Onboarding empty state (renamed)");
+    expect(d.text()).toMatch(/▌.*Onboarding empty state \(renamed\)/); // the cursor followed the session, not its position
+    expect(d.text()).toContain("8/9");
+  });
+
+  it("keeps the search and the filters, and applies them to what arrives", async () => {
+    const d = drive({ refresh: (rows) => void rows.unshift(fresh("n1", "Invoice export job", NOW)) });
+    await d.press("h"); // claude-code only
+    await d.press("/");
+    await d.type("invoice");
+    await d.press(KEY.enter);
+    expect(order(d.lines(), [...TITLES, "Invoice export job"])).toEqual(["Fix invoice currency bug"]);
+    await d.press(KEY.ctrlR);
+    expect(order(d.lines(), [...TITLES, "Invoice export job"])).toEqual(["Invoice export job", "Fix invoice currency bug"]);
+    expect(d.text()).toContain("harness: claude");
+    expect(d.text()).toContain("/ invoice");
+  });
+
+  it("copes with the selected session having vanished", async () => {
+    const d = drive({ refresh: (rows) => void rows.splice(rows.findIndex((s) => s.id === "s7"), 1) });
+    await d.press(KEY.end); // Write the worktree playbook, the last row
+    await d.press(KEY.ctrlR);
+    expect(order(d.lines(), TITLES)).toEqual(BY_RECENCY.slice(0, 6));
+    expect(d.text()).toMatch(/▌.*Compare terminal multiplexers/); // the nearest row is selected, nothing crashes
+    await d.press(KEY.enter); // and it is a real session that opens
+    expect(d.source.viewed.at(-1)!.id).toBe("s6");
+  });
+
+  it("does nothing while a dialog or the viewer has the keys", async () => {
+    const d = drive({ refresh: () => {} });
+    await d.press("R", KEY.ctrlR);
+    expect(d.source.refreshes).toBe(0);
+    await d.press(KEY.esc, KEY.enter, KEY.ctrlR); // the viewer
+    expect(d.source.refreshes).toBe(0);
+  });
+
+  it("does not turn into search text while typing", async () => {
+    const d = drive({ refresh: () => {} });
+    await d.press("/", KEY.ctrlR);
+    expect(d.source.refreshes).toBe(0);
+    expect(d.text()).not.toContain("\x12");
+  });
+
+  it("with the real index: appended messages, a new transcript and a deleted one show up without leaving the browser", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "browse-refresh-"));
+    const claude = join(dir, "claude", "-home-x");
+    mkdirSync(claude, { recursive: true });
+    const put = (id: string, title: string, minutes: number) => {
+      const file = join(claude, `${id}.jsonl`);
+      const t = new ClaudeTranscript(id, "/home/tester/work/demo");
+      t.meta("ai-title", { aiTitle: title });
+      t.user(`prompt of ${id}`);
+      writeFileSync(file, t.toJsonl());
+      utimesSync(file, new Date(2026, 0, 1), new Date(2026, 0, 1, 12, minutes));
+      return file;
+    };
+    const running = put("sess-run", "Running session", 3);
+    put("sess-other", "Other session", 2);
+    const doomed = put("sess-doomed", "Doomed session", 1);
+    const job = new IndexJob({ roots: { "claude-code": join(dir, "claude"), pi: join(dir, "pi") }, cachePath: join(dir, "cache.json"), sliceMs: 0 });
+    const d = drive({ sessions: job.sessions, index: job });
+    await vi.runAllTimersAsync();
+    await d.press(KEY.down); // Other session
+    expect(d.text()).toMatch(/▌.*Other session/);
+    expect(d.text()).toContain("1 prompt");
+
+    // Meanwhile, in another terminal: the running session gets another prompt and a better title, one appears, one is deleted.
+    writeFileSync(running, `${readFileSync(running, "utf8")}${JSON.stringify({ type: "ai-title", aiTitle: "Running session, now titled" })}\n`);
+    put("sess-fresh", "Fresh session", 10);
+    rmSync(doomed);
+    expect(d.text()).not.toContain("Fresh session"); // nothing changes until asked
+
+    await d.press(KEY.ctrlR);
+    await vi.runAllTimersAsync();
+    const text = d.text();
+    expect(text).toContain("Fresh session");
+    expect(text).toContain("Running session, now titled");
+    expect(text).not.toContain("Doomed session");
+    expect(text).toMatch(/▌.*Other session/); // still on the session that was selected
+    expect(text).not.toContain("reading sessions"); // and the refresh is over
   });
 });

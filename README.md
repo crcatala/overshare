@@ -70,6 +70,7 @@ agent-share  7/7
 | `g` | cycle grouping: none → date → repo → harness | `G`: dialog |
 | `o` | cycle sort field (size, title, repo, prompts, calls, duration, updated); selects the first session | `O`: dialog with field and direction |
 | `x` | clear search and filters (grouping and sort stay); shown in the footer while there is something to clear | |
+| `ctrl-r` | refresh: list the sessions again and read the new and changed ones (a session still being written, a new one, a deleted one); the selection, search and filters stay | |
 | `enter` | open the session viewer | |
 | `p` | publish: mode → review → confirm (`enter` continues; only `y` publishes) | |
 | `y` | copy the share link (terminal clipboard, OSC 52) | |

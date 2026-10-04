@@ -11,11 +11,13 @@ import { dirname, join } from "node:path";
 import { projectNameFromCwd, stripInjectedContext } from "../adapters/shared.js";
 import { stripControls } from "../sanitize.js";
 import type { HarnessName } from "../schema.js";
+import { guessBranch } from "./branch.js";
 
 /** Kept per session: enough to recognise it and to search what was asked. */
 const PROMPT_CHARS = 400;
 const KEPT_PROMPTS = 8;
 const SEARCH_CHARS = 6_000;
+const REPLY_CHARS = 600;
 
 export interface SessionSummary {
   harness: HarnessName;
@@ -26,6 +28,8 @@ export interface SessionSummary {
   cwd?: string;
   project?: string;
   branch?: string;
+  /** `branch` was not recorded in the transcript but worked out from the repo's reflog (see branch.ts): a best guess. */
+  branchGuess?: true;
   title?: string;
   startedAt?: string;
   endedAt?: string;
@@ -42,6 +46,8 @@ export interface SessionSummary {
   worker: boolean;
   firstPrompt?: string;
   lastPrompt?: string;
+  /** The last thing the assistant said in words (tool-only turns do not count), whitespace collapsed and cut; for the preview. */
+  lastReply?: string;
   /** First and last few prompts, each truncated; what the preview shows. */
   promptHead: string[];
   promptTail: string[];
@@ -77,6 +83,7 @@ class Collector {
   cwd?: string;
   branch?: string;
   title?: string;
+  reply?: string;
   private searchLen = 0;
   search: string[] = [];
   private head: string[] = [];
@@ -104,6 +111,12 @@ class Collector {
       this.search.push(t);
       this.searchLen += t.length;
     }
+  }
+
+  /** An assistant message's text; a message with none (only tool calls) leaves the last reply as it was. */
+  say(content: unknown): void {
+    const text = textOf(content).replace(/\s+/g, " ").trim();
+    if (text) this.reply = text.length > REPLY_CHARS ? `${text.slice(0, REPLY_CHARS - 1)}…` : text;
   }
 
   model(m: unknown): void {
@@ -185,6 +198,7 @@ function summarizeClaude(raw: string, c: Collector): void {
     if (isAssistant) {
       const msg = e.message ?? {};
       c.model(msg.model);
+      if (msg.model !== "<synthetic>") c.say(msg.content);
       const id = msg.id ?? e.uuid;
       if (msg.model !== "<synthetic>" && id && !seenCalls.has(id)) {
         seenCalls.add(id);
@@ -231,6 +245,7 @@ function summarizePi(raw: string, c: Collector): void {
         if (text) c.prompt(text);
       } else if (msg.role === "assistant") {
         c.model(msg.model);
+        c.say(msg.content);
         c.calls++;
         for (const block of Array.isArray(msg.content) ? msg.content : []) if (block?.type === "toolCall") c.tool(block.name);
       }
@@ -280,6 +295,7 @@ function sanitized(s: SessionSummary): SessionSummary {
     tools: Object.fromEntries(Object.entries(s.tools).map(([name, n]) => [stripControls(name), n])),
     firstPrompt: clean(s.firstPrompt),
     lastPrompt: clean(s.lastPrompt),
+    lastReply: clean(s.lastReply),
     promptHead: s.promptHead.map(stripControls),
     promptTail: s.promptTail.map(stripControls),
     searchText: stripControls(s.searchText),
@@ -316,12 +332,20 @@ export function summarizeRaw(ref: SummarizeInput, raw: string): SessionSummary {
     worker: /^subagent-worker/.test(c.title ?? ""),
     firstPrompt: c.first,
     lastPrompt: c.last ?? c.first,
+    lastReply: c.reply,
     promptHead: c.promptHead,
     promptTail: c.promptTail,
     searchText: [title, project, c.branch, c.models.join(" "), ...c.search].filter(Boolean).join("\n").toLowerCase(),
   });
 }
 
+/** A session whose transcript names no branch gets the repo's best guess, marked as one (it is searchable like a recorded branch). */
+export function withBranchGuess(s: SessionSummary): SessionSummary {
+  if (s.branch || !s.cwd) return s;
+  const branch = guessBranch(s.cwd, s.endedAt ? Date.parse(s.endedAt) : s.mtimeMs);
+  return branch ? { ...s, branch, branchGuess: true, searchText: `${s.searchText}\n${branch.toLowerCase()}` } : s;
+}
+
 export function summarizeFile(ref: SummarizeInput): SessionSummary {
-  return summarizeRaw(ref, readFileSync(ref.path, "utf8"));
+  return withBranchGuess(summarizeRaw(ref, readFileSync(ref.path, "utf8")));
 }

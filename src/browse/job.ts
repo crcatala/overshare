@@ -21,7 +21,7 @@ import { stripControls } from "../sanitize.js";
 import { totalTokens, type HarnessName, type NormalizedSession, type ShareMode } from "../schema.js";
 import { computeStats } from "../stats.js";
 import { loadSubagentFiles } from "../subagent-files.js";
-import type { SessionView, ShareReview, ViewItem } from "./source.js";
+import type { SessionView, ShareReview, ViewBlock, ViewItem } from "./source.js";
 
 // ── view ───────────────────────────────────────────────────────────────────────────────
 
@@ -30,6 +30,58 @@ const stripPasteTags = (s: string): string => s.replace(/<\/?pasted_content[^>]*
 const firstLine = (text: string): string => stripPasteTags(text).split("\n", 1)[0]!.replace(/\s+/g, " ");
 /** The adapters keep summaries and descriptions whole (the share pipeline caps them after redaction); the list shows them as the share will. */
 const shown = (text: string): string => capRedacted(text, SUMMARY_MAX);
+
+const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+const record = (v: unknown): Record<string, unknown> | undefined => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined);
+const EXT_LANG = /\.([A-Za-z0-9]+)$/;
+
+/** The replacements an edit tool call makes: Claude Code's Edit / MultiEdit and pi's `edit` (one pair, or a list of them). */
+function editsOf(input: Record<string, unknown>): Array<{ old: string; new: string }> {
+  const pair = (e: Record<string, unknown> | undefined) => {
+    const o = str(e?.old_string) ?? str(e?.oldText) ?? str(e?.oldString);
+    const n = str(e?.new_string) ?? str(e?.newText) ?? str(e?.newString);
+    return o !== undefined && n !== undefined ? { old: cap(o, 4_000), new: cap(n, 4_000) } : undefined;
+  };
+  const list = Array.isArray(input.edits) ? input.edits.map((e) => pair(record(e))) : [pair(input)];
+  return list.filter((e): e is { old: string; new: string } => !!e);
+}
+
+/**
+ * A tool call as formatted pieces: the command as shell, an edit as a diff, a written file as code, anything else as its
+ * JSON input; then the result. Which tool is which is decided by name, for both harnesses (`Bash` / `bash`, `Edit` / `edit`).
+ */
+function toolBlocks(name: string, summary: string, input: unknown, result: { text: string } | undefined, isError: boolean | undefined): ViewBlock[] {
+  const args = record(input);
+  const path = str(args?.file_path) ?? str(args?.path) ?? str(args?.filePath);
+  const blocks: ViewBlock[] = [];
+  let quietResult = false;
+  const tool = name.toLowerCase();
+  const command = str(args?.command) ?? str(args?.cmd);
+  const edits = args ? editsOf(args) : [];
+  const content = str(args?.content) ?? str(args?.file_text);
+  if (tool === "bash" && command) {
+    const why = str(args?.description);
+    if (why) blocks.push({ type: "text", text: why, style: "dim" });
+    blocks.push({ type: "code", text: cap(command, 3_000), lang: "bash" });
+  } else if (edits.length > 0 && /edit/.test(tool)) {
+    blocks.push({ type: "edit", path, edits });
+    quietResult = true;
+  } else if (/^(write|create)/.test(tool) && path && content !== undefined) {
+    blocks.push({ type: "label", text: path }, { type: "code", text: cap(content, 4_000), lang: EXT_LANG.exec(path)?.[1] });
+    quietResult = true;
+  } else if (tool === "read" && path) {
+    const range = [args?.offset !== undefined && `from line ${String(args.offset)}`, args?.limit !== undefined && `${String(args.limit)} lines`].filter(Boolean).join(", ");
+    blocks.push({ type: "label", text: `${path}${range ? `  (${range})` : ""}` });
+  } else {
+    blocks.push({ type: "text", text: cap(summary, 2_000) });
+    if (args && Object.keys(args).length > 0) blocks.push({ type: "label", text: "input" }, { type: "code", text: cap(JSON.stringify(args, null, 2), 3_000), lang: "json" });
+  }
+  if (!result) blocks.push({ type: "text", text: "(no result recorded)", style: "dim" });
+  else if (isError) blocks.push({ type: "label", text: "error", style: "error" }, { type: "code", text: cap(result.text, 4_000) });
+  else if (quietResult && result.text.length <= 300) blocks.push({ type: "text", text: result.text, style: "dim" });
+  else blocks.push({ type: "label", text: "result" }, { type: "code", text: cap(result.text, 4_000), lang: tool === "read" ? EXT_LANG.exec(path ?? "")?.[1] : undefined });
+  return blocks;
+}
 
 export function viewFromSession(session: NormalizedSession): SessionView {
   const stats = computeStats(session);
@@ -54,6 +106,7 @@ export function viewFromSession(session: NormalizedSession): SessionView {
           label: `${step.name}  ${shown(step.summary)}`,
           meta: step.name,
           error: step.isError,
+          blocks: toolBlocks(step.name, step.summary, step.input, step.result, step.isError),
           body: `${cap(step.summary, 2_000)}\n\n── input ──\n${input}\n\n── result${step.isError ? " (error)" : ""} ──\n${result}`,
         });
       } else if (step.kind === "subagent") {
@@ -63,6 +116,11 @@ export function viewFromSession(session: NormalizedSession): SessionView {
           label: `${step.tool}  ${step.agents.join(", ")} ${shown(step.description ?? "")}`.trim(),
           meta: step.tool,
           error: step.isError,
+          blocks: [
+            ...(step.description ? [{ type: "label", text: "task" } as const, { type: "text", text: cap(step.description, 2_000) } as const] : []),
+            { type: "label", text: "result" },
+            step.result ? { type: "markdown", text: cap(step.result.text, 4_000) } : { type: "text", text: "(no result recorded)", style: "dim" },
+          ],
           body: `${cap(step.description ?? "", 2_000)}\n\n${step.result ? cap(step.result.text, 4_000) : "(no result recorded)"}`,
         });
       } else if (step.kind === "event") {
@@ -74,6 +132,13 @@ export function viewFromSession(session: NormalizedSession): SessionView {
   for (const it of items) {
     it.label = stripControls(it.label);
     it.body = stripControls(it.body);
+    for (const b of it.blocks ?? []) {
+      if (b.type === "edit") {
+        if (b.path) b.path = stripControls(b.path);
+        for (const e of b.edits) (e.old = stripControls(e.old)), (e.new = stripControls(e.new));
+      } else b.text = stripControls(b.text);
+      if (b.type === "code" && b.lang) b.lang = stripControls(b.lang);
+    }
     if (it.meta) it.meta = stripControls(it.meta);
   }
   const duration = session.startedAt && session.endedAt ? Math.max(0, Date.parse(session.endedAt) - Date.parse(session.startedAt)) : session.durationMs;

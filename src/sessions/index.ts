@@ -16,7 +16,7 @@ import { summarizeFile, type SessionSummary } from "./summary.js";
 export type { SessionSummary } from "./summary.js";
 
 /** Bump when `SessionSummary` changes shape or extraction improves, so stale entries are rebuilt. */
-const INDEX_VERSION = 4;
+const INDEX_VERSION = 5;
 
 export function indexPath(env: NodeJS.ProcessEnv = process.env): string {
   return env.AGENT_SHARE_INDEX ?? join(env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "agent-share-session", "index.json");

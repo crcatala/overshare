@@ -18,7 +18,7 @@ import { stripControls } from "../sanitize.js";
 import { SHARE_TARGETS, type ShareTarget } from "../config.js";
 import type { ShareMode } from "../schema.js";
 import { SHARE_MODES } from "../schema.js";
-import type { Preflight, ShareSummary, Source } from "./source.js";
+import { StaleReviewError, type Preflight, type ShareSummary, type Source } from "./source.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import { sharesFor } from "../sessions/shares.js";
 import { Spinner } from "./spinner.js";
@@ -178,6 +178,7 @@ export class PublishFlow {
       const review = this.review;
       if (!review) return;
       this.step = "busy";
+      const slot = this.slot();
       this.source.publish(this.session, this.mode, { reviewId: review.id, target: review.target, suspiciousConfirmed: this.suspiciousConfirmed }).then(
         ({ url, warnings }) => {
           this.url = url;
@@ -186,6 +187,9 @@ export class PublishFlow {
           this.redraw();
         },
         (err: unknown) => {
+          // The source dropped this review (its cache is smaller than every mode x target the user can visit): ours is stale too,
+          // and would fail the same way for ever. Forget it, so going back scans again.
+          if (err instanceof StaleReviewError) this.reviews.delete(slot);
           this.failure = stripControls(err instanceof Error ? err.message : String(err));
           this.step = "error";
           this.redraw();
@@ -195,6 +199,7 @@ export class PublishFlow {
       this.onClose();
     } else if (this.step === "error") {
       this.step = "mode";
+      this.scan();
     }
     this.redraw();
   }

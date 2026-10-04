@@ -140,6 +140,14 @@ export interface Source {
   close(): void;
 }
 
+/** `publish` was given a review the source no longer holds (evicted, spent, replaced, or made for another target): the caller must review again. */
+export class StaleReviewError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StaleReviewError";
+  }
+}
+
 export const destinationLabel = (target: ShareTarget): string => (target === "gist" ? "a secret (unlisted) gist" : "the public R2 bucket (unlisted id)");
 
 export interface SourceOptions {
@@ -260,11 +268,11 @@ export function createSource(opts: SourceOptions): Source {
       // here would upload content nobody looked at, so make the user review again.
       const { target } = opts;
       const share = prepared.get(key(s, mode, target));
-      if (!share || share.summary.id !== opts.reviewId) throw new Error("The reviewed payload is no longer available; go back and review it again before publishing.");
+      if (!share || share.summary.id !== opts.reviewId) throw new StaleReviewError("The reviewed payload is no longer available; go back and review it again before publishing.");
       if (share.summary.blocked) throw new Error("Refusing to publish: the final re-scan found unredacted secrets.");
       if (share.summary.suspicious.length && !opts.suspiciousConfirmed) throw new Error("Refusing to publish: suspicious values are still in the payload and were not confirmed.");
       const json = new TextDecoder("utf-8", { fatal: true }).decode(share.payload);
-      if (Buffer.byteLength(json) !== share.summary.bytes) throw new Error("The reviewed payload does not match its review; go back and review it again before publishing.");
+      if (Buffer.byteLength(json) !== share.summary.bytes) throw new StaleReviewError("The reviewed payload does not match its review; go back and review it again before publishing.");
       const publisher = makePublisher(config, target);
       const { result, warnings } = await publishPrepared(publisher, config, target, { json, session: share.session });
       prepared.delete(key(s, mode, target));

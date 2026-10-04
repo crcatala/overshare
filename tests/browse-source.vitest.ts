@@ -1,8 +1,9 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseSession } from "../src/adapters/index.js";
+import { PublishFlow } from "../src/browse/flow.js";
 import { viewFromSession } from "../src/browse/job.js";
 import type { JobRequest } from "../src/browse/job.js";
 import { inlineRunner, isAbort, type JobRunner } from "../src/browse/runner.js";
@@ -546,5 +547,48 @@ describe("publish target (ass-ihnf)", () => {
     const review = await source.review(session, "brief", "r2", live.signal); // reviewing needs no destination
     await expect(source.publish(session, "brief", { target: "r2", reviewId: review.id })).rejects.toThrow(/needs an "r2" section/);
     expect(sharesFor(source.shares, "claude-code", "sess-1")).toEqual([]);
+  });
+
+  it("a review the source evicted while the user explored other modes and targets is scanned again, not stuck", async () => {
+    vi.useFakeTimers();
+    try {
+      const { sessions, session } = indexed();
+      const p = publishers();
+      // 2 targets x 4 modes are more slots than the source keeps: visiting them all evicts the first.
+      const source = createSource({ config: r2Config, sessions, publisher: p.factory, runner: inlineRunner });
+      const settle = () => vi.advanceTimersByTimeAsync(500);
+      const flow = new PublishFlow(source, session, () => {}, () => {});
+      await settle(); // brief / gist
+      const first = flow.review!;
+      flow.cycleTarget(); // r2
+      for (const mode of [0, 2, 3]) {
+        flow.setMode(mode);
+        await settle();
+      }
+      flow.setMode(1);
+      await settle(); // five reviews now: brief / gist is gone from the source
+      flow.cycleTarget(); // back to gist
+      await settle();
+      expect(flow.target).toBe("gist");
+      flow.next(); // continue
+      flow.next(); // y: the review it holds is no longer in the source
+      await settle();
+      expect(flow.step).toBe("error");
+      expect(p.gist.payloads).toEqual([]);
+      flow.next(); // back to the mode step: the stale review is dropped and made again
+      await settle();
+      expect(flow.step).toBe("mode");
+      expect(flow.review).toBeDefined();
+      expect(flow.review!.id).not.toBe(first.id);
+      flow.next();
+      flow.next();
+      await settle();
+      expect(flow.step).toBe("done");
+      expect(p.gist.payloads).toHaveLength(1);
+      expect(Buffer.byteLength(p.gist.payloads[0]!.content)).toBe(flow.review!.bytes);
+      flow.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

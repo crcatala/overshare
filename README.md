@@ -28,6 +28,7 @@ agent-share browse                                # interactive: find an old ses
 agent-share list                                  # recent sessions (both harnesses)
 agent-share report --current                      # what would be shared/redacted (writes nothing)
 agent-share export <id> --mode full -o out.json   # redacted share JSON, locally
+agent-share export <id> --mode brief -o out.html  # the same, as one self-contained HTML page (see "Single-file HTML")
 agent-share publish --current --mode brief        # review → confirm → secret gist → link
 agent-share serve out.json                        # local viewer: …/session/#local:out.json
 agent-share demo                                  # fake sessions in the local viewer, nothing uploaded
@@ -361,6 +362,30 @@ agent-share publish ──upload──► gist  or  public R2 bucket   (your cre
 viewer (static, any host) ──fetch───────┘  …/session/#owner/gistId  or  …/session/#r2:<id>
 ```
 
+## Single-file HTML
+
+`agent-share export <id> -o session.html` (or `--format html`) writes the viewer and one redacted session as a
+single page: JS, CSS and fonts inline, the session embedded as JSON, nothing fetched. It opens from disk, an email
+attachment or any static host, with no viewer deployment, gist or bucket. It goes through the same pipeline as
+every other export (modes, redaction, re-scan); unlike a JSON export, an HTML one is not written if the re-scan blocks the share.
+
+It is a different tradeoff from a link, not a replacement:
+
+- **Frozen viewer.** The file carries the viewer that wrote it, so later viewer fixes don't reach it (a hosted
+  viewer link always gets the latest).
+- **No revocation.** A gist or bucket object can be deleted; a copy of a file can't. Treat it like any file that
+  holds a transcript.
+- **Size.** About 0.9 MB of viewer (mostly fonts) plus the session; `full` mode shares of long sessions can be many MB.
+- **Links.** The share menu's links point at the file's own address (`#&turn=3`), so they work wherever the file is
+  hosted, and only on your machine if it isn't.
+- **Hosting.** Gists serve files as plain text, so they can't show it; a bucket needs `content-type: text/html`.
+  `publish` doesn't produce it yet.
+
+Security: the page's Content-Security-Policy allows exactly its own script and style by hash, fonts and images only as
+`data:`, and no connections (`connect-src 'none'`). It comes from a `<meta>` tag, which is all a file on disk can have;
+send the same policy as a header when hosting it. Markdown sanitising and remote-content blocking are the hosted
+viewer's, unchanged.
+
 ## Storage targets
 
 **Gist (default).** `publish` creates a *secret* gist (`gh gist create` without
@@ -405,6 +430,7 @@ server):
 | `#<source>:<id>` | a source from `viewer.config.json`, e.g. `#r2:<id>` |
 | `#local:<name>` | file served by `agent-share serve` |
 | `#url:<path>` | same-origin path |
+| *(none)* | in a single-file HTML export, the session embedded in the page |
 | `…&ui=log.brief.dark.L.toc-all` | open with these view settings (see *View settings*) |
 | `…&turn=3` | open at prompt 3 |
 

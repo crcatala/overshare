@@ -20,7 +20,7 @@ import { renderCompatNotice } from "./notice.ts";
 import { closeHoverCard } from "./popover.ts";
 import type { SettingsOptions } from "./settings.ts";
 import type { ShareOptions } from "./share.ts";
-import { formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
+import { embeddedSource, formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
 import { stepPrompt, typing, variantKeyStep, wheelMovesPage } from "./nav.ts";
 import { fetchLocalShares, renderPicker } from "./picker.ts";
 import { buildIndex } from "./search.ts";
@@ -37,7 +37,12 @@ let shared: NormalizedSession | undefined;
 /** Set when this share is from a newer format than the viewer reads, so it may not show completely (see compat.ts). */
 let newer: ReadShare["newer"];
 let provenance: Provenance | undefined;
-let state: HashState = parseHash(location.hash);
+/** The hash, plus the page's own session when it is a single-file export and the hash names no other. */
+const readHash = (hash: string): HashState => {
+  const parsed = parseHash(hash);
+  return parsed.source ? parsed : { ...parsed, source: embeddedSource() };
+};
+let state: HashState = readHash(location.hash);
 /** Listeners and observers of the current render, dropped on the next one. */
 let teardown = new AbortController();
 
@@ -513,7 +518,7 @@ async function main(): Promise<void> {
 
 window.addEventListener("hashchange", () => {
   const previous = state.source;
-  state = parseHash(location.hash);
+  state = readHash(location.hash);
   const { ui, turn } = takeLinkParams();
   update(ui);
   applyTheme();

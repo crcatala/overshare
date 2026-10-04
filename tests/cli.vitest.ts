@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -52,6 +52,30 @@ describe("cli", { timeout: 30_000 }, () => {
     const json = readFileSync(out, "utf8");
     expect(JSON.parse(json).schema).toBe("agentshare/2");
     expect(json).not.toContain(secret);
+  });
+
+  it("export --format html writes one self-contained page with the redacted session in it", () => {
+    const secret = fake.github();
+    const dir = mkdtempSync(join(tmpdir(), "as-html-"));
+    const out = join(dir, "share.html");
+    const r = cli(["export", sessionFile(secret), "--mode", "full", "-o", out, "-q"]);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("viewer +");
+    const page = readFileSync(out, "utf8");
+    expect(page.startsWith("<!doctype html>")).toBe(true);
+    expect(page).toContain(`id="agent-share-session"`);
+    expect(page).toContain("agentshare/2");
+    expect(page).not.toContain(secret);
+    expect(page).not.toMatch(/<script[^>]*\ssrc=|<link\b/);
+    expect(statSync(out).mode & 0o777).toBe(0o600);
+
+    // The extension picks the format; --format wins.
+    const asJson = join(dir, "forced.html");
+    expect(cli(["export", sessionFile(), "--mode", "full", "--format", "json", "-o", asJson, "-q"]).status).toBe(0);
+    expect(JSON.parse(readFileSync(asJson, "utf8")).schema).toBe("agentshare/2");
+    const noExt = join(dir, "forced");
+    expect(cli(["export", sessionFile(), "--mode", "full", "--format", "html", "-o", noExt, "-q"]).status).toBe(0);
+    expect(readFileSync(noExt, "utf8")).toContain("<!doctype html>");
   });
 
   it("exports prompts-only content and accepts prompts in CLI help/report", () => {

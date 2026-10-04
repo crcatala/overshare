@@ -107,3 +107,27 @@ describe("fits the terminal", () => {
     expect(d.app.dialog).toBeUndefined();
   });
 });
+
+describe("the cursor marker", () => {
+  const marked = (d: ReturnType<typeof drive>) => dialogBox(d.lines()).filter((l) => l.includes("›")).map((l) => l.replace(/[│ ]+$/, "").replace(/^│ +/, ""));
+
+  it("sits on the item under the cursor in the repo dialog, whose items are rebuilt on every read", async () => {
+    const d = drive({ sessions: repos(40) });
+    await d.press("R");
+    expect(marked(d)).toHaveLength(1);
+    expect(marked(d)[0]).toMatch(/^› ● any/);
+    await d.press("j", "j");
+    expect(marked(d)).toHaveLength(1);
+    expect(marked(d)[0]).toMatch(/^› ○ \S+/);
+    await d.press(...Array(20).fill("j"), "k");
+    expect(marked(d)).toHaveLength(1); // still exactly one, after scrolling
+  });
+
+  it("follows the cursor while filtering too", async () => {
+    const d = drive({ sessions: repos(40) });
+    await d.press("R", "/");
+    await d.type("repo-1");
+    await d.press(KEY.enter, "j");
+    expect(marked(d)).toHaveLength(1);
+  });
+});

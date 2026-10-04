@@ -143,9 +143,8 @@ export class RadioDialog {
   }
 
   /** One list line: the cursor, the dot for the chosen item, the label, and its count at the right edge. */
-  private render(l: Line, sel: ItemLine | undefined, inner: number): string {
+  private render(l: Line, on: boolean, inner: number): string {
     if (l.kind === "title") return st.bold(l.text);
-    const on = sel !== undefined && l.section === sel.section && l.item === sel.item;
     const current = l.section.current() === l.item.value;
     const head = `${on ? st.cyan("›") : " "} ${current ? st.green("●") : st.gray("○")} `;
     const hint = l.item.hint ? st.dim(`  ${l.item.hint}`) : "";
@@ -158,8 +157,10 @@ export class RadioDialog {
 
   draw(width: number, maxHeight: number): string[] {
     const lines = this.lines();
-    const sel = this.selectable()[this.cursor];
-    const isSel = (l: ItemLine) => sel !== undefined && l.section === sel.section && l.item === sel.item;
+    // The cursor counts items, and is matched by position: a section's items may be rebuilt on every read (the repo list is),
+    // so the item objects of two reads are never the same objects.
+    let itemNo = -1;
+    const onCursor = lines.map((l) => l.kind === "item" && ++itemNo === this.cursor);
     // The whole list, filter or not, sets the box's size: typing in the filter only changes what is inside it.
     const all = this.lines("");
     const natural = Math.max(
@@ -172,8 +173,8 @@ export class RadioDialog {
     const chrome = 2 /* borders */ + 2 /* blank + footer */ + (this.opts.searchable ? 2 : 0) + 2 /* the meter and its blank line */;
     const room = Math.max(3, Math.min(WINDOW, all.length, maxHeight - chrome));
     this.window = room;
-    const rendered = lines.map((l) => this.render(l, sel, inner));
-    const selLine = Math.max(0, lines.findIndex((l) => l.kind === "item" && isSel(l)));
+    const rendered = lines.map((l, i) => this.render(l, onCursor[i]!, inner));
+    const selLine = Math.max(0, onCursor.indexOf(true));
     const top = rendered.length > room ? Math.max(0, Math.min(selLine - Math.floor(room / 2), rendered.length - room)) : 0;
     const body = rendered.slice(top, top + room);
     if (rendered.length === 0) body.push(st.dim("  no matches"));

@@ -80,7 +80,13 @@ export function shareButton(opts: ShareOptions): HTMLElement {
       toPrompt(false),
       toPrompt(true),
     ];
-    const foot = opts.source.kind === "local" ? [h("div", { class: "menu-foot" }, "Local links only open on this machine, while agent-share serve runs")] : [];
+    const footText =
+      opts.source.kind === "local"
+        ? "Local links only open on this machine, while agent-share serve runs"
+        : opts.source.kind === "embedded"
+          ? "Links open this file, so they work only where the file is saved or hosted"
+          : undefined;
+    const foot = footText ? [h("div", { class: "menu-foot" }, footText)] : [];
     return { children: [h("div", { class: "menu-head" }, "Share"), ...items, ...foot], items };
   });
 }

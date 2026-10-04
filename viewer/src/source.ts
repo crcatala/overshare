@@ -1,3 +1,5 @@
+import { EMBEDDED_SHARE_ID } from "../../src/embedded.ts";
+
 /**
  * Where a share lives, parsed from the URL hash (never sent to the server):
  *   #<owner>/<gistId>     secret gist via raw URL (no API rate limit)  ← what `publish` emits
@@ -7,6 +9,11 @@
  *   #url:<path>           same-origin path
  *   #<source>:<id>        a source configured at build time in viewer.config.json,
  *                         e.g. #r2:<id> → https://shares.example.com/s/<id>.json
+ *
+ * A single-file HTML export (`agent-share export --format html`) carries its session in the page. It has no
+ * hash form: a link can't ask for it (so the hosted viewer can't be pointed at some page's element), and
+ * `embeddedSource` supplies it only when the page has one and the hash names nothing else.
+ *
  * Extra `&key=value` params follow the source, e.g. `&turn=3`. Local names and `url:`
  * paths are written with `%`, `&` and `#` escaped, so they read back whole.
  */
@@ -15,7 +22,8 @@ export type Source =
   | { kind: "api-gist"; id: string }
   | { kind: "local"; name: string }
   | { kind: "url"; path: string }
-  | { kind: "configured"; source: string; id: string };
+  | { kind: "configured"; source: string; id: string }
+  | { kind: "embedded" };
 
 /** Share sources baked in by vite.config.ts from viewer.config.json. */
 declare const __AGENT_SHARE_SOURCES__: Record<string, string>;
@@ -62,9 +70,16 @@ export function formatHash(state: HashState): string {
           ? `local:${escapeHead(s.name)}`
           : s.kind === "configured"
             ? `${s.source}:${s.id}`
-            : `url:${escapeHead(s.path)}`;
+            : s.kind === "embedded"
+              ? ""
+              : `url:${escapeHead(s.path)}`;
   const params = state.params.toString();
   return `#${head}${params ? `&${params}` : ""}`;
+}
+
+/** The session a single-file export carries, when this page is one. */
+export function embeddedSource(doc: Document = document): Source | undefined {
+  return doc.getElementById(EMBEDDED_SHARE_ID) ? { kind: "embedded" } : undefined;
 }
 
 const FILE = "session.json";
@@ -105,6 +120,11 @@ export async function loadSource(source: Source, base = location.href): Promise<
   let url: string;
   let provenance: Provenance;
   switch (source.kind) {
+    case "embedded": {
+      const text = document.getElementById(EMBEDDED_SHARE_ID)?.textContent;
+      if (!text) throw new Error("This page has no session in it.");
+      return { data: JSON.parse(text), provenance: { label: "this HTML file" } };
+    }
     case "raw-gist":
       url = `https://gist.githubusercontent.com/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.id)}/raw/${FILE}`;
       provenance = gistProvenance(source.id, source.owner);

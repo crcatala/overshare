@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError, Option } from "commander";
@@ -13,6 +13,7 @@ import { SECRET_CATEGORIES } from "./redact/index.js";
 import { readSecretsFile } from "./redact/known-values.js";
 import { formatReport } from "./report.js";
 import { stripControls } from "./sanitize.js";
+import { embedShare, readStandaloneTemplate } from "./standalone.js";
 import { defaultRoots, listSessions, resolveSession, type SessionRef } from "./resolve.js";
 import { HARNESS_NAMES, loadSubagentFiles } from "./harnesses/index.js";
 import { SHARE_MODES, type HarnessName, type ShareMode } from "./schema.js";
@@ -29,6 +30,25 @@ interface SessionOptions {
   mode: ShareMode;
   secretsFile?: string[];
 }
+
+const EXPORT_FORMATS = ["json", "html"] as const;
+type ExportFormat = (typeof EXPORT_FORMATS)[number];
+
+/**
+ * Write a file only its owner can read. `writeFileSync`'s `mode` applies only when the file is created, so an
+ * existing file (an earlier export, a 0644 file made by something else) is tightened first, before the new
+ * content goes in.
+ */
+function writePrivate(path: string, content: string): void {
+  if (existsSync(path)) chmodSync(path, 0o600);
+  writeFileSync(path, content, { mode: 0o600 });
+}
+
+const HTML_EXPORT_NOTE = `
+Before you send this file:
+  - Review the redaction report first (\`agent-share report\` with the same options shows it). Redaction is best effort.
+  - It cannot be revoked: a copy of a file can't be deleted the way a gist or bucket object can.
+  - It carries the viewer it was made with, so later viewer fixes won't reach it.`;
 
 const parseMode = (value: string): ShareMode => {
   if (!(SHARE_MODES as readonly string[]).includes(value)) throw new InvalidArgumentError(`expected one of ${SHARE_MODES.join(", ")}`);
@@ -118,14 +138,27 @@ withSessionOptions(program.command("report"), "brief")
   });
 
 withSessionOptions(program.command("export"), "full")
-  .description("write the redacted, normalized share JSON locally")
+  .description("write the redacted, normalized share locally, as JSON or as one self-contained HTML file")
   .requiredOption("-o, --output <file>", "output file")
+  .addOption(new Option("--format <format>", "json, or html (the viewer and the session in one file that opens offline); default: html for an output ending in .html, else json").choices(EXPORT_FORMATS))
   .option("-q, --quiet", "do not print the report")
-  .action((arg: string | undefined, opts: SessionOptions & { output: string; quiet?: boolean }) => {
+  .action((arg: string | undefined, opts: SessionOptions & { output: string; format?: ExportFormat; quiet?: boolean }) => {
+    const format = opts.format ?? (/\.html?$/i.test(opts.output) ? "html" : "json");
+    // Fail on a missing viewer build before doing any work.
+    const template = format === "html" ? readStandaloneTemplate() : undefined;
     const { ref, prepared } = prepare(arg, opts);
     if (!opts.quiet) console.error(formatReport(prepared.report, { color: !!process.stderr.isTTY && !process.env.NO_COLOR, transcriptPath: ref.path }));
-    writeFileSync(opts.output, prepared.json, { mode: 0o600 });
-    console.error(`\nWrote ${opts.output} (${formatBytes(prepared.report.bytes)})`);
+    // A blocked share (the final re-scan found unredacted secrets) is still written as JSON, for inspection; a page someone might open and pass on is not.
+    if (template && prepared.report.blocked) {
+      console.error("\nRefusing to write an HTML file: the final re-scan found unredacted secrets (use --format json to inspect the payload).");
+      process.exitCode = EXIT.blocked;
+      return;
+    }
+    const content = template ? embedShare(template, prepared.json) : prepared.json;
+    writePrivate(opts.output, content);
+    console.error(`\nWrote ${opts.output} (${formatBytes(Buffer.byteLength(content))}${template ? `: viewer + ${formatBytes(prepared.report.bytes)} session` : ""})`);
+    // Shown even with --quiet: the file is what gets forwarded, and unlike a link it cannot be taken back.
+    if (template) console.error(HTML_EXPORT_NOTE);
   });
 
 const parseTarget = (value: string): ShareTarget => {

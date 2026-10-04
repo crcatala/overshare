@@ -7,17 +7,20 @@
  *                        fixture sessions by default (regenerated on every start),
  *                        or the files in $AGENT_SHARE_DEV_SHARES.
  *   npm run build:viewer viewer/dist/session/ (relative asset URLs, so any base path
- *                        works) plus _headers, _redirects and robots.txt in viewer/dist/.
+ *                        works) plus _headers, _redirects and robots.txt in viewer/dist/,
+ *                        and viewer/dist/standalone.html, the template `export --format html`
+ *                        fills in (the same viewer with everything inlined).
  *
  * `viewer.config.json` (or $AGENT_SHARE_VIEWER_CONFIG) adds share sources; their
  * origins go into the Content-Security-Policy.
  */
-import { readdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import { loadConfig } from "./src/config.ts";
 import { exportFixtureShares, generateFixtures } from "./src/fixtures/index.ts";
 import { localShares } from "./src/serve.ts";
+import { inlineViewer } from "./src/standalone.ts";
 // @ts-expect-error — plain ESM helper without type declarations (shared with tests)
 import { contentSecurityPolicy, deployFiles, loadViewerConfig } from "./viewer/config.mjs";
 
@@ -45,7 +48,7 @@ export default defineConfig(({ command }) => {
       fs: { strict: true, allow: [viewerRoot, resolve(repo, "src"), resolve(repo, "node_modules/@fontsource-variable/ibm-plex-sans")] },
     },
     build: { outDir: "dist/session", emptyOutDir: true, sourcemap: true, target: "es2022" },
-    plugins: [cspPlugin(sources, dev), deployFilesPlugin(sources), localSharesPlugin()],
+    plugins: [cspPlugin(sources, dev), deployFilesPlugin(sources), standalonePlugin(), localSharesPlugin()],
   };
 });
 
@@ -70,6 +73,34 @@ function deployFilesPlugin(sources: Record<string, string>): Plugin {
       for (const [name, content] of Object.entries(deployFiles(sources) as Record<string, string>)) {
         writeFileSync(join(viewerRoot, "dist", name), content);
       }
+    },
+  };
+}
+
+/** After the build, inline the viewer into viewer/dist/standalone.html (see src/standalone.ts). */
+function standalonePlugin(): Plugin {
+  let write = true;
+  let outDir = "";
+  return {
+    name: "agent-share:standalone",
+    apply: "build",
+    configResolved(config) {
+      write = config.build.write;
+      outDir = resolve(config.root, config.build.outDir);
+    },
+    closeBundle() {
+      if (!write) return;
+      const assets = new Map<string, Buffer>();
+      const walk = (dir: string) => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const path = join(dir, entry.name);
+          if (entry.isDirectory()) walk(path);
+          else if (!entry.name.endsWith(".map")) assets.set(relative(outDir, path).split("\\").join("/"), readFileSync(path));
+        }
+      };
+      walk(outDir);
+      const html = assets.get("index.html")!.toString("utf8");
+      writeFileSync(join(outDir, "..", "standalone.html"), inlineViewer(html, assets));
     },
   };
 }

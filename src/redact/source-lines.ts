@@ -12,7 +12,7 @@
 
 /** One transcript file: the session itself (no `name`) or a subagent transcript beside it. */
 export interface SourceFile {
-  /** Report-safe name (a `safeLabel`), shown with the line; absent for the session file, whose path the report prints. */
+  /** Label shown with the line; the caller gives one that cannot carry data (the pipeline uses the file's position, not its name). Absent for the session file, whose path the report prints. */
   name?: string;
   raw: string;
 }
@@ -92,7 +92,7 @@ export function sourceLocator(files: readonly SourceFile[]): SourceLocator {
   };
 }
 
-/** `line 42`, `lines 42, 57 (+2 more)`, `agent-a1.jsonl line 9`; value-free, for the report and the browse dialog. */
+/** `line 42`, `lines 42, 57 (+2 more)`, `subagent-file-1 line 9`; value-free, for the report and the browse dialog. */
 export function formatSourceLines(source: SourceLines): string {
   const groups = new Map<string | undefined, number[]>();
   for (const h of source.hits) groups.set(h.file, [...(groups.get(h.file) ?? []), h.line]);

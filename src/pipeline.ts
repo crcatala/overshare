@@ -111,8 +111,10 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
   session.generator = { name: TOOL_NAME, version: TOOL_VERSION, sharedAt: (opts.now ?? new Date()).toISOString() };
 
   const json = JSON.stringify(session);
-  // Line numbers come from the source files, never from the payload. A subagent file is named by a `safeLabel`: its name is data.
-  const locate = sourceLocator([{ raw }, ...(opts.subagentFiles ?? []).map((f, i) => ({ name: safeLabel(f.fileName, `subagent-file-${i + 1}`), raw: f.raw }))]);
+  // Line numbers come from the source files, never from the payload. A subagent file is named by its position (the loader
+  // sorts by file name), never by its name: that comes straight from disk, it is not redacted like the labels that are
+  // derived from the payload, and no label check can know it does not contain a known value.
+  const locate = sourceLocator([{ raw }, ...(opts.subagentFiles ?? []).map((f, i) => ({ name: `subagent-file-${i + 1}`, raw: f.raw }))]);
   const { issues: rescan, suspicious } = rescanPayload(json, { knownSecrets, matchedSecrets: redactor.matchedSecrets(), homeDir: machine.homeDir, allowlist: redact.allowlist, locate });
   const secretsFound = [...SECRET_CATEGORIES].some((c) => (counts[c] ?? 0) > 0);
   return {

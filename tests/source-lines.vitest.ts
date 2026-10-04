@@ -106,6 +106,38 @@ describe("rescanPayload", () => {
     expect(suspicious.filter((s) => s.source)).toHaveLength(50);
   });
 
+  describe("a fragment is located where the reported end is", () => {
+    // Two turns: the fragments of one value sit in different places, so the first text holding either end is not always the reported one.
+    const value = randomish(40, 77);
+    const head = value.slice(0, 26);
+    const tail = value.slice(-26);
+    const turns = (first: string, second: string) => JSON.stringify({ schema: "x", turns: [{ index: 0, steps: [{ kind: "text", id: "t1", text: first }] }, { index: 1, steps: [{ kind: "text", id: "t2", text: second }] }] });
+
+    it("known value: the prefix is in turn 2 while the suffix is in turn 1 (and the other way round)", () => {
+      const known = [knownSecret(value, "SVC", "env")];
+      expect(rescanPayload(turns(`x ${tail}`, `y ${head}`), { knownSecrets: known }).issues).toEqual([{ rule: "secret-prefix:SVC", length: 20, location: "turn 2 · text · text" }]);
+      expect(rescanPayload(turns(`x ${head}`, `y ${tail}`), { knownSecrets: known }).issues).toEqual([{ rule: "secret-prefix:SVC", length: 20, location: "turn 1 · text · text" }]);
+      expect(rescanPayload(turns("x", `y ${tail}`), { knownSecrets: known }).issues).toEqual([{ rule: "secret-suffix:SVC", length: 20, location: "turn 2 · text · text" }]);
+    });
+
+    it("pattern-matched value (suspicious): same rule, and the occurrence count is of the reported end only", () => {
+      const matched = [knownSecret(value, "svc-rule", "pattern")];
+      const a = rescanPayload(turns(`x ${tail}`, `y ${head}`), { matchedSecrets: matched }).suspicious;
+      expect(a).toEqual([{ rule: "secret-prefix:svc-rule", length: 20, location: "turn 2 · text · text", occurrences: 1 }]);
+      const b = rescanPayload(turns(`x ${head}`, `y ${tail}`), { matchedSecrets: matched }).suspicious;
+      expect(b).toEqual([{ rule: "secret-prefix:svc-rule", length: 20, location: "turn 1 · text · text", occurrences: 1 }]);
+    });
+
+    it("the source lookup accepts a line with either end: the source holds the whole value", () => {
+      const seen: boolean[] = [];
+      rescanPayload(turns("x", `y ${tail}`), {
+        knownSecrets: [knownSecret(value, "SVC", "env")],
+        locate: (match) => (seen.push(match(`whole ${value}`), match(`only ${head}`), match(`only ${tail}`), match("neither")), undefined),
+      });
+      expect(seen).toEqual([true, true, true, false]);
+    });
+  });
+
   it("a finding the source does not hold verbatim just has no lines", () => {
     const result = rescanPayload(planted(randomish(16, 41)), { locate: () => undefined });
     expect(result.suspicious).toHaveLength(1);
@@ -174,12 +206,27 @@ describe("Claude Code", () => {
     expect(formatReport(prepare(t.toJsonl()).report)).toContain("lines 2, 4, 6, 8, 10 (+2 more)");
   });
 
-  it("names the subagent file a value is also in, by a report-safe name", () => {
+  it("names the subagent file a value is also in by its position, so a file name can never disclose a known secret", () => {
     const key = mediumKey(randomish(16, 41));
     const sub = `${JSON.stringify({ type: "user", isSidechain: true })}\n${JSON.stringify({ type: "assistant", isSidechain: true, message: { content: [{ type: "tool_use", name: "Bash", input: { [key]: 1 } }] } })}\n`;
-    const p = prepare(transcript({ command: "ls", [key]: 1 }), "full", { subagentFiles: [{ fileName: "agent-a1.jsonl", raw: sub }] });
-    expect(p.report.suspicious[0]?.source).toEqual({ hits: [{ line: TOOL_LINE }, { file: "agent-a1.jsonl", line: 2 }], total: 2 });
-    expect(formatReport(p.report)).toContain(`line ${TOOL_LINE}; agent-a1.jsonl line 2`);
+    const p = prepare(transcript({ command: "ls", [key]: 1 }), "full", { subagentFiles: [{ fileName: "agent-a1.jsonl", raw: "\n" }, { fileName: "agent-a2.jsonl", raw: sub }] });
+    expect(p.report.suspicious[0]?.source).toEqual({ hits: [{ line: TOOL_LINE }, { file: "subagent-file-2", line: 2 }], total: 2 });
+    expect(formatReport(p.report)).toContain(`line ${TOOL_LINE}; subagent-file-2 line 2`);
+  });
+
+  it("a file name holding a known secret that looks like nothing (a passphrase) appears on no surface", () => {
+    const passphrase = "correct-horse-battery";
+    const key = mediumKey(randomish(16, 41));
+    const sub = `\n${JSON.stringify({ k: key })}`;
+    const p = prepare(transcript({ command: "ls", [key]: 1 }), "full", {
+      knownSecrets: [knownSecret(passphrase, "DB_PASSWORD", "env")],
+      subagentFiles: [{ fileName: `agent-${passphrase}.jsonl`, raw: sub }],
+    });
+    expect(p.report.suspicious[0]?.source?.hits).toContainEqual({ file: "subagent-file-1", line: 2 });
+    for (const text of surfaces(p)) {
+      expect(text).not.toContain(passphrase);
+      expect(text).not.toContain("horse");
+    }
   });
 
   /**

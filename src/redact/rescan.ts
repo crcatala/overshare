@@ -3,7 +3,7 @@ import { OWN_SESSION_FIELDS, OWN_STEP_FIELDS, OWN_TURN_FIELDS, describeStep, tur
 import { knownSecret, type KnownSecret } from "./known-values.js";
 import { safeLabel, withSafeLabels } from "./labels.js";
 import { findSecretPatterns } from "./patterns.js";
-import type { FragmentPolicy } from "./secret-value.js";
+import type { FragmentEnd, FragmentPolicy } from "./secret-value.js";
 import type { SourceLines, SourceLocator } from "./source-lines.js";
 
 /** What the re-scan found, never the value: not a fragment, not a hash. The length is the only detail. */
@@ -93,6 +93,17 @@ export function rescanPayload(
     const at = texts.find((t) => match(t.text))?.location;
     return at ? { location: at } : {};
   };
+  /**
+   * A payload text holding the fragment `end` that was reported. `hasFragmentIn` tries the prefix first and the haystack
+   * check found the suffix only when no text holds the prefix, so comparing with `end` picks a text with the reported end
+   * and not one that merely holds the other end of the same value.
+   */
+  const endIn = (k: KnownSecret, end: FragmentEnd) => (text: string) => k.value.hasFragmentIn(text, FRAGMENT_POLICY) === end;
+  /**
+   * A source line holding either end. The source has the whole value, so a line with the secret holds both, and which end
+   * the payload kept says nothing about which line it came from.
+   */
+  const fragmentIn = (k: KnownSecret) => (text: string) => k.value.hasFragmentIn(text, FRAGMENT_POLICY) !== undefined;
   for (const k of known) {
     if (!k.value.inSet(allow) && k.value.isIn(payload)) {
       const has = (text: string) => k.value.isIn(text);
@@ -109,15 +120,13 @@ export function rescanPayload(
     if (whole.has(k) || k.value.inSet(allow)) continue;
     const end = k.value.hasFragmentIn(haystack, FRAGMENT_POLICY);
     if (!end) continue;
-    const has = (text: string) => k.value.hasFragmentIn(text, FRAGMENT_POLICY) !== undefined;
-    issues.push({ rule: `secret-${end}:${k.label}`, length: k.value.fragmentLength(FRAGMENT_POLICY), ...firstLocation(has), ...where(has) });
+    issues.push({ rule: `secret-${end}:${k.label}`, length: k.value.fragmentLength(FRAGMENT_POLICY), ...firstLocation(endIn(k, end)), ...where(fragmentIn(k)) });
   }
   for (const k of withSafeLabels(opts.matchedSecrets ?? [])) {
     const end = k.value.hasFragmentIn(haystack, FRAGMENT_POLICY);
     if (!end) continue;
-    const has = (text: string) => k.value.hasFragmentIn(text, FRAGMENT_POLICY) !== undefined;
-    const at = texts.filter((t) => has(t.text));
-    suspicious.push({ rule: `secret-${end}:${k.label}`, length: k.value.fragmentLength(FRAGMENT_POLICY), location: at[0]?.location ?? "payload", occurrences: Math.max(1, at.length), ...where(has) });
+    const at = texts.filter((t) => endIn(k, end)(t.text));
+    suspicious.push({ rule: `secret-${end}:${k.label}`, length: k.value.fragmentLength(FRAGMENT_POLICY), location: at[0]?.location ?? "payload", occurrences: Math.max(1, at.length), ...where(fragmentIn(k)) });
   }
   // The value is wrapped before it leaves this function: the locator only ever sees a matcher over text.
   const locatePattern = (value: string, rule: string): { source?: SourceLines } => {

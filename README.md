@@ -202,7 +202,7 @@ conversation text. Those are reported as **suspicious**: they may be secrets, th
 
 - The report (terminal, `--json`, browse dialog) lists each one by rule, length and **location** (`turn 3 · Bash · input (object key)`,
   turn numbers as in `agent-share browse`), the **line numbers** of the transcript file where the value is (`… · line 42`; up to five,
-  then `(+N more)`; a hit in a Claude Code subagent transcript names that file), plus the transcript file to look at. Never the
+  then `(+N more)`; a hit in a Claude Code subagent transcript is labelled `subagent-file-N`, numbered in file-name order, never by name), plus the transcript file to look at. Never the
   value, a fragment or a hash. Blocked re-scan issues carry the same location and lines, in the terminal and in the browse dialog.
   The lines are found by looking the value up in the source file, not read off the payload, so they never reach the upload; a value
   that only exists after a transformation (not verbatim in the file) is reported by turn and step alone.

@@ -48,6 +48,8 @@ export interface ViewItem {
   label: string;
   /** Full content (truncated for huge tool input/output). Plain text: what `y` copies, and what the pane shows when there are no `blocks`. */
   body: string;
+  /** For a tool call or subagent: the result text, which is also the end of `body`. Search leaves it out unless asked. */
+  result?: string;
   /** The same content cut into formatted pieces, for tool calls and subagents; other kinds are drawn from `body` by kind. */
   blocks?: ViewBlock[];
   /** Short qualifier for the content title: tool name, event kind, model. */

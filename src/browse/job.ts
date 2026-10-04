@@ -107,6 +107,7 @@ export function viewFromSession(session: NormalizedSession): SessionView {
           meta: step.name,
           error: step.isError,
           blocks: toolBlocks(step.name, step.summary, step.input, step.result, step.isError),
+          ...(step.result ? { result } : {}),
           body: `${cap(step.summary, 2_000)}\n\n── input ──\n${input}\n\n── result${step.isError ? " (error)" : ""} ──\n${result}`,
         });
       } else if (step.kind === "subagent") {
@@ -121,6 +122,7 @@ export function viewFromSession(session: NormalizedSession): SessionView {
             { type: "label", text: "result" },
             step.result ? { type: "markdown", text: cap(step.result.text, 4_000) } : { type: "text", text: "(no result recorded)", style: "dim" },
           ],
+          ...(step.result ? { result: cap(step.result.text, 4_000) } : {}),
           body: `${cap(step.description ?? "", 2_000)}\n\n${step.result ? cap(step.result.text, 4_000) : "(no result recorded)"}`,
         });
       } else if (step.kind === "event") {
@@ -132,6 +134,7 @@ export function viewFromSession(session: NormalizedSession): SessionView {
   for (const it of items) {
     it.label = stripControls(it.label);
     it.body = stripControls(it.body);
+    if (it.result) it.result = stripControls(it.result);
     for (const b of it.blocks ?? []) {
       if (b.type === "edit") {
         if (b.path) b.path = stripControls(b.path);

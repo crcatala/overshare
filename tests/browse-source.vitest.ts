@@ -108,10 +108,26 @@ describe("viewFromSession", () => {
       .toolResult("t1", `out ${evil}`)
       .toJsonl();
     const view = viewFromSession(parseSession(t, "claude-code").session);
-    const strings = [...view.items.flatMap((it) => [it.label, it.body, it.meta ?? ""]), ...Object.keys(view.tools)];
+    const strings = [...view.items.flatMap((it) => [it.label, it.body, it.meta ?? "", it.result ?? ""]), ...Object.keys(view.tools)];
     for (const text of strings) expect(text).not.toMatch(CONTROLS);
     expect(view.items[0]!.body).toBe("prompt 31mtext");
     expect(view.items.find((i) => i.kind === "tool")!.body).toContain("out 31mtext");
+  });
+
+  it("keeps a tool call's result apart, as the end of its body, so a search can leave it out", () => {
+    const view = viewFromSession(parseSession(transcript(), "claude-code").session);
+    const tool = view.items.find((i) => i.kind === "tool")!;
+    expect(tool.result).toBe("boom");
+    expect(tool.body.endsWith("boom")).toBe(true);
+    expect(view.items.filter((i) => i.kind !== "tool").every((i) => i.result === undefined)).toBe(true);
+    const evil = new ClaudeTranscript()
+      .user("go")
+      .assistant("m1", [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } }], ccUsage(1, 1))
+      .toolResult("t1", "ok \x1b[31mred")
+      .toJsonl();
+    const stripped = viewFromSession(parseSession(evil, "claude-code").session).items.find((i) => i.kind === "tool")!;
+    expect(stripped.result).toBe("ok red");
+    expect(stripped.body.endsWith(stripped.result!)).toBe(true);
   });
 
   it("truncates huge tool output instead of carrying it all", () => {

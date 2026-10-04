@@ -9,13 +9,16 @@ import type { PatternMatch } from "./patterns.js";
  *
  * Choices that apply to every entry:
  * - Lengths are lower bounds (`{40,}`), not the provider's exact length. Providers lengthen tokens over time and an
- *   exact length turns every such change into a silent miss, while the distinctive prefix already keeps false
- *   positives rare. A match runs to the end of the token's character class.
+ *   exact length turns every such change into a silent miss (and a longer token is redacted only up to the old
+ *   length, leaving its tail), while the distinctive prefix already keeps false positives rare. A match runs to the
+ *   end of the token's character class. What stays fixed is structure, not length: the segments and separators of
+ *   a multi-part token (`pat<14>.<hex>`, `glsa_<id>_<hex>`, a UUID) and a Discord token's three dotted parts.
  * - A body must look random (`plausibleBody`): snake_case identifiers and prose that merely start with a prefix
  *   (`napi_create_function`, `rnd_state_vector`) are left alone. Placeholder runs like `xxxxxxxx` are dropped by the
  *   caller's `isObviouslyFake`.
- * - `ambiguous` entries have a prefix short or common enough to occur outside credentials. They need a stricter body
- *   and are reported at medium confidence (redacted, but they never block the final re-scan on their own).
+ * - `ambiguous` entries have a prefix short or common enough to occur outside credentials. They must not sit inside a
+ *   longer identifier (`my_re_…`) and are reported at medium confidence (redacted, but they never block the final
+ *   re-scan on their own).
  * - Only secrets are listed. Public identifiers (Stripe `pk_`, PostHog `phc_`, Twilio account SIDs, Sentry DSN public
  *   keys) are not.
  *
@@ -52,31 +55,31 @@ const r = String.raw;
 
 export const TOKEN_FORMATS: readonly TokenFormat[] = [
   // Source hosting and CI. GitLab's family shares `gl<kind>-`; routable tokens add a `.01.<id>` tail.
-  fmt("gitlab-token", "gl", r`gl(?:pat|dt|rt|ptt|ft|imt|agent|oas|soat|ffct|cbt)-[A-Za-z0-9_-]{20,}(?:\.[0-9a-z]{2}\.[0-9a-z]{6,12})?`),
+  fmt("gitlab-token", "gl", r`gl(?:pat|dt|rt|ptt|ft|imt|agent|oas|soat|ffct|cbt)-[A-Za-z0-9_-]{20,}(?:\.[0-9a-z]{2}\.[0-9a-z]{6,})?`),
   fmt("circleci-token", "CCI", r`CCI(?:PAT|PRJ)_[A-Za-z0-9]{10,}_[A-Za-z0-9]{36,}`),
   fmt("buildkite-token", "bk", r`bk(?:ua|aa|ct)_[A-Za-z0-9_-]{36,}`),
-  fmt("rubygems-token", "rubygems_", r`rubygems_[0-9a-f]{48}`),
+  fmt("rubygems-token", "rubygems_", r`rubygems_[0-9a-f]{48,}`),
   fmt("clojars-token", "CLOJARS_", r`CLOJARS_[a-z0-9]{40,}`),
   fmt("docker-swarm-token", "SWM", r`SWM(?:TKN|KEY)-1-[A-Za-z0-9-]{40,}`),
   fmt("gitlab-runner-registration", "GR1348941", r`GR1348941[A-Za-z0-9_-]{20,}`),
   fmt("netlify-token", "nfp_", r`nfp_[A-Za-z0-9]{30,}`),
-  fmt("airtable-token", "pat", r`pat[A-Za-z0-9]{14}\.[0-9a-f]{64}`, { plain: true }),
+  fmt("airtable-token", "pat", r`pat[A-Za-z0-9]{14}\.[0-9a-f]{64,}`, { plain: true }),
 
   // Hosting, databases and infrastructure.
   fmt("vercel-token", "vc", r`vc[piark]_[A-Za-z0-9]{24,}`),
   fmt("supabase-token", "sb", r`sbp_[A-Za-z0-9_-]{36,}|sb_secret_[A-Za-z0-9_-]{20,}`),
   fmt("neon-key", "napi_", r`napi_[A-Za-z0-9]{40,}`),
   fmt("render-key", "rnd_", r`rnd_[A-Za-z0-9]{24,}`, { ambiguous: true }),
-  fmt("pulumi-token", "pul-", r`pul-[0-9a-f]{40}`),
-  fmt("databricks-token", "dapi", r`dapi[0-9a-f]{32}(?:-\d)?`),
+  fmt("pulumi-token", "pul-", r`pul-[0-9a-f]{40,}`),
+  fmt("databricks-token", "dapi", r`dapi[0-9a-f]{32,}(?:-\d)?`),
   fmt("planetscale-token", "pscale_", r`pscale_(?:tkn|pw|oauth)_[A-Za-z0-9_.-]{32,}`),
-  fmt("shopify-token", "shp", r`shp(?:at|ca|pa|ss)_[0-9a-fA-F]{32}`),
+  fmt("shopify-token", "shp", r`shp(?:at|ca|pa|ss)_[0-9a-fA-F]{32,}`),
   fmt("sentry-token", "sntry", r`sntry[su]_[A-Za-z0-9+/=_-]{40,}`),
   fmt("tailscale-key", "tskey-", r`tskey-(?:api|auth|client|scim|webhook)-[A-Za-z0-9]+-[A-Za-z0-9]{20,}`),
   fmt("vault-token", "hv", r`hv[sbr]\.[A-Za-z0-9_-]{24,}`),
   fmt("terraform-cloud-token", ".atlasv1.", r`[A-Za-z0-9]{14}\.atlasv1\.[A-Za-z0-9_=-]{60,}`, { plain: true }),
-  fmt("grafana-token", "gl", r`glc_[A-Za-z0-9+/=]{50,}|glsa_[A-Za-z0-9]{32}_[0-9a-f]{8}`),
-  fmt("dynatrace-token", "dt0c01.", r`dt0c01\.[A-Za-z0-9]{24}\.[A-Za-z0-9]{64}`, { plain: true }),
+  fmt("grafana-token", "gl", r`glc_[A-Za-z0-9+/=]{50,}|glsa_[A-Za-z0-9]{32,}_[0-9a-f]{8,}`),
+  fmt("dynatrace-token", "dt0c01.", r`dt0c01\.[A-Za-z0-9]{24}\.[A-Za-z0-9]{64,}`, { plain: true }),
   fmt("heroku-token", "HRKU-", r`HRKU-[A-Za-z0-9_-]{30,}`),
   fmt("doppler-token", "dp.", r`dp\.(?:pt|st|sa|ct|scim|audit)\.(?:[a-z0-9_-]{1,40}\.)?[A-Za-z0-9]{40,}`),
   fmt("atlassian-token", "ATATT3", r`ATATT3[A-Za-z0-9_=-]{50,}`),
@@ -90,15 +93,15 @@ export const TOKEN_FORMATS: readonly TokenFormat[] = [
   fmt("perplexity-key", "pplx-", r`pplx-[A-Za-z0-9]{40,}`),
   fmt("cerebras-key", "csk-", r`csk-[a-z0-9]{40,}`),
   fmt("together-key", "tgp_v1_", r`tgp_v1_[A-Za-z0-9_-]{30,}`),
-  fmt("langsmith-key", "lsv2_", r`lsv2_(?:pt|sk)_[A-Za-z0-9]{32}(?:_[A-Za-z0-9]{10})?`),
+  fmt("langsmith-key", "lsv2_", r`lsv2_(?:pt|sk)_[A-Za-z0-9]{32,}(?:_[A-Za-z0-9]{10,})?`),
   fmt("langfuse-key", "sk-lf-", r`sk-lf-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`),
   fmt("wandb-key", "wandb_v1_", r`wandb_v1_[A-Za-z0-9_]{40,}`),
   fmt("nvidia-key", "nvapi-", r`nvapi-[A-Za-z0-9_-]{50,}`),
   fmt("pinecone-key", "pcsk_", r`pcsk_[A-Za-z0-9_]{40,}`),
 
   // Google. The API key shape is also Firebase's and Gemini's.
-  fmt("google-api-key", "AIza", r`AIza[A-Za-z0-9_-]{35}`),
-  fmt("google-oauth-secret", "GOCSPX-", r`GOCSPX-[A-Za-z0-9_-]{28}`),
+  fmt("google-api-key", "AIza", r`AIza[A-Za-z0-9_-]{35,}`),
+  fmt("google-oauth-secret", "GOCSPX-", r`GOCSPX-[A-Za-z0-9_-]{28,}`),
   fmt("google-oauth-token", "ya29.", r`ya29\.[A-Za-z0-9_-]{40,}`),
   fmt("google-refresh-token", "1//0", r`(?<![A-Za-z0-9/])1//0[A-Za-z0-9_-]{40,}`, { anchored: true }),
   fmt("firebase-server-key", ":APA91b", r`AAAA[A-Za-z0-9_-]{7}:APA91b[A-Za-z0-9_-]{100,}`, { plain: true }),
@@ -112,16 +115,17 @@ export const TOKEN_FORMATS: readonly TokenFormat[] = [
   fmt("slack-config-token", "xoxe", r`xoxe(?:\.xox[bp])?-\d-[A-Za-z0-9]{80,}`),
   fmt("slack-session-token", "xox", r`xoxc-\d+-\d+-\d+-[0-9a-f]{32,}|xoxd-[A-Za-z0-9%+/=_-]{40,}`),
   fmt("resend-key", "re_", r`re_[A-Za-z0-9]{6,12}_[A-Za-z0-9]{20,}`, { ambiguous: true }),
-  fmt("twilio-key", "SK", r`SK[0-9a-f]{32}`, { ambiguous: true }),
-  fmt("discord-bot-token", ".", r`[MNO][A-Za-z0-9_-]{23,25}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,40}`, { ambiguous: true }),
-  fmt("telegram-bot-token", ":AA", r`\d{8,10}:AA[A-Za-z0-9_-]{33}`, { ambiguous: true }),
+  fmt("twilio-key", "SK", r`SK[0-9a-f]{32,}`, { ambiguous: true }),
+  fmt("discord-bot-token", ".", r`[MNO][A-Za-z0-9_-]{23,25}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}`, { ambiguous: true }),
+  fmt("telegram-bot-token", ":AA", r`\d{8,10}:AA[A-Za-z0-9_-]{33,}`, { ambiguous: true }),
 ];
 
 /** A body of a random token has a digit or both letter cases, and enough variety; prose and identifiers do not. */
-function plausibleBody(body: string, ambiguous: boolean): boolean {
+function plausibleBody(body: string): boolean {
   const mixed = /\d/.test(body) && /[A-Za-z]/.test(body);
   if (!(mixed || (/[a-z]/.test(body) && /[A-Z]/.test(body)))) return false;
-  return shannonEntropy(body) >= (ambiguous ? 3.3 : 3.0);
+  // 3.0 rejects runs of a few characters and keeps about 99.995% of random 32-character hex (a stricter bar dropped ~2%).
+  return shannonEntropy(body) >= 3.0;
 }
 
 /**
@@ -137,7 +141,7 @@ export function findTokenFormats(text: string): PatternMatch[] {
   for (const f of TOKEN_FORMATS) {
     if (f.hint && !text.includes(f.hint)) continue;
     for (const m of text.matchAll(f.re)) {
-      if (!f.plain && !plausibleBody(m[0].slice(f.hint.length), f.ambiguous)) continue;
+      if (!f.plain && !plausibleBody(m[0].slice(f.hint.length))) continue;
       found.push({ rule: f.rule, start: m.index, end: m.index + m[0].length, confidence: f.ambiguous ? "medium" : "high" });
     }
   }

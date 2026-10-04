@@ -28,6 +28,8 @@ interface Case {
   /** How the token sits in text, when not bare; the match must still be exactly the token. */
   wrap?: (token: string) => string;
   ambiguous?: boolean;
+  /** The token ends in a fixed-size piece (a UUID, `=` padding): extending it is not a longer token of this format. */
+  fixedEnd?: boolean;
 }
 
 const cases: Case[] = [
@@ -67,6 +69,7 @@ const cases: Case[] = [
   {
     rule: "azure-storage-key",
     token: () => `${body(86, B64)}==`,
+    fixedEnd: true,
     wrap: (t) => `DefaultEndpointsProtocol=https;AccountName=store1;AccountKey=${t};EndpointSuffix=core.windows.net`,
   },
   { rule: "polar-token", token: () => `polar_pat_${body(40)}` },
@@ -75,7 +78,7 @@ const cases: Case[] = [
   { rule: "cerebras-key", token: () => `csk-${body(48, LOWER)}` },
   { rule: "together-key", token: () => `tgp_v1_${body(43, URL64)}` },
   { rule: "langsmith-key", token: () => `lsv2_pt_${body(32, HEX)}_${body(10, HEX)}` },
-  { rule: "langfuse-key", token: () => `sk-lf-${body(8, HEX)}-${body(4, HEX)}-${body(4, HEX)}-${body(4, HEX)}-${body(12, HEX)}` },
+  { rule: "langfuse-key", token: () => `sk-lf-${body(8, HEX)}-${body(4, HEX)}-${body(4, HEX)}-${body(4, HEX)}-${body(12, HEX)}`, fixedEnd: true },
   { rule: "wandb-key", token: () => `wandb_v1_${body(60, `${ALNUM}_`)}` },
   { rule: "nvidia-key", token: () => `nvapi-${body(64, URL64)}` },
   { rule: "pinecone-key", token: () => `pcsk_${body(60, `${ALNUM}_`)}` },
@@ -128,6 +131,21 @@ describe("provider token formats", () => {
     else expect(unredacted.issues.length).toBeGreaterThan(0);
     expect(rescanPayload(JSON.stringify({ text: out }))).toEqual({ issues: [], suspicious: [] });
   });
+
+  it.each(cases.filter((c) => !c.fixedEnd).map((c) => [`${c.rule} (${c.token().slice(0, 6)}…)`, c] as const))(
+    "redacts all of a longer %s: lengths are lower bounds, so no tail is left behind",
+    (_name, c) => {
+      const token = c.token();
+      // Extend the last segment with characters its format can hold: hex stays hex, lowercase stays lowercase.
+      const last = token.split(/[.\-_]/).pop() ?? "";
+      const tail = last.length >= 6 ? last.slice(-10) : token.slice(-10);
+      const extra = body(8, /^[0-9a-f]+$/.test(tail) ? HEX : /^[a-z0-9]+$/.test(tail) ? LOWER : ALNUM);
+      const out = new Redactor().redactText(`out: ${token}${extra} end`);
+      expect(out).not.toContain(extra);
+      expect(out).not.toContain(token.slice(-8));
+      expect(out).toMatch(/^out: \[REDACTED:[a-z0-9_-]+\] end$/i);
+    },
+  );
 
   it("redacts a token that is preceded by punctuation or quoted", () => {
     for (const quote of ['"', "'", "`", "(", "[", "=", ":", " "]) {
@@ -385,5 +403,77 @@ describe("through the real pipeline", () => {
   it("brief mode never carries the tool output, so it is clean", () => {
     const { raw } = deployLog();
     expect(prepareShare(raw, { mode: "brief", config: DEFAULT_CONFIG, harness: "claude-code", machine, knownSecrets: [] }).report.clean).toBe(true);
+  });
+});
+
+describe("curl -u / --user in the forms a shell accepts", () => {
+  // Two halves with the character under test between them: neither may survive, which a partial match would allow.
+  const A = () => body(10);
+  const B = () => body(8);
+
+  const forms: Array<[string, (a: string, b: string) => string]> = [
+    ["bare", (a, b) => `curl -u admin:${a}${b} https://x.internal.example-corp.io`],
+    ["double-quoted with a space", (a, b) => `curl -u "admin:${a} ${b}" https://x.internal.example-corp.io`],
+    ["double-quoted with a single quote", (a, b) => `curl -u "admin:${a}'${b}" https://x.internal.example-corp.io`],
+    ["double-quoted with an escaped quote", (a, b) => `curl -u "admin:${a}\\"${b}" https://x.internal.example-corp.io`],
+    ["single-quoted with &", (a, b) => `curl -u 'admin:${a}&${b}' https://x.internal.example-corp.io`],
+    ["single-quoted with ;", (a, b) => `curl -u 'admin:${a};${b}' https://x.internal.example-corp.io`],
+    ["single-quoted with |", (a, b) => `curl -u 'admin:${a}|${b}' https://x.internal.example-corp.io`],
+    ["single-quoted with )", (a, b) => `curl -u 'admin:${a})${b}' https://x.internal.example-corp.io`],
+    ["single-quoted with <>", (a, b) => `curl -u 'admin:${a}<${b}>' https://x.internal.example-corp.io`],
+    ["single-quoted with a double quote", (a, b) => `curl -u 'admin:${a}"${b}' https://x.internal.example-corp.io`],
+    ["user bare, password quoted", (a, b) => `curl -u admin:'${a} ${b}' https://x.internal.example-corp.io`],
+    ["user bare, password double-quoted", (a, b) => `curl -u admin:"${a} ${b}" https://x.internal.example-corp.io`],
+    ["flag attached to the user", (a, b) => `curl -uadmin:${a}${b} https://x.internal.example-corp.io`],
+    ["flag in a cluster", (a, b) => `curl -su admin:${a}${b} https://x.internal.example-corp.io`],
+    ["flag in a longer cluster", (a, b) => `curl -sSLu admin:${a}${b} https://x.internal.example-corp.io`],
+    ["--user with =", (a, b) => `curl --user=admin:${a}${b} https://x.internal.example-corp.io`],
+    ["--user with a space", (a, b) => `curl --user admin:${a}${b} https://x.internal.example-corp.io`],
+    ["--proxy-user", (a, b) => `curl --proxy-user admin:${a}${b} https://x.internal.example-corp.io`],
+    ["-U (proxy user)", (a, b) => `curl -U admin:${a}${b} https://x.internal.example-corp.io`],
+    ["flag after a backslash continuation", (a, b) => `curl -s \\\n  -u admin:${a}${b} \\\n  https://x.internal.example-corp.io`],
+    ["flag after a continuation, CRLF", (a, b) => `curl -s \\\r\n  -u admin:${a}${b} \\\r\n  https://x.internal.example-corp.io`],
+    ["flag after the URL, on the next line", (a, b) => `curl https://x.internal.example-corp.io \\\n  --user admin:${a}${b}`],
+    ["flag two lines down, headers between", (a, b) => `curl -X POST \\\n  -H 'Accept: application/json' \\\n  -u "admin:${a} ${b}" \\\n  https://x.internal.example-corp.io`],
+    ["quoted, spanning a continuation", (a, b) => `curl \\\n  --user 'ci:${a}&${b}' https://x.internal.example-corp.io`],
+  ];
+
+  it.each(forms)("redacts the whole password: %s", (_name, make) => {
+    const a = A();
+    const b = B();
+    const out = new Redactor().redactText(make(a, b));
+    expect(out).not.toContain(a);
+    expect(out).not.toContain(b);
+    expect(out).toContain("[REDACTED:curl-user-password]");
+    expect(out).toContain("curl");
+    expect(out).toContain("example-corp.io");
+  });
+
+  it("leaves the re-scan nothing to find after redacting a quoted password", () => {
+    const out = new Redactor().redactText(`curl -u "admin:${A()} ${B()}" https://x.internal.example-corp.io`);
+    expect(rescanPayload(JSON.stringify({ text: out }))).toEqual({ issues: [], suspicious: [] });
+  });
+
+  it.each([
+    ["flag after a pipe", `curl -s https://x.internal.example-corp.io | sort -u alpha:${body(12)}`],
+    ["flag after &&", `curl -s https://x.internal.example-corp.io && tar -u backup:${body(12)}`],
+    ["flag after ;", `curl -s https://x.internal.example-corp.io; ls -u owner:${body(12)}`],
+    ["no password (curl prompts)", "curl -u admin https://x.internal.example-corp.io"],
+    ["quoted user only", 'curl -u "admin" https://x.internal.example-corp.io'],
+    ["shell variables", 'curl -u "$USER:$PASS" https://x.internal.example-corp.io'],
+    ["braced variables", 'curl -u "${USER}:${PASS}" https://x.internal.example-corp.io'],
+    ["bare variable password", "curl -u admin:$PASSWORD https://x.internal.example-corp.io"],
+    ["command substitution", "curl -u admin:$(cat password.txt) https://x.internal.example-corp.io"],
+    ["quoted command substitution", `curl -u 'admin:$(pass show ci)' https://x.internal.example-corp.io`],
+    ["documented placeholder", "curl -u 'username:password' https://x.internal.example-corp.io"],
+    ["a different command with -u", `docker run -u 1000:1000 -v /data:/data ${body(8)}`],
+    ["markdown backticks", "use `curl -u user:password` for basic auth"],
+    // Source code that mentions curl: a quote that closes one string must not open a password, and `${…}` is code.
+    ["a test name followed by a function", 'it.each([\n  ["curl -u", (v: string) => `curl -u admin:${v} https://example.com`],\n  ["curl --user", (v: string) => `curl --user svc:${v}`],\n])'],
+    ["a template expression as the password", "`+ curl -s -u deploy-bot:Pg${body(18)}9 https://registry.internal.example-corp.io/v2/`"],
+    ["command substitution inside the value", "curl -u admin:pw$(cat suffix.txt) https://x.internal.example-corp.io"],
+    ["an overlong quoted run", `curl -u "admin:${"word ".repeat(80)}" https://x.internal.example-corp.io`],
+  ])("leaves %s alone", (_name, text) => {
+    expect(new Redactor().redactText(text)).toBe(text);
   });
 });

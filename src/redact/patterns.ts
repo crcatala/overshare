@@ -127,8 +127,18 @@ const URL_CREDENTIALS = /\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@'"]+:([^\s@/'"]+)@/gi;
 // Header and header-like names that carry a credential: `Authorization`, `X-Api-Key`, `X-Amz-Security-Token`,
 // `Private-Token` (GitLab). Reached through curl's `-H`/`--header` as well, since the header text is what matches.
 const AUTH_HEADER = /\b(?:(?:proxy-)?authorization|x-[a-z0-9-]*(?:api-?key|auth-?token|access-?token|security-?token|secret|token|key)|api-?key|private-token)["']?\s*[:=]\s*["']?(?:bearer|basic|token)?\s*([A-Za-z0-9._~+/=-]{12,})/gi;
-// `curl -u user:password` / `--user user:password`; a bare `-u user` prompts for the password and has none to match.
-const CURL_USER = /\bcurl\b[^\n]*?\s(?:-u|--user)(?:\s+|=)["']?[^\s:"']+:([^\s"'`;|&<>)]{4,})/g;
+// curl's `-u`/`--user` (and `-U`/`--proxy-user`) `user:password`, in the forms a shell accepts:
+// - the flag as `--user x`, `--user=x`, `-u x`, attached `-ux`, or inside a cluster `-su x`;
+// - the value bare, or quoted when the password holds spaces or shell characters (`"user:pa ss"`, `'user:p&q'`),
+//   or `user:"quoted password"`;
+// - the command split over lines with `\` continuations.
+// Between `curl` and the flag nothing may end the command (`|`, `;`, `&`), so `curl x | sort -u a:b` is not matched. A
+// bare `-u user` prompts for the password and has none to match. A bare password stops at the characters that end a
+// shell word; a quoted one runs to its closing quote, so none of it is left behind. A quote only opens a quoted value
+// after whitespace or `=` (not `-u", (v: string)` in source code, whose quote closes a string), the user part of a
+// quoted value has no whitespace, and a password is at most 200 characters.
+const CURL_USER =
+  /\bcurl\b(?:\\\r?\n|[^\n|;&]){0,1500}?(?<=\s)(?:-[A-Za-z]*[uU]|--(?:proxy-)?user)[ \t=]*(?:(?<=[ \t=])"[^\s":\\]*:((?:[^"\\]|\\.){1,200})"|(?<=[ \t=])'[^\s':]*:([^']{1,200})'|[^\s:"'`;|&<>)]*:(?:"((?:[^"\\]|\\.){1,200})"|'([^']{1,200})'|([^\s"'`;|&<>)]+)))/g;
 const AGE_SECRET_KEY = /AGE-SECRET-KEY-1[0-9A-Z]{58}/g;
 const PEM_BLOCK = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
 
@@ -178,10 +188,12 @@ function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] 
     const start = m.index + m[0].lastIndexOf(value);
     found.push({ rule: "auth-header", start, end: start + value.length, confidence: "high" });
   }
-  for (const m of text.matchAll(CURL_USER)) {
-    const value = m[1] ?? "";
-    if (isPlaceholderValue(value)) continue;
-    const start = m.index + m[0].lastIndexOf(`:${value}`) + 1;
+  for (const m of text.includes("curl") ? text.matchAll(CURL_USER) : []) {
+    const value = m.slice(1).find((g) => g !== undefined) ?? "";
+    // Parentheses mark a function call to `isPlaceholderValue`, but a quoted password may hold them; `$(cmd)` and `${VAR}`
+    // are still placeholders by their leading `$`, and an interpolation inside the value (`pw${n}`, `pw$(cmd)`) is code.
+    if (value.length < 4 || /\$[({]/.test(value) || isPlaceholderValue(value.replace(/[()]/g, ""))) continue;
+    const start = m.index + m[0].lastIndexOf(value);
     found.push({ rule: "curl-user-password", start, end: start + value.length, confidence: "high" });
   }
   found.push(...findTokenFormats(text), ...findAwsSecretKeys(text));

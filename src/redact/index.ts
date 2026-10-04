@@ -1,4 +1,4 @@
-import type { NormalizedSession } from "../schema.js";
+import type { NormalizedSession, SessionStats, SubagentTotals } from "../schema.js";
 import { knownSecret, type KnownSecret } from "./known-values.js";
 import { safeLabel, withSafeLabels } from "./labels.js";
 import { SENSITIVE_KEY, findSecretPatterns, isLiteralSecretValue } from "./patterns.js";
@@ -54,8 +54,9 @@ export const OWN_STEP_FIELDS: ReadonlySet<string> = new Set(["id", "responseId",
 /** Turns: their direct fields. */
 export const OWN_TURN_FIELDS: ReadonlySet<string> = new Set(["timestamp"]);
 /**
- * Session-level fields outside `turns`, as dotted paths with array indices dropped. The Redactor never walks them
- * (only `title` and `project` are); the final re-scan does, and exempts exactly these from the suspicious tier.
+ * Session-level fields outside `turns`, as dotted paths with array indices dropped. The Redactor never walks them as text
+ * (it redacts `title` and `project` as text, and `models`, `responses[].id`/`.model` and the stats keyed by model as
+ * identifiers); the final re-scan does, and exempts exactly these from the suspicious tier.
  */
 export const OWN_SESSION_FIELDS: ReadonlySet<string> = new Set([
   "schema",
@@ -79,6 +80,12 @@ export class Redactor {
   private readonly known: KnownSecret[];
   /** High-confidence pattern matches, kept only as `SecretValue`s for the re-scan's fragment check; never reported. A `#` field: `inspect` and `structuredClone` do not see it, and no raw value is a key anywhere. */
   readonly #matched: KnownSecret[] = [];
+  /** The surrogate each redacted identifier got, by raw value: the same value is the same token wherever it appears, and a different value never is. A `#` field for the same reason as `#matched`. */
+  readonly #surrogates = new Map<string, string>();
+  /** How many distinct values each redacted form (`[REDACTED:rule]`) has been given a surrogate for. */
+  readonly #perForm = new Map<string, number>();
+  /** Every surrogate handed out, so none is ever issued twice. */
+  readonly #issued = new Set<string>();
   private readonly allow: Set<string>;
   private readonly deny: RegExp[];
   private readonly homeRes: RegExp[];
@@ -124,11 +131,49 @@ export class Redactor {
   }
 
   /**
-   * Redact a value the transcript supplies as an identifier (a call id, a response id): exact known values and secret
-   * patterns, but not the email/home-path/username/hostname rules, which could mangle an id that merely resembles one.
+   * Redact a value the transcript supplies as an identifier (a call id, a response id, a model id): exact known values and
+   * secret patterns, but not the email/home-path/username/hostname rules, which could mangle an id that merely resembles one.
+   *
+   * Ids are joined on (a response id links a step to its usage; a model id is a key of the stats), so two different
+   * values must stay different once redacted: a redacted id gets a surrogate, `[REDACTED:rule]` for the first distinct
+   * value and `[REDACTED:rule#2]`, `#3`, ... for the next ones, the same for the same value everywhere (ass-lka8).
+   * The index counts values, so it says nothing about the secret.
+   *
+   * An id that is already shaped like a token (`[REDACTED...`) is the transcript's own text, not ours, and could equal a
+   * surrogate issued for a secret, in either order of appearance. It is replaced too, by `[REDACTED:identifier]`, so
+   * every token in the payload was issued here and no two values share one.
    */
   redactIdentifier(id: string, where = ""): string {
-    return id ? this.redactSecrets(id, where) : id;
+    if (!id) return id;
+    const out = this.redactSecrets(id, where);
+    if (out === id) return id.includes("[REDACTED") ? this.surrogate(id, "[REDACTED:identifier]") : id;
+    return this.surrogate(id, out);
+  }
+
+  /**
+   * A record keyed by identifiers (stats by model id), its keys redacted like `redactIdentifier`. Distinct keys give
+   * distinct tokens, so no two entries merge, and a key such as `__proto__` stays an own key (`fromEntries` defines it
+   * rather than assigning it).
+   */
+  redactIdentifierKeys<V>(record: Record<string, V>, where = ""): Record<string, V> {
+    return Object.fromEntries(Object.entries(record).map(([key, value]) => [this.redactIdentifier(key, where), value]));
+  }
+
+  private surrogate(raw: string, form: string): string {
+    const known = this.#surrogates.get(raw);
+    if (known !== undefined) return known;
+    // The index goes inside the last token, so the result still reads as one: `[REDACTED:rule#2]`, `msg:[REDACTED:rule#2]`.
+    const close = form.lastIndexOf("]");
+    let n = this.#perForm.get(form) ?? 0;
+    let token: string;
+    do {
+      n++;
+      token = n === 1 ? form : close < 0 ? `${form}#${n}` : `${form.slice(0, close)}#${n}${form.slice(close)}`;
+    } while (this.#issued.has(token));
+    this.#perForm.set(form, n);
+    this.#issued.add(token);
+    this.#surrogates.set(raw, token);
+    return token;
   }
 
   /** Known values, the denylist and the secret patterns. */
@@ -217,11 +262,22 @@ export function redactSession(session: NormalizedSession, redactor: Redactor): N
     }
     return value;
   };
+  const walkSubagentUsage = (usage: Record<string, unknown>, where: string): Record<string, unknown> => {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(usage)) {
+      out[k] = k === "models" && Array.isArray(v) ? v.map((m) => (typeof m === "string" ? redactor.redactIdentifier(m, where) : walk(m, k, where))) : walk(v, k, where);
+    }
+    return out;
+  };
   // Own identifier fields are exempt only directly on the step; everything below (tool input, results, ...) is walked whole.
   const walkStep = (step: Record<string, unknown>, where: string): Record<string, unknown> => {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(step)) {
       if (typeof v === "string" && OWN_STEP_FIELDS.has(k)) out[k] = k === "id" || k === "responseId" ? redactor.redactIdentifier(v, where) : v;
+      // Ids and model ids copied from the transcript: one surrogate per value wherever it appears (ass-lka8, ass-gmih).
+      else if (typeof v === "string" && k === "model") out[k] = redactor.redactIdentifier(v, where);
+      else if (Array.isArray(v) && k === "responseIds") out[k] = v.map((id) => (typeof id === "string" ? redactor.redactIdentifier(id, where) : walk(id, k, where)));
+      else if (k === "usage" && step.kind === "subagent" && v && typeof v === "object") out[k] = walkSubagentUsage(v as Record<string, unknown>, where);
       else out[k] = walk(v, k, where);
     }
     return out;
@@ -229,14 +285,33 @@ export function redactSession(session: NormalizedSession, redactor: Redactor): N
   const copy: NormalizedSession = { ...session };
   copy.title = session.title ? redactor.redactText(session.title, "title") : session.title;
   copy.project = walk(session.project, "", "project") as NormalizedSession["project"];
+  // Model ids, like the response ids below, are copied from the transcript and published as they are in every mode: values of
+  // `models` and `responses[].model` and keys of the stats keyed by model (ass-gmih).
+  copy.models = session.models.map((m) => redactor.redactIdentifier(m, "models"));
+  copy.stats = redactStats(session.stats, redactor);
   // The response ids are the harness's message ids, copied from the transcript like a step's `responseId`.
-  copy.responses = session.responses.map((r) => ({ ...r, id: redactor.redactIdentifier(r.id, "responses") }));
+  copy.responses = session.responses.map((r) => ({
+    ...r,
+    id: redactor.redactIdentifier(r.id, "responses"),
+    ...(r.model !== undefined ? { model: redactor.redactIdentifier(r.model, "responses") } : {}),
+  }));
   copy.turns = session.turns.map((turn) => ({
     ...turn,
     user: turn.user ? (walk(turn.user, "", `${turnLabel(turn.index)} · prompt`) as typeof turn.user) : undefined,
     steps: turn.steps.map((step) => walkStep(step as unknown as Record<string, unknown>, `${turnLabel(turn.index)} · ${describeStep(step)}`) as unknown as typeof step),
   }));
   return copy;
+}
+
+/** The stats with the model ids that key them redacted; every other figure is a number or a label that `computeStats` already made safe. */
+function redactStats(stats: SessionStats, redactor: Redactor): SessionStats {
+  const totals = <T extends SubagentTotals>(t: T): T => ({ ...t, byModel: redactor.redactIdentifierKeys(t.byModel, "stats") });
+  const sub = stats.subagentUsage;
+  return {
+    ...stats,
+    ...(stats.rates ? { rates: redactor.redactIdentifierKeys(stats.rates, "stats") } : {}),
+    ...(sub ? { subagentUsage: { ...totals(sub), ...(sub.unlinked ? { unlinked: totals(sub.unlinked) } : {}) } } : {}),
+  };
 }
 
 /** 1-based, like the turn numbers in the browse viewer, so a location can be followed there. */

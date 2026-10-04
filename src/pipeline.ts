@@ -144,7 +144,8 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
 
 /**
  * The stats as the report shows them. Model ids used as keys come from the transcript (tool names are already
- * `safeLabel`ed in `computeStats`), so each must pass the identifier check; a key that does not is replaced. The published payload keeps `session.stats` as it is.
+ * `safeLabel`ed in `computeStats`), so each must pass the identifier check; a key that does not is replaced. The payload's
+ * keys were redacted by `redactSession` already (ass-gmih); this is the backstop for what no secret rule recognises.
  */
 function reportStats(stats: SessionStats): SessionStats {
   const totals = <T extends SubagentTotals>(t: T): T => ({ ...t, byModel: safeKeys(t.byModel, "model") });

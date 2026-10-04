@@ -36,7 +36,7 @@ type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 const HTML_EXPORT_NOTE = `
 Before you send this file:
-  - Review the redaction report first (`agent-share report` with the same options shows it). Redaction is best effort.
+  - Review the redaction report first (\`agent-share report\` with the same options shows it). Redaction is best effort.
   - It cannot be revoked: a copy of a file can't be deleted the way a gist or bucket object can.
   - It carries the viewer it was made with, so later viewer fixes won't reach it.`;
 

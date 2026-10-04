@@ -1,6 +1,6 @@
 ---
 id: ass-gmih
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-10-04T00:16:18Z

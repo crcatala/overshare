@@ -1,6 +1,6 @@
 ---
 id: ass-lka8
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-10-03T23:27:56Z

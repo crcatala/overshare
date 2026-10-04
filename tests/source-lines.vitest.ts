@@ -230,54 +230,60 @@ describe("Claude Code", () => {
   });
 
   /**
-   * The finding vehicle that survives every mode is a secret used as a model id: `session.models` is published whole in
-   * every mode and the Redactor does not walk it, so the re-scan finds it. The mode only changes the turns, so the line
-   * must not depend on it. (The vehicle used to be a secret entry type kept as a key of `redaction.dropped`, until that
-   * was sanitized, ass-t3hc.) If `models` is ever redacted, plant the value somewhere else that every mode keeps.
+   * The finding vehicle that survives every mode is a secret used as the harness version: `session.harness` is published
+   * whole in every mode and the Redactor does not walk it, so the re-scan finds it. The mode only changes the turns, so the
+   * line must not depend on it. Claude Code repeats the version on every entry and the last one wins, so only the line that
+   * should be found carries it. (The vehicle used to be a secret entry type kept as a key of `redaction.dropped`, until that
+   * was sanitized, ass-t3hc, and then a secret model id in `session.models`, until the Redactor took model ids, ass-gmih.)
+   * If `harness` is ever redacted, plant the value somewhere else that every mode keeps.
    */
-  const withModel = (model: string) =>
-    new ClaudeTranscript("aaaaaaaa-0000-0000-0000-000000000000", "/home/tester/work/demo")
+  const withVersion = (version: string) => {
+    const t = new ClaudeTranscript("aaaaaaaa-0000-0000-0000-000000000000", "/home/tester/work/demo")
       .user("first")
       .assistant("m1", [{ type: "text", text: "one" }], ccUsage(1, 1))
       .user("second")
-      .assistant("m2", [{ type: "text", text: "two" }], ccUsage(1, 1), model)
+      .assistant("m2", [{ type: "text", text: "two" }], ccUsage(1, 1))
       .assistant("m3", [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "ls" } }], ccUsage(1, 1))
       .toolResult("b1", "ok")
-      .assistant("m4", [{ type: "text", text: "done" }], ccUsage(1, 1))
-      .toJsonl();
+      .assistant("m4", [{ type: "text", text: "done" }], ccUsage(1, 1));
+    t.lines.forEach((l, i) => (l.version = i === 3 ? version : undefined));
+    return t.toJsonl();
+  };
   const MODES: ShareMode[] = ["full", "brief", "minimal", "prompts"];
 
   for (const mode of MODES) {
     it(`${mode} mode: a blocked and a suspicious finding both carry the line`, () => {
       const secret = fake.github();
-      const blocked = prepare(withModel(secret), mode);
-      expect(blocked.report.rescan).toEqual([{ rule: "github-v2", length: secret.length, location: "session · models[1]", source: { hits: [{ line: 4 }], total: 1 } }]);
+      const blocked = prepare(withVersion(secret), mode);
+      expect(blocked.report.rescan).toEqual([{ rule: "github-v2", length: secret.length, location: "session · harness.version", source: { hits: [{ line: 4 }], total: 1 } }]);
       const value = randomish(16, 41);
-      const suspicious = prepare(withModel(mediumKey(value)), mode);
-      expect(suspicious.report.suspicious).toEqual([{ rule: "secret-assignment", length: value.length, location: "session · models[1]", occurrences: 2, source: { hits: [{ line: 4 }], total: 1 } }]);
+      const suspicious = prepare(withVersion(mediumKey(value)), mode);
+      expect(suspicious.report.suspicious).toEqual([{ rule: "secret-assignment", length: value.length, location: "session · harness.version", occurrences: 1, source: { hits: [{ line: 4 }], total: 1 } }]);
     });
   }
 });
 
 describe("pi", () => {
-  /** header (line 1), user, assistant, user, assistant with the planted model id (line 5), assistant. */
-  const transcript = (model: string) =>
-    new PiTranscript("01a0aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee", "/home/tester/work/demo")
+  /**
+   * header (line 1) carrying the planted session id, then user, assistant, user, assistant, assistant. pi has no other
+   * transcript-supplied field that every mode publishes and the Redactor leaves alone (`formatVersion` is a number), and the
+   * session id is one of the schema's own fields, which the re-scan blocks on but never flags as suspicious: a medium-confidence
+   * value is covered by the tool-call key test below (full mode), not by this matrix.
+   */
+  const transcript = (sessionId: string) =>
+    new PiTranscript(sessionId, "/home/tester/work/demo")
       .user("first")
       .assistant([{ type: "text", text: "one" }], piUsage(5, 5))
       .user("second")
-      .assistant([{ type: "text", text: "two" }], piUsage(5, 5), { model })
+      .assistant([{ type: "text", text: "two" }], piUsage(5, 5))
       .assistant([{ type: "text", text: "done" }], piUsage(5, 5))
       .toJsonl();
 
   for (const mode of ["full", "brief", "minimal"] as const) {
-    it(`${mode} mode: a blocked and a suspicious finding both carry the line`, () => {
+    it(`${mode} mode: a blocked finding carries the line`, () => {
       const secret = fake.aws();
       const blocked = prepare(transcript(secret), mode);
-      expect(blocked.report.rescan).toEqual([{ rule: "aws-access_keys", length: secret.length, location: "session · models[1]", source: { hits: [{ line: 5 }], total: 1 } }]);
-      const value = randomish(16, 41);
-      const suspicious = prepare(transcript(mediumKey(value)), mode);
-      expect(suspicious.report.suspicious).toEqual([{ rule: "secret-assignment", length: value.length, location: "session · models[1]", occurrences: 2, source: { hits: [{ line: 5 }], total: 1 } }]);
+      expect(blocked.report.rescan).toEqual([{ rule: "aws-access_keys", length: secret.length, location: "session · source.sessionId", source: { hits: [{ line: 1 }], total: 1 } }]);
     });
   }
 

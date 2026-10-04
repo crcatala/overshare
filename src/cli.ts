@@ -34,6 +34,12 @@ interface SessionOptions {
 const EXPORT_FORMATS = ["json", "html"] as const;
 type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
+const HTML_EXPORT_NOTE = `
+Before you send this file:
+  - Review the redaction report first (`agent-share report` with the same options shows it). Redaction is best effort.
+  - It cannot be revoked: a copy of a file can't be deleted the way a gist or bucket object can.
+  - It carries the viewer it was made with, so later viewer fixes won't reach it.`;
+
 const parseMode = (value: string): ShareMode => {
   if (!(SHARE_MODES as readonly string[]).includes(value)) throw new InvalidArgumentError(`expected one of ${SHARE_MODES.join(", ")}`);
   return value as ShareMode;
@@ -141,6 +147,8 @@ withSessionOptions(program.command("export"), "full")
     const content = template ? embedShare(template, prepared.json) : prepared.json;
     writeFileSync(opts.output, content, { mode: 0o600 });
     console.error(`\nWrote ${opts.output} (${formatBytes(Buffer.byteLength(content))}${template ? `: viewer + ${formatBytes(prepared.report.bytes)} session` : ""})`);
+    // Shown even with --quiet: the file is what gets forwarded, and unlike a link it cannot be taken back.
+    if (template) console.error(HTML_EXPORT_NOTE);
   });
 
 const parseTarget = (value: string): ShareTarget => {

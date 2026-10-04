@@ -2,7 +2,7 @@
 id: ass-ques
 status: in_progress
 deps: []
-links: []
+links: [ass-r9yd]
 created: 2026-10-04T17:36:14Z
 type: feature
 priority: 3
@@ -48,3 +48,7 @@ export --format html writes one file with no external references (no src/href/ur
 **2026-10-04T17:42:13Z**
 
 Step 1 prototyped on branch feat/single-file-html-export (PR pending): 'agent-share export --format html' (inferred from a .html output). Build writes viewer/dist/standalone.html (src/standalone.ts inlineViewer: JS+CSS inline, fonts as data URIs, CSP by sha256, connect-src 'none'); export splices the session in as <script type=application/json id=agent-share-session>; viewer gets an 'embedded' source that has no hash form. Verified in Chromium from file://: no console errors, no requests but the document, fetch() and an injected inline script are blocked by the CSP, view-mode switch, share menu and &turn= work. Sizes: template 0.9 MB (0.5 MB of that is fonts, base64 +33%); fixture session 52 KB -> 933 KB; 14 MB-transcript fixture (1,508 turns) 5.0 MB JSON -> 5.8 MB HTML, ~3.2 s to render in headless Chromium. Bug found while verifying: the bundle contains the text '</body>' (DOMPurify), so a first-match replace put the session inside the script; the inliner now splices by position in the original page. NOT done / open: font subsetting flag, size warning, publish --target r2 --format html, serving the CSP as a header, deciding whether to keep it (see 'Needs a decision').
+
+**2026-10-04T18:22:30Z**
+
+Added a reminder printed after every HTML export (even with -q): review the report, cannot be revoked, frozen viewer. Rationale: export has no confirm step, unlike publish/browse. Whether to also offer the format from browse behind the review gate is split into ass-r9yd (needs product review).

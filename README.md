@@ -374,7 +374,8 @@ It is a different tradeoff from a link, not a replacement:
 - **Frozen viewer.** The file carries the viewer that wrote it, so later viewer fixes don't reach it (a hosted
   viewer link always gets the latest).
 - **No revocation.** A gist or bucket object can be deleted; a copy of a file can't. Treat it like any file that
-  holds a transcript.
+  holds a transcript: review the report first (`export` prints a reminder, even with `-q`). Unlike `publish` and
+  `browse`, `export` has no confirm step.
 - **Size.** About 0.9 MB of viewer (mostly fonts) plus the session; `full` mode shares of long sessions can be many MB.
 - **Links.** The share menu's links point at the file's own address (`#&turn=3`), so they work wherever the file is
   hosted, and only on your machine if it isn't.

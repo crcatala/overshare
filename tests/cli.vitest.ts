@@ -61,6 +61,8 @@ describe("cli", { timeout: 30_000 }, () => {
     const r = cli(["export", sessionFile(secret), "--mode", "full", "-o", out, "-q"]);
     expect(r.status).toBe(0);
     expect(r.stderr).toContain("viewer +");
+    // Shown even with -q, and only for HTML.
+    expect(r.stderr).toContain("cannot be revoked");
     const page = readFileSync(out, "utf8");
     expect(page.startsWith("<!doctype html>")).toBe(true);
     expect(page).toContain(`id="agent-share-session"`);
@@ -73,6 +75,7 @@ describe("cli", { timeout: 30_000 }, () => {
     const asJson = join(dir, "forced.html");
     expect(cli(["export", sessionFile(), "--mode", "full", "--format", "json", "-o", asJson, "-q"]).status).toBe(0);
     expect(JSON.parse(readFileSync(asJson, "utf8")).schema).toBe("agentshare/2");
+    expect(cli(["export", sessionFile(), "--mode", "full", "-o", join(dir, "plain.json"), "-q"]).stderr).not.toContain("cannot be revoked");
     const noExt = join(dir, "forced");
     expect(cli(["export", sessionFile(), "--mode", "full", "--format", "html", "-o", noExt, "-q"]).status).toBe(0);
     expect(readFileSync(noExt, "utf8")).toContain("<!doctype html>");

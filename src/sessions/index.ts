@@ -238,8 +238,12 @@ export class IndexJob {
         this.sessions[at] = summary;
         this.unsaved = true;
       } catch {
-        // unreadable or vanished: leave it out
+        // unreadable or vanished: leave it out, and forget what was cached for it (a file that changed has an older entry)
         this.sessions.splice(at, 1);
+        if (Object.hasOwn(this.done, ref.path)) {
+          delete this.done[ref.path];
+          this.unsaved = true;
+        }
       }
     } while (this.queue.length > 0 && this.now() - started < this.sliceMs);
     if (this.queue.length === 0) this.finish();

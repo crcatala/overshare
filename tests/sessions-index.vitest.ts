@@ -483,6 +483,18 @@ describe("IndexJob (incremental index)", () => {
       expect(cachedIds().sort()).toEqual(["0", "2"]);
     });
 
+    it("a changed file that cannot be read any more leaves the list and the cache, and its old text is not saved again", async () => {
+      const { files, job, cachePath, cachedIds } = await ready(3);
+      addTitle(files[1]!, "Edited, then deleted before it was read");
+      job.refresh(); // sess-1 is queued; its old row stays on screen
+      rmSync(files[1]!);
+      await vi.runAllTimersAsync();
+      expect(job.sessions.map((s) => s.id)).toEqual(["sess-0", "sess-2"]);
+      job.stop();
+      expect(cachedIds().sort()).toEqual(["0", "2"]);
+      expect(readFileSync(cachePath, "utf8")).not.toContain("prompt 1");
+    });
+
     it("with nothing changed it reads nothing and starts no work", async () => {
       const { job } = await ready(3);
       const before = [...job.sessions];

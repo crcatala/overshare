@@ -6,9 +6,9 @@ static viewer. Transcripts are normalized into one harness-agnostic format
 then uploaded as a public-by-link file (a secret GitHub gist or a public R2 bucket).
 
 ```
-adapters/            pipeline                                   publish/            viewer/ (static)
- claude-code.ts ─┐   parse → stats → project(mode) → redact     gist                #owner/gistId
- pi.ts          ─┴─► NormalizedSession ─────────► re-scan ────► public R2 ─────────► #r2:<id>
+harnesses/           pipeline                                   publish/            viewer/ (static)
+ claude-code/   ─┐   parse → stats → project(mode) → redact     gist                #owner/gistId
+ pi/            ─┴─► NormalizedSession ─────────► re-scan ────► public R2 ─────────► #r2:<id>
 ```
 
 Everything is static: the CLI redacts and uploads a public share file, and the viewer
@@ -648,15 +648,36 @@ Child transcripts are not included.
 
 ## Adding a harness
 
-1. Write `src/adapters/<name>.ts` that turns the native transcript into a
-   `NormalizedSession` (use `TurnBuilder` from `adapters/shared.ts`: `startTurn`,
-   `addStep`, `addToolCall`/`attachToolResult`, `setResponseUsage`).
-2. Register it in `src/adapters/index.ts` (`detect` + `parse`) and add the name to
-   `HarnessName` in `src/schema.ts`.
-3. For `--current`/id lookup, teach `src/resolve.ts` its session directory layout.
+Everything that is specific to one harness lives in `src/harnesses/<name>/`; the rest of the
+code asks the registry (`src/harnesses/index.ts`) and never switches on a harness name.
 
-Everything downstream (stats, modes, redaction, publish, viewer) works on the normalized
-format unchanged.
+```
+src/harnesses/
+  meta.ts          plain data per harness: label, tag, colour, search aliases, a few viewer flags
+                   (browser-safe: the viewer imports it). `HarnessName` is derived from it.
+  index.ts         HARNESSES: Record<HarnessName, Harness>, plus detect / parse helpers
+  types.ts         the `Harness` descriptor: what a harness folder has to provide
+  shared.ts        TurnBuilder, describeTool, ... for writing an adapter
+  summary-kit.ts   Collector, for the browser's one-pass index
+  claude-code/     parse.ts, usage.ts, summarize.ts, subagent-files.ts, index.ts (the descriptor)
+  pi/              parse.ts, summarize.ts, index.ts
+```
+
+1. Add an entry for it in `src/harnesses/meta.ts`. `npm run typecheck` now fails in
+   `index.ts`, because `HARNESSES` has no descriptor for the new name.
+2. Make `src/harnesses/<name>/` and write its descriptor (`index.ts`, see `pi/index.ts` for
+   the short one): where its sessions live (`sessionsRoot`, `listFiles`, `sessionId`), how to
+   recognise a transcript (`detect`), `parse` (native transcript → `NormalizedSession`, with
+   `TurnBuilder`) and `summarize` (feed lines to a `Collector`). Optional members cover what
+   only some harnesses have: `currentSession` (a session id in the environment),
+   `subagents` (transcripts in files beside the session), `credentialFiles` (its login files,
+   so a leaked value is redacted).
+3. Register it in `HARNESSES`.
+
+That is all: `list`, `browse` (filter, dialog, tag, preview), `--harness`, `harness:<alias>`
+searches, `--current`, the viewer's label and the "supported formats" error all read the
+registry and meta. Also worth adding: a fake-session generator in `src/fixtures/` (see
+`pi.ts`) and tests. Share files keep `harness.name`, so a new name is not a schema change.
 
 ## Development
 

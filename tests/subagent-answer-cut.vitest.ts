@@ -10,8 +10,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { summarizeShare } from "../src/browse/job.js";
-import { parseClaudeCode } from "../src/adapters/claude-code.js";
-import type { SubagentFileInput } from "../src/adapters/shared.js";
+import { parseClaudeCode } from "../src/harnesses/claude-code/parse.js";
+import type { SubagentFileInput } from "../src/harnesses/shared.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { SUBAGENT_RESULT_CHARS } from "../src/modes.js";
 import { prepareShare } from "../src/pipeline.js";

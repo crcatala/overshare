@@ -14,8 +14,8 @@ import { readSecretsFile } from "./redact/known-values.js";
 import { formatReport } from "./report.js";
 import { stripControls } from "./sanitize.js";
 import { defaultRoots, listSessions, resolveSession, type SessionRef } from "./resolve.js";
+import { HARNESS_NAMES, loadSubagentFiles } from "./harnesses/index.js";
 import { SHARE_MODES, type HarnessName, type ShareMode } from "./schema.js";
-import { loadSubagentFiles } from "./subagent-files.js";
 import { DEFAULT_HOST, startViewerServer } from "./serve.js";
 import { TOOL_VERSION } from "./version.js";
 
@@ -39,7 +39,7 @@ function withSessionOptions(cmd: Command, defaultMode: ShareMode): Command {
   return cmd
     .argument("[session]", "session file path, session id, or id prefix")
     .option("-c, --current", "use the current session (Claude Code: $CLAUDE_CODE_SESSION_ID; else newest for this directory)")
-    .addOption(new Option("--harness <name>", "restrict to one harness").choices(["claude-code", "pi"]))
+    .addOption(new Option("--harness <name>", "restrict to one harness").choices(HARNESS_NAMES))
     .option("--leaf <entryId>", "export the branch ending at this entry (tree-shaped sessions)")
     .option("-m, --mode <mode>", `share mode: ${SHARE_MODES.join(" | ")}`, parseMode, defaultMode)
     .option("--secrets-file <file...>", "extra values to redact: KEY=VALUE lines or one value per line");
@@ -50,7 +50,7 @@ function prepare(arg: string | undefined, opts: SessionOptions): { ref: SessionR
   const config = loadConfig();
   const raw = readFileSync(ref.path, "utf8");
   const extraKnownSecrets = (opts.secretsFile ?? []).flatMap((f) => readSecretsFile(f, (msg) => console.error(`warning: ${msg}`)));
-  const subagentFiles = ref.harness === "claude-code" ? loadSubagentFiles(ref.path) : undefined;
+  const subagentFiles = loadSubagentFiles(ref.harness, ref.path);
   const prepared = prepareShare(raw, { mode: opts.mode, config, harness: ref.harness, leafId: opts.leaf, subagentFiles, extraKnownSecrets });
   return { ref, prepared };
 }
@@ -82,11 +82,11 @@ sources were read. Use --secrets-file for values you know are sensitive. See REA
 program
   .command("list")
   .description("list recent sessions")
-  .addOption(new Option("--harness <name>", "only one harness").choices(["claude-code", "pi"]))
+  .addOption(new Option("--harness <name>", "only one harness").choices(HARNESS_NAMES))
   .option("-n, --limit <n>", "number of sessions", (v) => Number.parseInt(v, 10), 15)
   .action((opts: { harness?: HarnessName; limit: number }) => {
     const roots = defaultRoots();
-    const harnesses: HarnessName[] = opts.harness ? [opts.harness] : ["claude-code", "pi"];
+    const harnesses: HarnessName[] = opts.harness ? [opts.harness] : HARNESS_NAMES;
     const refs = harnesses.flatMap((h) => listSessions(h, roots)).sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, opts.limit);
     for (const r of refs) {
       const when = new Date(r.mtimeMs).toISOString().replace("T", " ").slice(0, 16);
@@ -98,7 +98,7 @@ program
 program
   .command("browse")
   .description("browse, search and share local sessions interactively (press ? for keys)")
-  .addOption(new Option("--harness <name>", "start filtered to one harness").choices(["claude-code", "pi"]))
+  .addOption(new Option("--harness <name>", "start filtered to one harness").choices(HARNESS_NAMES))
   .option("-q, --query <text>", "start with this search (e.g. 'harness:pi since:7d refactor')")
   .action(async (opts: { harness?: HarnessName; query?: string }) => {
     // Loaded on demand: the TUI stack is not needed by any other command.

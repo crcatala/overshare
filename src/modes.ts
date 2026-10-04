@@ -15,6 +15,7 @@ import type {
   TurnActivity,
 } from "./schema.js";
 import { cutPoint } from "./cap.js";
+import { metaOf } from "./harnesses/meta.js";
 import { SHARE_MODES } from "./schema.js";
 
 const RANK: Record<ShareMode, number> = { full: 3, brief: 2, minimal: 1, prompts: 0 };
@@ -26,13 +27,14 @@ export class PromptsUnavailableError extends Error {
   }
 }
 
-/** Legacy pi user messages may be template expansions with no recoverable authored input. */
+/** Where a harness's user messages may be template expansions (legacy pi ones), they need verified authored input. */
 export function promptsUnavailableReason(session: NormalizedSession): string | undefined {
-  if (session.harness.name !== "pi") return;
+  const meta = metaOf(session.harness.name);
+  if (!meta?.promptsNeedAuthoredProof) return;
   const unknown = session.turns.filter((t) => t.user && t.user.authored !== true).length;
   if (!unknown) return;
-  return `Cannot use prompts mode: ${unknown} pi user prompt(s) have no verified pre-expansion input. ` +
-    "Private template/skill instructions may be stored as user text. Install or reload the updated pi share extension before submitting new idle prompts; existing inputs or queued expansions cannot be recovered reliably. Other modes require reviewing the stored prompt text.";
+  return `Cannot use prompts mode: ${unknown} ${meta.label} user prompt(s) have no verified pre-expansion input. ` +
+    `Private template/skill instructions may be stored as user text. ${meta.promptsNeedAuthoredProof} Other modes require reviewing the stored prompt text.`;
 }
 
 /** Modes that can be derived from a session shared in `mode`. */

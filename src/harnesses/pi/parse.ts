@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { PI_INPUT_PROVENANCE_TYPE, totalsOf, type ResponsePurpose, type ResponseUsage, type TokenRates, type Usage } from "../schema.js";
+import { PI_INPUT_PROVENANCE_TYPE, totalsOf, type ResponsePurpose, type ResponseUsage, type TokenRates, type Usage } from "../../schema.js";
 import {
   TurnBuilder,
   baseSession,
@@ -9,7 +9,7 @@ import {
   type AdapterOptions,
   type AdapterResult,
   type DropCounts,
-} from "./shared.js";
+} from "../shared.js";
 
 /**
  * pi transcripts: `~/.pi/agent/sessions/--<cwd-slug>--/<timestamp>_<id>.jsonl`.

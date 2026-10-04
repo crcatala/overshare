@@ -9,7 +9,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseSession } from "../src/adapters/index.js";
+import { parseSession } from "../src/harnesses/index.js";
 import { summarizeShare } from "../src/browse/job.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { projectSession } from "../src/modes.js";

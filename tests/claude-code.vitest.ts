@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseClaudeCode } from "../src/adapters/claude-code.js";
-import { detectHarness } from "../src/adapters/index.js";
+import { parseClaudeCode } from "../src/harnesses/claude-code/parse.js";
+import { detectHarness } from "../src/harnesses/index.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { prepareShare } from "../src/pipeline.js";
 import { computeStats } from "../src/stats.js";

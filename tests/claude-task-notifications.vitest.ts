@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseClaudeCode } from "../src/adapters/claude-code.js";
+import { parseClaudeCode } from "../src/harnesses/claude-code/parse.js";
 import { SUBAGENT_RESULT_CHARS, capToolText, projectSession } from "../src/modes.js";
 import { computeStats } from "../src/stats.js";
 import type { SubagentStep } from "../src/schema.js";

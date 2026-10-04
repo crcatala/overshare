@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseClaudeCode } from "../src/adapters/claude-code.js";
-import { parsePi } from "../src/adapters/pi.js";
+import { parseClaudeCode } from "../src/harnesses/claude-code/parse.js";
+import { parsePi } from "../src/harnesses/pi/parse.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { describeCost, formatSessionCost, formatTokens, formatUsageTotals } from "../src/format.js";
 import { prepareShare } from "../src/pipeline.js";

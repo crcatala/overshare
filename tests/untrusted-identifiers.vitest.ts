@@ -158,3 +158,58 @@ describe("the report echoes no transcript-supplied identifier that fails the ide
     expect(sources.join("\n")).not.toContain(planted);
   });
 });
+
+describe("entry types of dropped transcript entries (ass-t3hc)", () => {
+  /** Every transcript-supplied part of a `redaction.dropped` key, for a Claude Code transcript. */
+  const claudeDropping = (secrets: { type: string; attachment: string; subtype: string }) =>
+    new ClaudeTranscript("aaaaaaaa-0000-0000-0000-000000000000", "/home/tester/work/demo")
+      .meta(secrets.type, { uuid: "meta-1", parentUuid: null }) // an entry off the exported branch is not counted, so it joins the chain
+      .rewindTo("meta-1")
+      .user("run it")
+      .attachment({ type: secrets.attachment })
+      .attachment({ type: "queued_command" })
+      .system(secrets.subtype)
+      .system("turn_duration")
+      .assistant("msg_01plain", [{ type: "text", text: "done" }], ccUsage(1, 1))
+      .toJsonl();
+
+  const piDropping = (secrets: { type: string; custom: string; customMessage: string }) => {
+    const t = new PiTranscript("01a0aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee", "/home/tester/work/demo").user("run it");
+    t.entry(secrets.type, {});
+    t.entry("custom", { customType: secrets.custom });
+    t.entry("custom_message", { customType: secrets.customMessage, content: "x" });
+    t.entry("label", { customType: "bookmark" });
+    return t.assistant([{ type: "text", text: "done" }], piUsage(5, 5)).toJsonl();
+  };
+
+  for (const mode of [...MODES, "prompts" as const]) {
+    it(`Claude Code: a secret-shaped type, attachment type or subtype never reaches the ${mode} payload or the report`, () => {
+      const secrets = { type: fake.github(), attachment: fake.anthropic(), subtype: `db_password=${randomish(16, 41)}` };
+      const p = prepare(claudeDropping(secrets), mode);
+      for (const secret of Object.values(secrets)) {
+        expect(p.json).not.toContain(secret);
+        expect(p.json).not.toContain(secret.slice(8, 30));
+        for (const [name, text] of Object.entries(surfaces(p))) expect(text, name).not.toContain(secret.slice(8, 30));
+      }
+      // Replaced before the re-scan, so there is nothing for it to block or flag.
+      expect(p.report.blocked).toBe(false);
+      expect(p.report.rescan).toEqual([]);
+      expect(p.report.suspicious).toEqual([]);
+      expect(p.report.dropped).toEqual({ "entry-1": 1, "entry-2": 1, "entry-3": 1, "attachment:queued_command": 1, "system:turn_duration": 1 });
+      expect(p.session.redaction?.dropped).toEqual(p.report.dropped);
+    });
+
+    if (mode === "prompts") continue;
+    it(`pi: a secret-shaped type or custom type never reaches the ${mode} payload or the report`, () => {
+      const secrets = { type: fake.aws(), custom: fake.github(), customMessage: `db_password=${randomish(16, 41)}` };
+      const p = prepare(piDropping(secrets), mode);
+      for (const secret of Object.values(secrets)) {
+        expect(p.json).not.toContain(secret);
+        for (const [name, text] of Object.entries(surfaces(p))) expect(text, name).not.toContain(secret.slice(8, 20));
+      }
+      expect(p.report.blocked).toBe(false);
+      expect(p.report.suspicious).toEqual([]);
+      expect(p.report.dropped).toEqual({ "entry-1": 1, "entry-2": 1, "entry-3": 1, "label:bookmark": 1 });
+    });
+  }
+});

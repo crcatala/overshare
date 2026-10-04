@@ -57,7 +57,10 @@ export interface PreparedShare {
 }
 
 export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
-  const { session: full, dropped } = parseSession(raw, opts.harness, { leafId: opts.leafId, subagentFiles: opts.subagentFiles });
+  const { session: full, dropped: droppedByEntry } = parseSession(raw, opts.harness, { leafId: opts.leafId, subagentFiles: opts.subagentFiles });
+  // The adapters key these counts by entry type, subtype and custom type, all copied from the transcript, and the record is
+  // published and reported in every mode while the Redactor never walks keys: each key must pass the identifier check (ass-t3hc).
+  const dropped = safeKeys(droppedByEntry, "entry");
   full.stats = computeStats(full);
   // A missing title is the first line of the first prompt. It stays whole until it has been redacted and is cut
   // afterwards: cut first, a secret that straddles the cut leaves a half that no rule recognises (ass-ahh1).

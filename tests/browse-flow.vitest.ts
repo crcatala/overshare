@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PromptsUnavailableError } from "../src/modes.js";
 import { PublishFlow } from "../src/browse/flow.js";
+import type { ShareTarget } from "../src/config.js";
 import type { ShareMode } from "../src/schema.js";
-import { drive, fakeSource, KEY, sampleSessions } from "./browse-helpers.js";
+import type { ShareReview } from "../src/browse/source.js";
+import { deferred, drive, fakeSource, KEY, sampleSessions } from "./browse-helpers.js";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -14,12 +16,12 @@ describe("publish dialog", () => {
     const d = drive();
     await d.press("p");
     expect(d.text()).toContain("✓ clean");
-    expect(d.source.reviewed).toEqual([{ id: "s1", mode: "brief" }]);
+    expect(d.source.reviewed).toEqual([{ id: "s1", mode: "brief", target: "gist" }]);
     await d.press(KEY.enter); // continue → confirm
     expect(d.text()).toContain("Publish brief to a secret (unlisted) gist?");
     expect(d.source.published).toEqual([]); // nothing is sent before the explicit yes
     await d.press("y");
-    expect(d.source.published).toEqual([{ id: "s1", mode: "brief" }]);
+    expect(d.source.published).toEqual([{ id: "s1", mode: "brief", target: "gist" }]);
     expect(d.text()).toContain("✓ published");
     expect(d.text()).toContain("https://viewer.example/#s1");
   });
@@ -32,7 +34,7 @@ describe("publish dialog", () => {
     await d.press(KEY.space, "x", "N"); // other keys do nothing; N goes back
     expect(d.source.published).toEqual([]);
     await d.press(KEY.enter, "Y"); // continue again, then capital Y
-    expect(d.source.published).toEqual([{ id: "s1", mode: "brief" }]);
+    expect(d.source.published).toEqual([{ id: "s1", mode: "brief", target: "gist" }]);
   });
 
   it("marks the session as shared once publishing is done", async () => {
@@ -169,7 +171,7 @@ describe("publish dialog", () => {
       await d.press(KEY.enter, "c");
       expect(d.source.published).toEqual([]);
       await d.press("y");
-      expect(d.source.published).toEqual([{ id: "s1", mode: "brief" }]);
+      expect(d.source.published).toEqual([{ id: "s1", mode: "brief", target: "gist" }]);
       expect(d.source.suspiciousConfirmed).toEqual([true]);
     });
 
@@ -290,5 +292,127 @@ describe("PublishFlow", () => {
     flow.dispose();
     await vi.advanceTimersByTimeAsync(500);
     expect(source.reviewed).toEqual([]);
+  });
+});
+
+describe("publish target (ass-ihnf)", () => {
+  /** gist ready, r2 not set up: what a user who never configured R2 sees. */
+  const r2Missing = (target: ShareTarget) => (target === "r2" ? { error: 'target "r2" needs an "r2" section in the agent-share config (bucket, publicUrl, accountId)', warnings: [] } : { warnings: [] });
+
+  it("names the target in the dialog, preselected to the configured default", async () => {
+    const gist = drive();
+    await gist.press("p");
+    expect(gist.text()).toContain("› gist");
+    expect(gist.text()).toContain("a secret (unlisted) gist · your default");
+    expect(gist.source.reviewed).toEqual([{ id: "s1", mode: "brief", target: "gist" }]);
+    const r2 = drive({ target: "r2" });
+    await r2.press("p");
+    expect(r2.text()).toContain("› r2");
+    expect(r2.text()).toContain("the public R2 bucket (unlisted id) · your default");
+    expect(r2.source.reviewed).toEqual([{ id: "s1", mode: "brief", target: "r2" }]);
+  });
+
+  it("t cycles the target, and the review, warnings and upload follow it", async () => {
+    const warn = (target: ShareTarget) => ({ warnings: target === "r2" ? ["viewerUrl is the built-in default"] : [] });
+    const d = drive({ preflight: warn });
+    await d.press("p");
+    expect(d.text()).not.toContain("viewerUrl is the built-in default");
+    await d.press("t");
+    expect(d.text()).toContain("› r2");
+    expect(d.text()).toContain("this publish only");
+    expect(d.text()).toContain("warning: viewerUrl is the built-in default");
+    expect(d.source.reviewed.map((r) => r.target)).toEqual(["gist", "r2"]); // the r2 review was made, not the gist one reused
+    await d.press(KEY.enter);
+    expect(d.text()).toContain("Publish brief to the public R2 bucket (unlisted id)?");
+    await d.press("y");
+    expect(d.source.published).toEqual([{ id: "s1", mode: "brief", target: "r2" }]);
+    expect(d.source.shares["claude-code:s1"]).toEqual([expect.objectContaining({ target: "r2" })]);
+  });
+
+  it("wraps around, and switching back to a target shows the review it already has", async () => {
+    const d = drive();
+    await d.press("p", "t", "t");
+    expect(d.text()).toContain("› gist");
+    expect(d.source.reviewed.map((r) => r.target)).toEqual(["gist", "r2"]); // the return to gist needed no third scan
+    await d.press(KEY.enter);
+    await d.press("y");
+    expect(d.source.published).toEqual([{ id: "s1", mode: "brief", target: "gist" }]);
+  });
+
+  it("switching drops the review on screen: the new target must be reviewed before it can be continued", async () => {
+    const { promise, resolve } = deferred<ShareReview>();
+    let calls = 0;
+    const d = drive({ review: (_, mode) => (++calls === 1 ? { mode, clean: true, blocked: false, findings: [], issues: [], suspicious: [], knownSources: [], redactions: 0, bytes: 1 } : promise) });
+    await d.press("p");
+    expect(d.text()).toContain("✓ clean");
+    await d.press("t"); // r2: its review is still being made
+    expect(d.text()).toContain("scanning for secrets");
+    expect(d.text()).not.toContain("✓ clean");
+    await d.press(KEY.enter);
+    expect(d.text()).not.toContain("Publish brief to"); // cannot continue on a review made for the other target
+    resolve({ mode: "brief", clean: true, blocked: false, findings: [], issues: [], suspicious: [], knownSources: [], redactions: 0, bytes: 1 });
+    await d.press(KEY.space);
+    await d.press(KEY.enter);
+    expect(d.text()).toContain("Publish brief to the public R2 bucket");
+  });
+
+  it("an unconfigured target says what is missing, blocks the publish, and is not scanned", async () => {
+    const d = drive({ preflight: r2Missing });
+    await d.press("p");
+    expect(d.text()).toContain("r2 ✗"); // marked before it is chosen
+    await d.press("t");
+    expect(d.text()).toContain("cannot publish");
+    expect(d.text()).toContain('needs an "r2" section');
+    await d.press(KEY.enter, "y");
+    expect(d.text()).not.toContain("Publish brief to");
+    expect(d.source.published).toEqual([]);
+    expect(d.source.reviewed.map((r) => r.target)).toEqual(["gist"]);
+    await d.press("t"); // back to the one that works
+    expect(d.text()).toContain("✓ clean");
+    await d.press(KEY.enter, "y");
+    expect(d.source.published).toEqual([{ id: "s1", mode: "brief", target: "gist" }]);
+  });
+
+  it("a default that is not set up is named too, and blocks until another target is picked", async () => {
+    const d = drive({ target: "r2", preflight: r2Missing });
+    await d.press("p");
+    expect(d.text()).toContain("› r2 ✗");
+    expect(d.text()).toContain('needs an "r2" section');
+    await d.press(KEY.enter);
+    expect(d.source.published).toEqual([]);
+    await d.press("t", KEY.enter, "y");
+    expect(d.source.published).toEqual([{ id: "s1", mode: "brief", target: "gist" }]);
+  });
+
+  it("is a choice for this publish only: the next dialog starts on the default again, and the default is untouched", async () => {
+    const d = drive();
+    await d.press("p", "t", KEY.esc);
+    expect(d.source.target).toBe("gist");
+    await d.press("p");
+    expect(d.text()).toContain("› gist");
+    expect(d.text()).toContain("your default");
+  });
+
+  it("t does nothing once the confirmation is up", async () => {
+    const d = drive();
+    await d.press("p", KEY.enter, "t");
+    expect(d.text()).toContain("Publish brief to a secret (unlisted) gist?");
+    await d.press("y");
+    expect(d.source.published).toEqual([{ id: "s1", mode: "brief", target: "gist" }]);
+  });
+
+  it("PublishFlow: the target a flow publishes to is the one of the review it sends", async () => {
+    const source = fakeSource({ target: "r2" });
+    const flow = new PublishFlow(source, sampleSessions()[0]!, () => {}, () => {});
+    expect(flow.target).toBe("r2");
+    flow.cycleTarget();
+    expect(flow.target).toBe("gist");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(flow.review?.target).toBe("gist");
+    flow.next();
+    flow.next();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(source.published).toEqual([{ id: "s1", mode: "brief", target: "gist" }]);
+    flow.dispose();
   });
 });

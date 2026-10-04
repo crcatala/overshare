@@ -60,8 +60,8 @@ function indexed(secret?: string) {
 const live = new AbortController();
 /** Review and then publish exactly that review, the way the browser's flow does. */
 async function reviewAndPublish(source: ReturnType<typeof createSource>, session: Parameters<typeof source.view>[0], mode: ShareMode, opts: { suspiciousConfirmed?: boolean } = {}) {
-  const review = await source.review(session, mode, live.signal);
-  return { review, out: await source.publish(session, mode, { reviewId: review.id, ...opts }) };
+  const review = await source.review(session, mode, "gist", live.signal);
+  return { review, out: await source.publish(session, mode, { target: "gist", reviewId: review.id, ...opts }) };
 }
 
 /** Anything but tab and newline: the terminal must never be handed these. */
@@ -130,27 +130,27 @@ describe("createSource", () => {
     const secret = fake.github();
     const { sessions, session } = indexed(secret);
     const source = createSource({ config: DEFAULT_CONFIG, sessions });
-    const review = await source.review(session, "full", live.signal);
+    const review = await source.review(session, "full", "gist", live.signal);
     expect(review.clean).toBe(false);
     expect(review.findings.length).toBeGreaterThan(0);
     expect(JSON.stringify(review)).not.toContain(secret);
-    expect((await source.review(indexed().session, "full", live.signal)).clean).toBe(true);
+    expect((await source.review(indexed().session, "full", "gist", live.signal)).clean).toBe(true);
   });
 
   it("publishes exactly the payload that was reviewed, even if the session file changes afterwards", async () => {
     const { file, sessions, session } = indexed();
     const publisher = recordingPublisher();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher });
-    const first = await source.review(session, "brief", live.signal);
+    const first = await source.review(session, "brief", "gist", live.signal);
     // The session keeps growing (or is edited) after the user looked at the review.
     writeFileSync(file, `${readFileSync(file, "utf8")}${JSON.stringify({ type: "user", uuid: "late", parentUuid: null, sessionId: "sess-1", timestamp: "2026-01-02T00:00:00Z", message: { role: "user", content: "a late prompt nobody reviewed" } })}\n`);
-    await source.publish(session, "brief", { reviewId: first.id });
+    await source.publish(session, "brief", { target: "gist", reviewId: first.id });
     expect(publisher.payloads).toHaveLength(1);
     expect(publisher.payloads[0]!.content).not.toContain("a late prompt nobody reviewed");
     expect(Buffer.byteLength(publisher.payloads[0]!.content)).toBe(first.bytes);
     // The reviewed payload is spent. A second publish must not quietly re-scan the (changed) file and upload
     // content nobody looked at: it has to be reviewed again first.
-    await expect(source.publish(session, "brief", { reviewId: first.id })).rejects.toThrow(/review it again/);
+    await expect(source.publish(session, "brief", { target: "gist", reviewId: first.id })).rejects.toThrow(/review it again/);
     expect(publisher.payloads).toHaveLength(1);
     await reviewAndPublish(source, session, "brief");
     expect(publisher.payloads[1]!.content).toContain("a late prompt nobody reviewed");
@@ -160,10 +160,10 @@ describe("createSource", () => {
     const { file, sessions, session } = indexed();
     const publisher = recordingPublisher();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher, keepPrepared: 1 });
-    const brief = await source.review(session, "brief", live.signal);
-    await source.review(session, "full", live.signal); // evicts the brief review
+    const brief = await source.review(session, "brief", "gist", live.signal);
+    await source.review(session, "full", "gist", live.signal); // evicts the brief review
     writeFileSync(file, `${readFileSync(file, "utf8")}${JSON.stringify({ type: "user", uuid: "late", parentUuid: null, sessionId: "sess-1", timestamp: "2026-01-02T00:00:00Z", message: { role: "user", content: "unreviewed late prompt" } })}\n`);
-    await expect(source.publish(session, "brief", { reviewId: brief.id })).rejects.toThrow(/review it again/);
+    await expect(source.publish(session, "brief", { target: "gist", reviewId: brief.id })).rejects.toThrow(/review it again/);
     expect(publisher.payloads).toEqual([]);
   });
 
@@ -171,7 +171,7 @@ describe("createSource", () => {
     const { sessions, session } = indexed();
     const publisher = recordingPublisher();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher });
-    await expect(source.publish(session, "brief", { reviewId: "never-reviewed" })).rejects.toThrow(/review it again/);
+    await expect(source.publish(session, "brief", { target: "gist", reviewId: "never-reviewed" })).rejects.toThrow(/review it again/);
     expect(publisher.payloads).toEqual([]);
   });
 
@@ -215,8 +215,8 @@ describe("createSource", () => {
     writeFileSync(join(pi, "2026-01-01T00-00-00-000Z_01a0aaaa-bbbb-7ccc-8ddd-eeeeeeeeeeee.jsonl"), t.toJsonl());
     const sessions = buildIndex({ roots: { "claude-code": join(dir, "none"), pi: join(dir, "pi") }, cachePath: join(dir, "index.json") });
     const source = createSource({ config: DEFAULT_CONFIG, sessions });
-    await expect(source.review(sessions[0]!, "prompts", live.signal)).rejects.toThrow(PromptsUnavailableError);
-    expect((await source.review(sessions[0]!, "brief", live.signal)).mode).toBe("brief"); // other modes are unaffected
+    await expect(source.review(sessions[0]!, "prompts", "gist", live.signal)).rejects.toThrow(PromptsUnavailableError);
+    expect((await source.review(sessions[0]!, "brief", "gist", live.signal)).mode).toBe("brief"); // other modes are unaffected
   });
 
   it("reports unusable publish targets before anything is scanned or sent", () => {
@@ -224,11 +224,11 @@ describe("createSource", () => {
     delete process.env.AGENT_SHARE_R2_ACCESS_KEY_ID;
     delete process.env.AGENT_SHARE_R2_SECRET_ACCESS_KEY;
     const r2 = createSource({ config: { ...DEFAULT_CONFIG, target: "r2" }, sessions });
-    expect(r2.preflight().error).toMatch(/r2/i);
-    expect(r2.destination).toContain("R2");
+    expect(r2.preflight("r2").error).toMatch(/r2/i);
+    expect(r2.target).toBe("r2");
     const gist = createSource({ config: DEFAULT_CONFIG, sessions });
-    expect(gist.preflight().error).toBeUndefined();
-    expect(gist.destination).toContain("gist");
+    expect(gist.preflight("gist").error).toBeUndefined();
+    expect(gist.target).toBe("gist");
   });
 
   it("view reads the local transcript", async () => {
@@ -263,8 +263,8 @@ describe("review requests", () => {
     const source = createSource({ config: DEFAULT_CONFIG, sessions, runner });
     const a = new AbortController();
     const b = new AbortController();
-    const first = source.review(session, "brief", a.signal).catch((e: unknown) => e);
-    const second = source.review(session, "brief", b.signal);
+    const first = source.review(session, "brief", "gist", a.signal).catch((e: unknown) => e);
+    const second = source.review(session, "brief", "gist", b.signal);
     expect(jobs).toHaveLength(1);
     a.abort();
     expect(isAbort(await first)).toBe(true);
@@ -273,11 +273,11 @@ describe("review requests", () => {
     const review = await second;
     expect(review.mode).toBe("brief");
     // Done: the same review again is the cached one, same id, no new scan.
-    expect((await source.review(session, "brief", live.signal)).id).toBe(review.id);
+    expect((await source.review(session, "brief", "gist", live.signal)).id).toBe(review.id);
     expect(jobs).toHaveLength(1);
 
     const c = new AbortController();
-    const abandoned = source.review(session, "full", c.signal).catch((e: unknown) => e);
+    const abandoned = source.review(session, "full", "gist", c.signal).catch((e: unknown) => e);
     c.abort();
     expect(isAbort(await abandoned)).toBe(true);
     expect(jobs[1]!.signal.aborted).toBe(true); // nobody left waiting: the scan is cancelled
@@ -288,10 +288,10 @@ describe("review requests", () => {
     const { runner, jobs } = heldRunner();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, runner });
     const c = new AbortController();
-    const gone = source.review(session, "brief", c.signal).catch((e: unknown) => e);
+    const gone = source.review(session, "brief", "gist", c.signal).catch((e: unknown) => e);
     c.abort();
     expect(isAbort(await gone)).toBe(true);
-    const again = source.review(session, "brief", live.signal);
+    const again = source.review(session, "brief", "gist", live.signal);
     expect(jobs).toHaveLength(2); // the cancelled scan is not reused
     jobs[1]!.finish();
     expect((await again).mode).toBe("brief");
@@ -302,9 +302,9 @@ describe("review requests", () => {
     const { runner, jobs } = heldRunner();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, runner });
     const a = new AbortController();
-    const cancelled = source.review(session, "brief", a.signal).catch((e: unknown) => e);
+    const cancelled = source.review(session, "brief", "gist", a.signal).catch((e: unknown) => e);
     a.abort();
-    const retry = source.review(session, "brief", live.signal); // no await in between: the cancelled scan has not settled yet
+    const retry = source.review(session, "brief", "gist", live.signal); // no await in between: the cancelled scan has not settled yet
     expect(jobs).toHaveLength(2);
     expect(jobs[0]!.signal.aborted).toBe(true);
     expect(jobs[1]!.signal.aborted).toBe(false);
@@ -319,12 +319,12 @@ describe("review requests", () => {
     const source = createSource({ config: DEFAULT_CONFIG, sessions, runner });
     const dead = new AbortController();
     dead.abort();
-    expect(isAbort(await source.review(session, "brief", dead.signal).catch((e: unknown) => e))).toBe(true);
+    expect(isAbort(await source.review(session, "brief", "gist", dead.signal).catch((e: unknown) => e))).toBe(true);
     expect(jobs).toHaveLength(0);
     // It must not have counted as a waiter of a later scan either: when that scan's only real caller leaves, it stops.
     const b = new AbortController();
-    const waiting = source.review(session, "brief", b.signal).catch((e: unknown) => e);
-    const alsoDead = source.review(session, "brief", dead.signal).catch((e: unknown) => e);
+    const waiting = source.review(session, "brief", "gist", b.signal).catch((e: unknown) => e);
+    const alsoDead = source.review(session, "brief", "gist", dead.signal).catch((e: unknown) => e);
     b.abort();
     expect(isAbort(await waiting)).toBe(true);
     expect(isAbort(await alsoDead)).toBe(true);
@@ -336,13 +336,13 @@ describe("review requests", () => {
     const { sessions, session } = indexed();
     const publisher = recordingPublisher();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher });
-    const brief = await source.review(session, "brief", live.signal);
-    const full = await source.review(session, "full", live.signal);
+    const brief = await source.review(session, "brief", "gist", live.signal);
+    const full = await source.review(session, "full", "gist", live.signal);
     expect(brief.id).not.toBe(full.id);
-    await expect(source.publish(session, "brief", { reviewId: full.id })).rejects.toThrow(/review it again/);
-    await expect(source.publish(session, "full", { reviewId: brief.id })).rejects.toThrow(/review it again/);
+    await expect(source.publish(session, "brief", { target: "gist", reviewId: full.id })).rejects.toThrow(/review it again/);
+    await expect(source.publish(session, "full", { target: "gist", reviewId: brief.id })).rejects.toThrow(/review it again/);
     expect(publisher.payloads).toEqual([]);
-    await source.publish(session, "brief", { reviewId: brief.id });
+    await source.publish(session, "brief", { target: "gist", reviewId: brief.id });
     expect(publisher.payloads).toHaveLength(1);
     expect(JSON.parse(publisher.payloads[0]!.content).mode).toBe("brief");
   });
@@ -351,7 +351,7 @@ describe("review requests", () => {
     const { sessions, session } = indexed();
     const { runner, jobs } = heldRunner();
     const source = createSource({ config: DEFAULT_CONFIG, sessions, runner });
-    const settled = [source.view(session, live.signal), source.review(session, "brief", live.signal)].map((p) => p.catch((e: unknown) => e));
+    const settled = [source.view(session, live.signal), source.review(session, "brief", "gist", live.signal)].map((p) => p.catch((e: unknown) => e));
     source.close();
     expect((await Promise.all(settled)).every(isAbort)).toBe(true);
     expect(jobs.every((j) => j.signal.aborted)).toBe(true);
@@ -370,8 +370,8 @@ describe("review requests", () => {
       },
     };
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher, runner: corrupting });
-    const review = await source.review(session, "brief", live.signal);
-    await expect(source.publish(session, "brief", { reviewId: review.id })).rejects.toThrow(/does not match its review/);
+    const review = await source.review(session, "brief", "gist", live.signal);
+    await expect(source.publish(session, "brief", { target: "gist", reviewId: review.id })).rejects.toThrow(/does not match its review/);
     expect(publisher.payloads).toEqual([]);
   });
 });
@@ -417,7 +417,134 @@ describe("subagent transcripts (parity with the CLI)", () => {
     const cli = prepareShare(raw, { mode: "full", config: DEFAULT_CONFIG, harness: "claude-code", subagentFiles: loadSubagentFiles(session.path) });
     const withoutSubagents = prepareShare(raw, { mode: "full", config: DEFAULT_CONFIG, harness: "claude-code" });
     expect(Buffer.byteLength(cli.json)).not.toBe(Buffer.byteLength(withoutSubagents.json)); // the fixture really exercises the loader
-    const review = await createSource({ config: DEFAULT_CONFIG, sessions }).review(session, "full", live.signal);
+    const review = await createSource({ config: DEFAULT_CONFIG, sessions }).review(session, "full", "gist", live.signal);
     expect(review.bytes).toBe(Buffer.byteLength(cli.json));
+  });
+});
+
+describe("publish target (ass-ihnf)", () => {
+  const r2Config = { ...DEFAULT_CONFIG, viewerUrlSource: "config" as const, r2: { bucket: "b", publicUrl: "https://shares.example.com" } };
+
+  /** The credentials come from either spelling of the variables, and a developer's shell may have one. */
+  const noR2Credentials = () => {
+    for (const name of ["AGENT_SHARE_R2_ACCESS_KEY_ID", "AGENT_SHARE_R2_SECRET_ACCESS_KEY", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"]) delete process.env[name];
+  };
+
+  /** One publisher fake per target, so a test sees which one an upload reached. */
+  function publishers() {
+    const make = (name: string): Publisher & { payloads: PublishPayload[] } => {
+      const payloads: PublishPayload[] = [];
+      return {
+        name,
+        payloads,
+        async publish(p) {
+          payloads.push(p);
+          return { publisher: name, id: `${name}-id`, url: `https://${name}.example/id`, viewerUrl: `https://viewer.example/#${name}` };
+        },
+        async delete() {},
+      };
+    };
+    const byTarget = { gist: make("gist"), r2: make("r2") };
+    return { ...byTarget, factory: (_config: unknown, target: "gist" | "r2") => byTarget[target] };
+  }
+
+  /** Counts the scans a source starts, so a cache hit and a new scan can be told apart. */
+  function countingRunner() {
+    const reviews: string[] = [];
+    const runner: JobRunner = {
+      run(req, signal) {
+        if (req.kind === "review") reviews.push(req.mode);
+        return inlineRunner.run(req, signal);
+      },
+      close() {},
+    };
+    return { runner, reviews };
+  }
+
+  it("starts on the configured target", () => {
+    const { sessions } = indexed();
+    expect(createSource({ config: DEFAULT_CONFIG, sessions }).target).toBe("gist");
+    expect(createSource({ config: { ...r2Config, target: "r2" }, sessions }).target).toBe("r2");
+  });
+
+  it("keys the cached review on the target: switching starts a new scan, and each target keeps its own review", async () => {
+    const { sessions, session } = indexed();
+    const { runner, reviews } = countingRunner();
+    const source = createSource({ config: r2Config, sessions, runner });
+    const gist = await source.review(session, "brief", "gist", live.signal);
+    const r2 = await source.review(session, "brief", "r2", live.signal);
+    expect(reviews).toEqual(["brief", "brief"]); // not served from the gist review
+    expect(r2.id).not.toBe(gist.id);
+    expect([gist.target, r2.target]).toEqual(["gist", "r2"]);
+    expect((await source.review(session, "brief", "gist", live.signal)).id).toBe(gist.id); // still cached for its own target
+    expect(reviews).toHaveLength(2);
+  });
+
+  it("uploads to the target it was reviewed for, and records that target, whatever the default is", async () => {
+    const { sessions, session } = indexed();
+    const p = publishers();
+    const config = { ...r2Config, target: "gist" as const };
+    const source = createSource({ config, sessions, publisher: p.factory });
+    const review = await source.review(session, "brief", "r2", live.signal);
+    const out = await source.publish(session, "brief", { target: "r2", reviewId: review.id });
+    expect(out.url).toBe("https://viewer.example/#r2");
+    expect(p.r2.payloads).toHaveLength(1);
+    expect(p.gist.payloads).toEqual([]);
+    expect(Buffer.byteLength(p.r2.payloads[0]!.content)).toBe(review.bytes);
+    // The record that marks the session shared names r2, on disk and in memory.
+    expect(loadShares()["claude-code:sess-1"]).toEqual([expect.objectContaining({ url: "https://viewer.example/#r2", target: "r2" })]);
+    expect(sharesFor(source.shares, "claude-code", "sess-1").map((r) => r.target)).toEqual(["r2"]);
+    // A per-publish override: neither the source's default nor the config moved.
+    expect(source.target).toBe("gist");
+    expect(config.target).toBe("gist");
+  });
+
+  it("uploads to gist when gist is chosen on a source whose default is r2", async () => {
+    const { sessions, session } = indexed();
+    const p = publishers();
+    const source = createSource({ config: { ...r2Config, target: "r2" }, sessions, publisher: p.factory });
+    const review = await source.review(session, "brief", "gist", live.signal);
+    await source.publish(session, "brief", { target: "gist", reviewId: review.id });
+    expect(p.gist.payloads).toHaveLength(1);
+    expect(p.r2.payloads).toEqual([]);
+    expect(sharesFor(source.shares, "claude-code", "sess-1").map((r) => r.target)).toEqual(["gist"]);
+  });
+
+  it("never uploads a review made for one target to another", async () => {
+    const { sessions, session } = indexed();
+    const p = publishers();
+    const source = createSource({ config: r2Config, sessions, publisher: p.factory });
+    const gist = await source.review(session, "brief", "gist", live.signal);
+    await expect(source.publish(session, "brief", { target: "r2", reviewId: gist.id })).rejects.toThrow(/review it again/);
+    const r2 = await source.review(session, "brief", "r2", live.signal);
+    await expect(source.publish(session, "brief", { target: "gist", reviewId: r2.id })).rejects.toThrow(/review it again/);
+    expect([p.gist.payloads, p.r2.payloads]).toEqual([[], []]);
+    await source.publish(session, "brief", { target: "r2", reviewId: r2.id }); // the matching pair still works
+    expect(p.r2.payloads).toHaveLength(1);
+  });
+
+  it("preflight follows the target: the default-viewerUrl warning is R2's, and a target that is not set up says what is missing", () => {
+    const { sessions } = indexed();
+    noR2Credentials();
+    const source = createSource({ config: { ...DEFAULT_CONFIG, viewerUrlSource: "default" }, sessions });
+    expect(source.preflight("gist")).toEqual({ warnings: [] });
+    const r2 = source.preflight("r2");
+    expect(r2.error).toContain('needs an "r2" section');
+    expect(r2.warnings[0]).toMatch(/viewerUrl is the built-in default/);
+    // With the section but no credentials, it is the credentials that are missing.
+    const noCredentials = createSource({ config: r2Config, sessions }).preflight("r2");
+    expect(noCredentials.error).toMatch(/R2 credentials missing/);
+    process.env.AGENT_SHARE_R2_ACCESS_KEY_ID = "id";
+    process.env.AGENT_SHARE_R2_SECRET_ACCESS_KEY = "secret";
+    expect(createSource({ config: r2Config, sessions }).preflight("r2")).toEqual({ warnings: [] });
+  });
+
+  it("an unconfigured target refuses the publish with its reason and uploads nothing", async () => {
+    const { sessions, session } = indexed();
+    noR2Credentials();
+    const source = createSource({ config: DEFAULT_CONFIG, sessions });
+    const review = await source.review(session, "brief", "r2", live.signal); // reviewing needs no destination
+    await expect(source.publish(session, "brief", { target: "r2", reviewId: review.id })).rejects.toThrow(/needs an "r2" section/);
+    expect(sharesFor(source.shares, "claude-code", "sess-1")).toEqual([]);
   });
 });

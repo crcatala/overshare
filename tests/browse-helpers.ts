@@ -2,6 +2,7 @@
 process.env.TZ = "UTC"; // day buckets ("Today", "Yesterday") depend on the local calendar
 
 import { vi } from "vitest";
+import type { ShareTarget } from "../src/config.js";
 import { BrowserApp, type BrowserOptions } from "../src/browse/app.js";
 import { plainText } from "../src/browse/kit.js";
 import type { IndexFeed, Preflight, SessionView, ShareReview, ShareSummary, Source, ViewItem } from "../src/browse/source.js";
@@ -127,19 +128,22 @@ export interface FakeSourceOptions {
   /** May return a promise that the test settles later (`deferred()`); may throw. */
   view?: (s: SessionSummary, signal: AbortSignal) => SessionView | Promise<SessionView>;
   /** May return a promise that the test settles later (`deferred()`); may throw (a refusal). */
-  review?: (s: SessionSummary, mode: ShareMode, signal: AbortSignal) => ShareReview | Promise<ShareReview>;
-  preflight?: () => Preflight;
-  publish?: (s: SessionSummary, mode: ShareMode) => Promise<{ url: string; warnings: string[] }>;
+  review?: (s: SessionSummary, mode: ShareMode, signal: AbortSignal, target: ShareTarget) => ShareReview | Promise<ShareReview>;
+  /** The configured default target; the dialog starts on it. Defaults to gist. */
+  target?: ShareTarget;
+  /** What each target needs; defaults to ready. */
+  preflight?: (target: ShareTarget) => Preflight;
+  publish?: (s: SessionSummary, mode: ShareMode, target: ShareTarget) => Promise<{ url: string; warnings: string[] }>;
 }
 
 export interface FakeSource extends Source {
-  published: Array<{ id: string; mode: ShareMode }>;
+  published: Array<{ id: string; mode: ShareMode; target: ShareTarget }>;
   /** `suspiciousConfirmed` as passed to each `publish`, in order. */
   suspiciousConfirmed: Array<boolean | undefined>;
   /** The id of the review each `publish` was given, in order. */
   publishedReviewIds: string[];
   /** Every `review` call, with the signal the caller can abort. */
-  reviewed: Array<{ id: string; mode: ShareMode }>;
+  reviewed: Array<{ id: string; mode: ShareMode; target: ShareTarget }>;
   reviewSignals: AbortSignal[];
   /** Every `view` call's session id and signal. */
   viewed: Array<{ id: string; signal: AbortSignal }>;
@@ -159,7 +163,7 @@ export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
   const publishedReviewIds: string[] = [];
   const reviewSignals: AbortSignal[] = [];
   const viewed: FakeSource["viewed"] = [];
-  /** The review each (session, mode) was last given, like the real source's cache: older ones cannot be published. */
+  /** The review each (session, mode, target) was last given, like the real source's cache: older ones, and ones for another target, cannot be published. */
   const latest = new Map<string, string>();
   let reviewCount = 0;
   const full = opts.sessions ?? sampleSessions();
@@ -190,7 +194,7 @@ export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
       for (const l of listeners) l();
     },
     shares,
-    destination: "a secret (unlisted) gist",
+    target: opts.target ?? "gist",
     published,
     suspiciousConfirmed,
     publishedReviewIds,
@@ -202,27 +206,27 @@ export function fakeSource(opts: FakeSourceOptions = {}): FakeSource {
       viewed.push({ id: s.id, signal });
       return abortable(signal, async () => (opts.view ?? (() => sampleView()))(s, signal), opts.ignoreAbort);
     },
-    review(s, mode, signal) {
-      reviewed.push({ id: s.id, mode });
+    review(s, mode, target, signal) {
+      reviewed.push({ id: s.id, mode, target });
       reviewSignals.push(signal);
       return abortable(signal, async () => {
-        const review = await (opts.review ?? ((_, m) => clean(m)))(s, mode, signal);
+        const review = await (opts.review ?? ((_, m) => clean(m)))(s, mode, signal, target);
         const id = `review-${++reviewCount}`;
-        latest.set(`${s.id}|${mode}`, id);
-        return { id, ...review };
+        latest.set(`${s.id}|${mode}|${target}`, id);
+        return { id, target, ...review };
       }, opts.ignoreAbort);
     },
-    preflight: opts.preflight ?? (() => ({ warnings: [] })),
+    preflight: (target) => (opts.preflight ?? (() => ({ warnings: [] })))(target),
     close() {
       source.closed = true;
     },
     async publish(s, mode, publishOpts) {
       publishedReviewIds.push(publishOpts.reviewId);
-      if (latest.get(`${s.id}|${mode}`) !== publishOpts.reviewId) throw new Error("The reviewed payload is no longer available; go back and review it again before publishing.");
-      published.push({ id: s.id, mode });
+      if (latest.get(`${s.id}|${mode}|${publishOpts.target}`) !== publishOpts.reviewId) throw new Error("The reviewed payload is no longer available; go back and review it again before publishing.");
+      published.push({ id: s.id, mode, target: publishOpts.target });
       suspiciousConfirmed.push(publishOpts.suspiciousConfirmed);
-      const out = await (opts.publish ?? (async () => ({ url: `https://viewer.example/#${s.id}`, warnings: [] })))(s, mode);
-      (shares[shareKey(s.harness, s.id)] ??= []).push({ url: out.url, mode, target: "gist", sharedAt: new Date(NOW).toISOString() });
+      const out = await (opts.publish ?? (async () => ({ url: `https://viewer.example/#${s.id}`, warnings: [] })))(s, mode, publishOpts.target);
+      (shares[shareKey(s.harness, s.id)] ??= []).push({ url: out.url, mode, target: publishOpts.target, sharedAt: new Date(NOW).toISOString() });
       return out;
     },
   };

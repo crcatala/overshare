@@ -189,6 +189,6 @@ describe("pi adapter: malformed tool calls", () => {
   it.each([["an object", { n: "bash" }], ["a number", 7], ["null", null], ["missing", undefined]])("tolerates a toolCall whose name is %s", (_what, name) => {
     const t = new PiTranscript().user("go").assistant([{ type: "toolCall", id: "c1", name, arguments: { command: "ls" } }]).toolResult("c1", "bash", "ok");
     const tool = parsePi(t.toJsonl()).session.turns[0]!.steps.find((s) => s.kind === "tool");
-    expect(tool).toMatchObject({ name: "unknown", action: "other" });
+    expect(tool).toMatchObject({ name: "unknown", action: "other", result: { text: "ok" } });
   });
 });

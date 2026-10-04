@@ -4,6 +4,13 @@
  * Adapters convert each harness's native transcript into this shape; redaction,
  * mode projection, publishing and the viewer only ever see this shape. This file
  * is shared with the browser viewer, so it must stay free of Node imports.
+ *
+ * Evolving it: shares outlive the code that wrote them, and the viewer is always the latest.
+ *   - Adding an optional field, or a new step kind, is compatible: don't bump the version. Older viewers
+ *     skip what they don't know (an unknown step kind shows as a placeholder), so a new field must be
+ *     optional and a viewer must read it only if present.
+ *   - Removing, renaming or changing the meaning of a field is breaking: bump SCHEMA_VERSION and add a
+ *     migration from the old version in viewer/src/compat.ts. tests/fixtures/shares/README.md has the steps.
  */
 
 export const SCHEMA_VERSION = "agentshare/2" as const;

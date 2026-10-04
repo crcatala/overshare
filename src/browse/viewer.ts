@@ -26,7 +26,7 @@ import { markLine, splitWords, unstyled } from "./mark.js";
 import { SAVE_FAILED_MESSAGE, type MarkerStyle, type SettingsStore } from "./settings.js";
 import { renderItem } from "./render.js";
 import { Spinner } from "./spinner.js";
-import type { ShareSummary, SessionView, Source, ViewItem, ViewKind } from "./source.js";
+import type { ShareSummary, SessionView, Source, ViewBlock, ViewItem, ViewKind } from "./source.js";
 
 export const LEVELS = [
   { label: "user prompts only", hint: "what you asked", kinds: ["user"] as ViewKind[] },
@@ -59,20 +59,28 @@ const INDENT = 2;
 /** Lines of the message kept above a hit that `n` / `N` brings into view. */
 const HIT_MARGIN = 2;
 
-/** What a search reads in a message, lower-cased once: its list row and body, with the tool output kept apart so it can be left out. */
+/**
+ * What a search reads in a message, lower-cased once: its list row and the text its content pane draws, with a tool's or
+ * subagent's output kept apart so it can be left out. Messages with blocks are read from the blocks, not from `body`:
+ * the pane draws more of a long edit or file than `body` keeps, and a search must find what is on screen.
+ */
 interface Haystack {
   inputs: string;
   all: string;
 }
 const haystacks = new WeakMap<ViewItem, Haystack>();
+/** Headings the pane puts between the parts of a tool call: layout, not words. */
+const LAYOUT_LABEL = /^(?:input|result|error|task)$/;
+const textsOf = (b: ViewBlock): string[] => (b.type === "edit" ? [b.path ?? "", ...b.edits.flatMap((e) => [e.old, e.new])] : b.type === "label" && LAYOUT_LABEL.test(b.text) ? [] : [b.text]);
 function haystack(it: ViewItem): Haystack {
   let h = haystacks.get(it);
   if (!h) {
-    const output = it.result ?? "";
-    // The body ends with the result; the "── input ──" lines between its parts are layout, not words.
-    const head = (output && it.body.endsWith(output) ? it.body.slice(0, it.body.length - output.length) : it.body).replace(/^── (?:input|result)(?: \(error\))? ──$/gm, "");
-    const inputs = `${it.label}\n${head}`.toLowerCase();
-    haystacks.set(it, (h = { inputs, all: `${inputs}\n${output.toLowerCase()}` }));
+    const call = [it.label];
+    const output: string[] = [];
+    if (it.blocks?.length) for (const b of it.blocks) (b.output ? output : call).push(...textsOf(b));
+    else call.push(it.body);
+    const inputs = call.join("\n").toLowerCase();
+    haystacks.set(it, (h = { inputs, all: [inputs, ...output.map((t) => t.toLowerCase())].join("\n") }));
   }
   return h;
 }

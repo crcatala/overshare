@@ -160,7 +160,7 @@ describe("the tool blocks viewFromSession makes", () => {
   it("Bash (either harness): the command as shell, with its description, then the result", () => {
     for (const t of [claude("Bash", { command: "npm test", description: "Run the tests" }, "12 passed"), pi("bash", { command: "npm test" }, "12 passed")]) {
       expect(t.blocks).toContainEqual({ type: "code", text: "npm test", lang: "bash" });
-      expect(t.blocks).toContainEqual({ type: "code", text: "12 passed", lang: undefined });
+      expect(t.blocks).toContainEqual({ type: "code", text: "12 passed", lang: undefined, output: true });
     }
     expect(claude("Bash", { command: "ls", description: "List" }).blocks![0]).toEqual({ type: "text", text: "List", style: "dim" });
   });
@@ -173,11 +173,11 @@ describe("the tool blocks viewFromSession makes", () => {
   });
 
   it("shows the boilerplate result of an edit or a write as one dim line, and an error as an error", () => {
-    expect(claude("Edit", { file_path: "/a.ts", old_string: "a", new_string: "b" }, "The file /a.ts has been updated.").blocks!.at(-1)).toEqual({ type: "text", text: "The file /a.ts has been updated.", style: "dim" });
+    expect(claude("Edit", { file_path: "/a.ts", old_string: "a", new_string: "b" }, "The file /a.ts has been updated.").blocks!.at(-1)).toEqual({ type: "text", text: "The file /a.ts has been updated.", style: "dim", output: true });
     const failed = viewFromSession(
       parseSession(new ClaudeTranscript().user("go").assistant("m1", [{ type: "tool_use", id: "t1", name: "Edit", input: { file_path: "/a.ts", old_string: "a", new_string: "b" } }], ccUsage(1, 1)).toolResult("t1", "String not found", {}, true).toJsonl(), "claude-code").session,
     ).items.find((i) => i.kind === "tool")!;
-    expect(failed.blocks).toContainEqual({ type: "label", text: "error", style: "error" });
+    expect(failed.blocks).toContainEqual({ type: "label", text: "error", style: "error", output: true });
   });
 
   it("Write: the file name, then the content as code in the file's language", () => {
@@ -187,7 +187,7 @@ describe("the tool blocks viewFromSession makes", () => {
 
   it("Read: the path, then the result in the file's language", () => {
     const t = claude("Read", { file_path: "/x/a.ts", offset: 10, limit: 20 }, "const a = 1");
-    expect(t.blocks).toEqual([{ type: "label", text: "/x/a.ts  (from line 10, 20 lines)" }, { type: "label", text: "result" }, { type: "code", text: "const a = 1", lang: "ts" }]);
+    expect(t.blocks).toEqual([{ type: "label", text: "/x/a.ts  (from line 10, 20 lines)" }, { type: "label", text: "result", output: true }, { type: "code", text: "const a = 1", lang: "ts", output: true }]);
   });
 
   it("any other tool: its summary and its input as JSON", () => {

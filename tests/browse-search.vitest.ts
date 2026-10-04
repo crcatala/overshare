@@ -1,8 +1,11 @@
 /** Search highlighting in the browser: the session list and its preview, and the viewer's own search. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parseSession } from "../src/adapters/index.js";
+import { viewFromSession } from "../src/browse/job.js";
 import { HIT_ON } from "../src/browse/mark.js";
 import type { SessionView, ViewItem } from "../src/browse/source.js";
 import { drive, KEY, listColumn, sampleView, summary, viewerPanes, type Driver } from "./browse-helpers.js";
+import { ccUsage, ClaudeTranscript } from "./helpers.js";
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
@@ -82,6 +85,14 @@ describe("session list: what matched", () => {
     expect(text).toContain("· rotate the stripe signing secret");
   });
 
+  it("quotes a word that sits far from the first one in the same prompt, not just the part around the first", async () => {
+    const far = `Wire the webhook retries into the queue ${"and keep the handler small. ".repeat(12)}then rotate the stripe signing secret`;
+    const d = drive({ sessions: [summary({ id: "far", title: "Billing cleanup", firstPrompt: "set up", promptHead: ["set up", far], searchText: `billing cleanup\napp\nset up\n${far.toLowerCase()}` })], query: "webhook stripe" });
+    const text = d.text();
+    expect(text).toContain("webhook retries");
+    expect(text).toContain("rotate the stripe signing secret");
+  });
+
   it("says nothing when the title already shows why the session matched", async () => {
     const d = drive({ sessions: [long], query: "billing" });
     expect(d.text()).not.toContain("matched in prompts");
@@ -102,8 +113,22 @@ function searchView(): SessionView {
   const items: ViewItem[] = [
     item({ kind: "user", turn: 1, label: "fix the invoice bug", body: "fix the invoice bug" }),
     item({ kind: "assistant", turn: 1, label: "Found it: the default is missing.", body: "Found it: the default is missing.\n\nThe currency default is missing, so set currency to USD." }),
-    item({ kind: "tool", turn: 1, label: "Bash  grep -rn currency src", meta: "Bash", body: `grep -rn currency src\n\n── input ──\n{}\n\n── result ──\nsrc/invoice.ts:12: nothing here`, result: "src/invoice.ts:12: nothing here" }),
-    item({ kind: "tool", turn: 1, label: "Read  src/money.ts", meta: "Read", body: `src/money.ts\n\n── input ──\n{}\n\n── result ──\n${result}`, result }),
+    item({
+      kind: "tool",
+      turn: 1,
+      label: "Bash  grep -rn currency src",
+      meta: "Bash",
+      body: `grep -rn currency src\n\n── input ──\n{}\n\n── result ──\nsrc/invoice.ts:12: nothing here`,
+      blocks: [{ type: "code", text: "grep -rn currency src", lang: "bash" }, { type: "label", text: "result", output: true }, { type: "code", text: "src/invoice.ts:12: nothing here", output: true }],
+    }),
+    item({
+      kind: "tool",
+      turn: 1,
+      label: "Read  src/money.ts",
+      meta: "Read",
+      body: `src/money.ts\n\n── input ──\n{}\n\n── result ──\n${result}`,
+      blocks: [{ type: "label", text: "src/money.ts" }, { type: "label", text: "result", output: true }, { type: "code", text: result, output: true }],
+    }),
     item({ kind: "user", turn: 2, label: "now add a test", body: "now add a test" }),
     item({ kind: "assistant", turn: 2, label: "Added the regression test.", body: "Added the regression test." }),
   ];
@@ -317,5 +342,49 @@ describe("viewer search", () => {
     expect(d.text()).toContain("esc clear");
     await d.type("cur");
     expect(d.text()).toContain("/ cur");
+  });
+});
+
+describe("viewer search covers what the pane shows", () => {
+  const filler = "x ".repeat(1_600); // 3,200 characters: past where a tool call's JSON input is cut for the body
+
+  /** A session read through the real view builder, so the items have the blocks and caps the pane is drawn from. */
+  const viewOf = (build: (t: ClaudeTranscript) => ClaudeTranscript) => () => viewFromSession(parseSession(build(new ClaudeTranscript().user("go")).toJsonl(), "claude-code").session);
+  const call = (t: ClaudeTranscript, name: string, input: Record<string, unknown>) =>
+    t.assistant("m1", [{ type: "tool_use", id: "t1", name, input }], ccUsage(1, 1)).toolResult("t1", "ok");
+
+  async function search(view: () => SessionView, text: string) {
+    const d = await openViewer({ view });
+    await d.press("v", "/");
+    await d.type(text);
+    await d.press(KEY.enter);
+    return d;
+  }
+
+  it("finds a word in the lower part of a large edit, which the pane draws in full", async () => {
+    const d = await search(viewOf((t) => call(t, "Edit", { file_path: "src/a.ts", old_string: "const a = 1;", new_string: `${filler}\nconst zebrafish = 2;` })), "zebrafish");
+    expect(d.text()).toContain("everything · 1 of ");
+    expect(d.text()).toContain("Edit  src/a.ts");
+  });
+
+  it("finds a word in the end of a written file", async () => {
+    const d = await search(viewOf((t) => call(t, "Write", { file_path: "src/b.ts", content: `${filler}\nexport const zebrafish = 2;` })), "zebrafish");
+    expect(d.text()).toContain("everything · 1 of ");
+  });
+
+  it("finds a word with the quotes or backslashes the pane shows, which the JSON input would escape", async () => {
+    const quoted = await search(viewOf((t) => call(t, "Bash", { command: 'echo "hello world"' })), '"hello');
+    expect(quoted.text()).toContain("everything · 1 of ");
+    const slashed = await search(viewOf((t) => call(t, "Bash", { command: "ls C:\\data\\files" })), "c:\\data");
+    expect(slashed.text()).toContain("everything · 1 of ");
+  });
+
+  it("still leaves a tool's result and the layout words out unless asked", async () => {
+    const view = viewOf((t) => t.assistant("m1", [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } }], ccUsage(1, 1)).toolResult("t1", "zebrafish.txt"));
+    const without = await search(view, "zebrafish");
+    expect(without.text()).toContain("everything · 0 of ");
+    await without.press("o");
+    expect(without.text()).toContain("everything · 1 of ");
+    expect((await search(view, "result")).text()).toContain("everything · 0 of ");
   });
 });

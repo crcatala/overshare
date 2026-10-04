@@ -26,6 +26,7 @@ import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { copyToClipboard, MODE_HINT, PublishFlow } from "./flow.js";
 import { box, columns, composite, cut, fit, hr, isKey, isPlain, isShift, padLines, pagingKey, Screen, st, w, wrap, type PageMove } from "./kit.js";
 import { markLine, snippet } from "./mark.js";
+import { MIN_HIGHLIGHT } from "../sessions/query.js";
 import { memorySettings, SAVE_FAILED_MESSAGE, type SettingsPatch, type SettingsStore } from "./settings.js";
 import { destinationLabel, type Source } from "./source.js";
 import { SessionViewer } from "./viewer.js";
@@ -663,7 +664,8 @@ export class BrowserApp extends Screen {
    */
   private matchSnippets(s: SessionSummary, words: readonly string[], width: number): string[] {
     const shown = [s.title, s.project, s.branch, s.models.join(" ")].join("\n").toLowerCase();
-    let need = words.filter((word) => !shown.includes(word));
+    // A word of one letter cannot be found in text (see MIN_HIGHLIGHT), so there is nothing to quote for it.
+    let need = words.filter((word) => word.length >= MIN_HIGHLIGHT && !shown.includes(word));
     const own = [...new Set([s.firstPrompt, ...s.promptHead, ...s.promptTail, s.lastPrompt].filter((t): t is string => !!t))];
     const out: string[] = [];
     for (const pool of [own, s.searchText.split("\n")]) {
@@ -677,9 +679,12 @@ export class BrowserApp extends Screen {
           if (n > most) [best, most] = [text, n];
         }
         if (!best) break;
-        const lower = best.toLowerCase();
+        // The snippet is a stretch around the first word it holds: a word elsewhere in the prompt is not explained until
+        // a snippet shows it, so only the words that are in the lines shown count as done (the next round takes the rest).
         const line = snippet(best, need, width - 2);
-        if (line) out.push(line);
+        if (!line) break;
+        out.push(line);
+        const lower = line.toLowerCase();
         need = need.filter((word) => !lower.includes(word));
       }
     }

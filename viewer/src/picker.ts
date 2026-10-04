@@ -4,9 +4,10 @@
  * what the share is.
  */
 import { plural } from "../../src/format.ts";
+import { harnessLabel } from "../../src/harnesses/meta.ts";
 import { attribution } from "./attribution.ts";
 import { h } from "./dom.ts";
-import { formatDate, HARNESS_LABEL, iconButton } from "./header.ts";
+import { formatDate, iconButton } from "./header.ts";
 import { settingsButton, type SettingsOptions } from "./settings.ts";
 
 export interface LocalShare {
@@ -41,7 +42,7 @@ function meta(s: LocalShare): HTMLElement {
     { class: "picker-meta" },
     h("span", { class: "picker-file" }, s.name),
     s.error ? badge("unreadable", "is-error", { title: s.error }) : null,
-    s.harness ? badge(HARNESS_LABEL[s.harness] ?? s.harness, "badge-harness") : null,
+    s.harness ? badge(harnessLabel(s.harness), "badge-harness") : null,
     s.mode ? badge(s.mode, "badge-mode", { "data-mode": s.mode }) : null,
     s.turns !== undefined ? badge(plural(s.turns, "turn")) : null,
     s.project ? badge(s.project, "badge-project") : null,

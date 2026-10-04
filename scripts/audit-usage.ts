@@ -19,8 +19,8 @@
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { parseClaudeCode } from "../src/adapters/claude-code.ts";
-import { parsePi } from "../src/adapters/pi.ts";
+import { parseClaudeCode } from "../src/harnesses/claude-code/parse.ts";
+import { parsePi } from "../src/harnesses/pi/parse.ts";
 import { formatCost, formatDuration, formatTokens } from "../src/format.ts";
 import { defaultRoots } from "../src/resolve.ts";
 import { contextTokens, totalTokens, type NormalizedSession } from "../src/schema.ts";

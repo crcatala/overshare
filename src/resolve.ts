@@ -1,12 +1,9 @@
-import { existsSync, readdirSync, statSync, openSync, readSync, closeSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
-import type { HarnessName } from "./schema.js";
+import { basename, resolve } from "node:path";
+import { HARNESSES, HARNESS_NAMES, UnrecognizedFormatError, detectHarness, type HarnessName } from "./harnesses/index.js";
 
-export interface SessionRoots {
-  "claude-code": string;
-  pi: string;
-}
+export type SessionRoots = Record<HarnessName, string>;
 
 export interface SessionRef {
   path: string;
@@ -18,49 +15,22 @@ export interface SessionRef {
 
 export function defaultRoots(env: NodeJS.ProcessEnv = process.env): SessionRoots {
   const home = homedir();
-  return {
-    "claude-code": env.AGENT_SHARE_CLAUDE_PROJECTS ?? join(env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), "projects"),
-    pi: env.AGENT_SHARE_PI_SESSIONS ?? env.PI_CODING_AGENT_SESSION_DIR ?? join(env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), "sessions"),
-  };
-}
-
-/** Directory name each harness uses for a working directory. */
-export function projectDirName(harness: HarnessName, cwd: string): string {
-  if (harness === "claude-code") return cwd.replace(/[^A-Za-z0-9]/g, "-");
-  return `--${cwd.replace(/^[/\\]+/, "").replace(/[/\\:]/g, "-")}--`;
-}
-
-function sessionIdFromFile(harness: HarnessName, file: string): string {
-  const name = basename(file, ".jsonl");
-  return harness === "pi" ? (name.split("_").at(-1) ?? name) : name;
-}
-
-function listDir(dir: string): string[] {
-  try {
-    return readdirSync(dir);
-  } catch {
-    return [];
-  }
+  return Object.fromEntries(HARNESS_NAMES.map((n) => [n, HARNESSES[n].sessionsRoot(env, home)])) as SessionRoots;
 }
 
 function refFor(harness: HarnessName, path: string): SessionRef {
   const st = statSync(path);
-  return { path, harness, id: sessionIdFromFile(harness, path), mtimeMs: st.mtimeMs, size: st.size };
+  return { path, harness, id: HARNESSES[harness].sessionId(path), mtimeMs: st.mtimeMs, size: st.size };
 }
 
-/** All top-level session files for a harness (subagent/sidechain files are excluded). */
-export function listSessions(harness: HarnessName, roots: SessionRoots, projectDir?: string): SessionRef[] {
-  const root = roots[harness];
-  const dirs = projectDir ? [projectDir] : listDir(root).filter((d) => !d.startsWith(".session"));
+/** All top-level session files for a harness (subagent/sidechain files are excluded), newest first. With `cwd`, only that working directory's. */
+export function listSessions(harness: HarnessName, roots: SessionRoots, cwd?: string): SessionRef[] {
   const refs: SessionRef[] = [];
-  for (const dir of dirs) {
-    for (const f of listDir(join(root, dir))) {
-      if (!f.endsWith(".jsonl") || f.startsWith("agent-")) continue;
-      try {
-        refs.push(refFor(harness, join(root, dir, f)));
-      } catch {
-        // vanished between readdir and stat
-      }
+  for (const file of HARNESSES[harness].listFiles(roots[harness], cwd)) {
+    try {
+      refs.push(refFor(harness, file));
+    } catch {
+      // vanished between readdir and stat
     }
   }
   return refs.sort((a, b) => b.mtimeMs - a.mtimeMs);
@@ -75,14 +45,14 @@ export interface ResolveOptions {
 }
 
 /**
- * Resolve a session from a path, a session id / id prefix, or `--current`
- * (Claude Code: `$CLAUDE_CODE_SESSION_ID`; otherwise the newest session for the cwd).
+ * Resolve a session from a path, a session id / id prefix, or `--current` (the session the running agent names, when
+ * its harness can say; otherwise the newest session for the cwd).
  */
 export function resolveSession(arg: string | undefined, opts: ResolveOptions = {}): SessionRef {
   const env = opts.env ?? process.env;
   const roots = opts.roots ?? defaultRoots(env);
   const cwd = opts.cwd ?? process.cwd();
-  const harnesses: HarnessName[] = opts.harness ? [opts.harness] : ["claude-code", "pi"];
+  const harnesses: HarnessName[] = opts.harness ? [opts.harness] : HARNESS_NAMES;
 
   if (arg && existsSync(arg) && statSync(arg).isFile()) {
     return refFor(opts.harness ?? sniffHarness(arg), resolve(arg));
@@ -98,28 +68,29 @@ export function resolveSession(arg: string | undefined, opts: ResolveOptions = {
   }
   if (!opts.current) throw new Error("Pass a session path or id, or use --current");
 
-  const claudeId = env.CLAUDE_CODE_SESSION_ID;
-  if (claudeId && harnesses.includes("claude-code")) {
-    const preferred = join(roots["claude-code"], projectDirName("claude-code", cwd), `${claudeId}.jsonl`);
-    if (existsSync(preferred)) return refFor("claude-code", preferred);
-    const found = listSessions("claude-code", roots).find((r) => r.id === claudeId);
-    if (found) return found;
+  for (const h of harnesses) {
+    const named = HARNESSES[h].currentSession?.(env, roots[h], cwd);
+    if (named) return refFor(h, named);
   }
   const candidates = harnesses
-    .flatMap((h) => listSessions(h, roots, projectDirName(h, cwd)))
+    .flatMap((h) => listSessions(h, roots, cwd))
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
   if (candidates[0]) return candidates[0];
   throw new Error(`No ${opts.harness ?? ""} session found for ${cwd}`.replace("  ", " "));
 }
 
-/** Cheap harness detection from the first bytes of a file. */
+/**
+ * The harness a session file is in, from its first lines (the whole of a long first line is not needed: detection reads
+ * what parses). A file no harness claims is an error, not a guess.
+ */
 export function sniffHarness(path: string): HarnessName {
   const fd = openSync(path, "r");
   try {
-    const buf = Buffer.alloc(4096);
+    const buf = Buffer.alloc(64 * 1024);
     const n = readSync(fd, buf, 0, buf.length, 0);
-    const first = buf.subarray(0, n).toString("utf8").split("\n", 1)[0] ?? "";
-    return /"type"\s*:\s*"session"/.test(first) && /"version"\s*:\s*\d/.test(first) ? "pi" : "claude-code";
+    const found = detectHarness(buf.subarray(0, n).toString("utf8"));
+    if (!found) throw new UnrecognizedFormatError();
+    return found;
   } finally {
     closeSync(fd);
   }

@@ -12,7 +12,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { viewFromSession, summarizeShare } from "../src/browse/job.js";
-import { parseSession } from "../src/adapters/index.js";
+import { parseSession } from "../src/harnesses/index.js";
 import { capRedacted, cutPoint } from "../src/cap.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { capToolText } from "../src/modes.js";

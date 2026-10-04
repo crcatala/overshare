@@ -6,6 +6,7 @@
  * contents rail shows.
  */
 import { formatCost, formatDuration, formatTokens, plural } from "../../src/format.ts";
+import { metaOf } from "../../src/harnesses/meta.ts";
 import { contextTokens, type EventStep, type NormalizedSession, type ResponseUsage, type Step, type SubagentStep, type ThinkingStep, type ToolGroupStep, type ToolResult, type ToolStep, type Turn } from "../../src/schema.ts";
 import { commandName, groupCalls, groupShell, isExecTool, type CallCount } from "./commands.ts";
 import { h, markdown } from "./dom.ts";
@@ -603,7 +604,7 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
       const n = turn.user ? ++ordinal : 0;
       const id = `turn-${turn.index}`;
       // Only Claude Code's usage is read from the subagents' own transcripts; pi's chip is best effort and covers some launches only, so it is not summed.
-      const subagents = session.harness.name === "claude-code" ? turnSubagents(turn) : undefined;
+      const subagents = metaOf(session.harness.name)?.sumsSubagentUsage ? turnSubagents(turn) : undefined;
       const stepIds = turn.steps.map((_, i) => stepId(turn.index, i));
       const section = h(
         "section",

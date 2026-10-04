@@ -4,7 +4,8 @@ import { join } from "node:path";
 import type { AgentShareConfig } from "../config.js";
 import { prepareShare } from "../pipeline.js";
 import { readSecretsFile } from "../redact/known-values.js";
-import { projectDirName } from "../resolve.js";
+import { projectDir as claudeProjectDir } from "../harnesses/claude-code/index.js";
+import { projectDir as piProjectDir } from "../harnesses/pi/index.js";
 import { SHARE_MODES } from "../schema.js";
 import { emitClaudeCode } from "./claude-code.js";
 import { emitPi } from "./pi.js";
@@ -57,13 +58,13 @@ export function generateFixtures(opts: FixtureOptions): GeneratedFixtures {
 
   const roots = { "claude-code": join(opts.outDir, "claude", "projects"), pi: join(opts.outDir, "pi", "sessions") };
   const claudeId = rng.uuid();
-  const claudeDir = join(roots["claude-code"], projectDirName("claude-code", script.cwd));
+  const claudeDir = join(roots["claude-code"], claudeProjectDir(script.cwd));
   const claudeFile = join(claudeDir, `${claudeId}.jsonl`);
   mkdirSync(claudeDir, { recursive: true });
   writeFileSync(claudeFile, emitClaudeCode(script, new Rng(seed * 31 + 1), { sessionId: claudeId, start, home, username }));
 
   const piId = new Rng(seed * 17 + 3).uuid7(start);
-  const piDir = join(roots.pi, projectDirName("pi", script.cwd));
+  const piDir = join(roots.pi, piProjectDir(script.cwd));
   const piFile = join(piDir, `${new Date(start).toISOString().replace(/[:.]/g, "-")}_${piId}.jsonl`);
   mkdirSync(piDir, { recursive: true });
   writeFileSync(piFile, emitPi(script, new Rng(seed * 31 + 2), { sessionId: piId, start, home, inputProvenance: opts.piInputProvenance }));

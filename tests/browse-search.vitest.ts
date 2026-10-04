@@ -1,6 +1,6 @@
 /** Search highlighting in the browser: the session list and its preview, and the viewer's own search. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parseSession } from "../src/adapters/index.js";
+import { parseSession } from "../src/harnesses/index.js";
 import { viewFromSession } from "../src/browse/job.js";
 import { HIT_ON } from "../src/browse/mark.js";
 import type { SessionView, ViewItem } from "../src/browse/source.js";

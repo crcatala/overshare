@@ -1,6 +1,6 @@
 ---
 id: ass-zl0d
-status: in_progress
+status: closed
 deps: []
 links: [ass-6jd4]
 created: 2026-10-04T16:25:13Z
@@ -67,3 +67,9 @@ Constraints from the code on main:
 - [ ] README "Adding a harness" rewritten to the real, short procedure, and verified by actually walking it with a throwaway toy harness (not committed) to confirm that the compiler points at every required edit and that `list`/`browse`/`--harness` pick it up.
 - [ ] `npm run typecheck` and `npm test` pass; PR description records the key decisions and rationale.
 
+
+## Notes
+
+**2026-10-04T16:32:00Z**
+
+Implemented on refactor/harness-registry. Walked the new README procedure with a throwaway toy harness (not committed): meta.ts entry -> typecheck pointed at HARNESSES; ~30-line descriptor made list, --harness, export by id, index/summary, harness:<alias> and the browse filter/dialog/tag work with no other edits. fixtures output identical to main apart from sharedAt.

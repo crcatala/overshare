@@ -12,7 +12,7 @@
  * transcript renderer over the payload that came out.
  */
 import { describe, expect, it } from "vitest";
-import { baseSession } from "../src/adapters/shared.js";
+import { baseSession } from "../src/harnesses/shared.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { prepareShare, type PrepareOptions } from "../src/pipeline.js";
 import { Redactor, redactSession } from "../src/redact/index.js";

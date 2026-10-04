@@ -17,7 +17,8 @@ import { SHARE_TARGETS } from "../config.js";
 import { formatBytes } from "../format.js";
 import { stripControls } from "../sanitize.js";
 import { formatKnownSources } from "../report.js";
-import { SHARE_MODES, type HarnessName } from "../schema.js";
+import { HARNESS_META, HARNESS_NAMES, type HarnessName } from "../harnesses/meta.js";
+import { SHARE_MODES } from "../schema.js";
 import { facet, parseQuery, searchSessions } from "../sessions/query.js";
 import { sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
@@ -38,7 +39,7 @@ export type GroupBy = "none" | "date" | "project" | "harness";
 export type SortField = "default" | "updated" | "title" | "project" | "size" | "prompts" | "calls" | "duration";
 
 const TIME_MS = { "24h": 86_400_000, "7d": 604_800_000, "30d": 2_592_000_000 } as const;
-const HARNESSES: HarnessFilter[] = [undefined, "claude-code", "pi"];
+const HARNESSES: HarnessFilter[] = [undefined, ...HARNESS_NAMES];
 const TIMES: TimeFilter[] = [undefined, "24h", "7d", "30d"];
 const SHARED: SharedFilter[] = [undefined, false, true];
 const GROUPS: Array<{ id: GroupBy; label: string; hint?: string }> = [
@@ -197,7 +198,7 @@ export class BrowserApp extends Screen {
   }
 
   private groupLabel(s: SessionSummary): string {
-    return this.group === "date" ? dayBucket(s.mtimeMs, this.now()) : this.group === "project" ? (s.project ?? "(no repo)") : s.harness === "pi" ? "pi" : "Claude Code";
+    return this.group === "date" ? dayBucket(s.mtimeMs, this.now()) : this.group === "project" ? (s.project ?? "(no repo)") : HARNESS_META[s.harness].label;
   }
 
   /** List rows in screen order: sessions, plus a header line wherever the group changes. Cheap (no string work). */
@@ -249,8 +250,7 @@ export class BrowserApp extends Screen {
           "Harness",
           () => [
             { label: "any", value: undefined, count: all().length },
-            { label: "Claude Code", value: "claude-code", count: count((s) => s.harness === "claude-code") },
-            { label: "pi", value: "pi", count: count((s) => s.harness === "pi") },
+            ...HARNESS_NAMES.map((n) => ({ label: HARNESS_META[n].label, value: n, count: count((s) => s.harness === n) })),
           ],
           () => this.harness,
           (v) => {
@@ -601,7 +601,7 @@ export class BrowserApp extends Screen {
     const partial = indexing && (this.query || this.project) ? " · search covers the sessions read so far" : "";
     const title = `${st.bold("agent-share")}  ${st.dim(`${this.view.length}/${this.source.sessions.length}`)}${indexing ? `  ${st.yellow(`reading sessions ${indexing.done}/${indexing.total}`)}${st.dim(partial)}` : ""}`;
     const chips = [
-      chip("harness", "h", this.harness ? (this.harness === "pi" ? "pi" : "claude") : "all", !!this.harness),
+      chip("harness", "h", this.harness ? HARNESS_META[this.harness].short : "all", !!this.harness),
       chip("repo", "r", this.project ?? "all", !!this.project),
       chip("time", "t", this.time ?? "any", !!this.time),
       chip("shared", "s", this.shared === undefined ? "any" : this.shared ? "yes" : "no", this.shared !== undefined),
@@ -645,7 +645,7 @@ export class BrowserApp extends Screen {
   private row(s: SessionSummary, selected: boolean, width: number, words: readonly string[]): string {
     const mark = (text: string) => markLine(text, words).line;
     const shared = sharesFor(this.source.shares, s.harness, s.id).length > 0;
-    const harness = s.harness === "pi" ? st.magenta("π ") : st.yellow("CC");
+    const harness = st[HARNESS_META[s.harness].color](HARNESS_META[s.harness].tag.padEnd(2));
     const fmt = dateFormat(this.settings.get().dateFormat);
     const fixed = 1 + (fmt.width + 1) + 3 + 15 + 3;
     // The branch column only appears when the title keeps a useful width without it.
@@ -692,11 +692,11 @@ export class BrowserApp extends Screen {
   }
 
   private preview(s: SessionSummary, width: number, words: readonly string[] = []): string[] {
-    if (s.pending) return [st.dim(s.harness === "pi" ? "pi" : "Claude Code"), st.dim(formatBytes(s.size)), "", st.dim("reading this session…")];
+    if (s.pending) return [st.dim(HARNESS_META[s.harness].label), st.dim(formatBytes(s.size)), "", st.dim("reading this session…")];
     const mark = (line: string) => markLine(line, words).line;
     const out: string[] = [];
     out.push(...wrap(st.bold(s.title ?? "(untitled)"), width).slice(0, 2).map(mark));
-    out.push(mark(st.dim([s.harness === "pi" ? "pi" : "Claude Code", s.models.map(shortModel).join(", "), branchLabel(s), sessionDuration(s)].filter(Boolean).join(" · "))));
+    out.push(mark(st.dim([HARNESS_META[s.harness].label, s.models.map(shortModel).join(", "), branchLabel(s), sessionDuration(s)].filter(Boolean).join(" · "))));
     out.push(st.dim(`${plural(s.prompts, "prompt")} · ${plural(s.calls, "model call")} · ${formatBytes(s.size)}${s.subagents ? ` · ${plural(s.subagents, "subagent")}` : ""}`));
     const tools = toolSummary(s.tools);
     if (tools) out.push(st.dim(tools));

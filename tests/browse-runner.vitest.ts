@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeJob, runJob, toSafeError, type JobRequest } from "../src/browse/job.js";
 import { inlineRunner, isAbort, JobError, workerRunner } from "../src/browse/runner.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { UnrecognizedFormatError } from "../src/adapters/index.js";
+import { UnrecognizedFormatError } from "../src/harnesses/index.js";
 import { PromptsUnavailableError } from "../src/modes.js";
 import { ccUsage, ClaudeTranscript, fake, randomish } from "./helpers.js";
 

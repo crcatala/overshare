@@ -13,12 +13,14 @@
  *     migration from the old version in viewer/src/compat.ts. tests/fixtures/shares/README.md has the steps.
  */
 
+import type { HarnessName } from "./harnesses/meta.js";
+
 export const SCHEMA_VERSION = "agentshare/2" as const;
 
 export type ShareMode = "full" | "brief" | "minimal" | "prompts";
 export const SHARE_MODES: readonly ShareMode[] = ["full", "brief", "minimal", "prompts"];
 
-export type HarnessName = "claude-code" | "pi";
+export type { HarnessName };
 
 /** Local-only pi extension entry; its payload is never copied into a share. */
 export const PI_INPUT_PROVENANCE_TYPE = "agent-share:authored-input";

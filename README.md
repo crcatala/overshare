@@ -1,4 +1,4 @@
-# overshare
+<h1><img src="site/logo.svg" width="40" height="40" align="top" alt="" /> overshare</h1>
 
 > Share your coding-agent sessions as links. Redacted, so you never really overshare.
 

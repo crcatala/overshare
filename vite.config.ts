@@ -15,7 +15,7 @@
  * `viewer.config.json` (or $OVERSHARE_VIEWER_CONFIG) adds share sources; their
  * origins go into the Content-Security-Policy.
  */
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import { loadConfig } from "./src/config.ts";
@@ -71,6 +71,9 @@ function deployFilesPlugin(sources: Record<string, string>): Plugin {
     closeBundle() {
       // In-memory builds (tests) must not touch viewer/dist.
       if (!write) return;
+      // The viewer used to build into dist/session/. A copy left by an earlier build would be deployed with the
+      // rest of dist/, outside every header rule (no CSP, no frame-ancestors), so remove it.
+      rmSync(join(viewerRoot, "dist", "session"), { recursive: true, force: true });
       for (const [name, content] of Object.entries(deployFiles(sources) as Record<string, string>)) {
         writeFileSync(join(viewerRoot, "dist", name), content);
       }

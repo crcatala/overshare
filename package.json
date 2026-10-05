@@ -7,10 +7,6 @@
     "overshare": "./dist/cli.js",
     "ovs": "./dist/cli.js"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/crcatala/overshare.git"
-  },
   "files": [
     "dist",
     "viewer/dist",

@@ -1,25 +1,32 @@
 /**
- * Landing page behavior: the nav border on scroll, two one-shot reveals (the hero frame
- * tilting into place, the redaction sweep), the share-mode switcher and the copy buttons.
- * Everything renders without JS; the reveals only start hidden once this has run.
+ * Landing page behavior: the nav border on scroll, one-shot reveals (the receipt printing,
+ * the screenshot rising, the tickets, the redaction sweep), the share-mode switcher with its
+ * size ledger, and the copy buttons. Everything renders without JS; the reveals only start
+ * hidden once this has run.
  */
 document.documentElement.classList.add("js");
 
 const nav = document.getElementById("nav")!;
 addEventListener("scroll", () => nav.classList.toggle("scrolled", scrollY > 8), { passive: true });
 
+// One-shot reveals: anything marked [data-reveal] gets `.in` the first time it scrolls into view.
 const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-function revealOnce(el: HTMLElement, threshold: number): void {
-  if (reduce || !("IntersectionObserver" in window)) return void el.classList.add("in");
-  const io = new IntersectionObserver((entries) => {
-    if (!entries.some((e) => e.isIntersecting)) return;
-    el.classList.add("in");
-    io.disconnect();
-  }, { threshold });
-  io.observe(el);
+const reveals = [...document.querySelectorAll<HTMLElement>("[data-reveal]")];
+if (reduce || !("IntersectionObserver" in window)) {
+  for (const el of reveals) el.classList.add("in");
+} else {
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        entry.target.classList.add("in");
+        io.unobserve(entry.target);
+      }
+    },
+    { threshold: 0.18, rootMargin: "0px 0px -6% 0px" },
+  );
+  for (const el of reveals) io.observe(el);
 }
-revealOnce(document.getElementById("stage")!, 0.12);
-revealOnce(document.getElementById("panes")!, 0.45);
 
 // Share modes. Sizes are the example session's share file in each mode (`exampleShare({ mode })`; tests/site.vitest.ts checks them).
 type Mode = "full" | "brief" | "minimal" | "prompts";
@@ -30,6 +37,7 @@ const MODES: Record<Mode, { title: string; text: string; kb: number }> = {
   prompts: { title: "Prompts", text: "Only what you typed, followed by a compact activity line per turn. No replies, filenames, commands or tool output.", kb: 8.5 },
 };
 const tabs = [...document.querySelectorAll<HTMLButtonElement>(".seg button")];
+const rows = [...document.querySelectorAll<HTMLButtonElement>("[data-kb-row]")];
 const thumb = document.querySelector<HTMLElement>(".seg .thumb")!;
 const selected = () => tabs.find((t) => t.getAttribute("aria-selected") === "true") ?? tabs[0]!;
 function moveThumb(tab: HTMLElement): void {
@@ -52,12 +60,18 @@ function setMode(mode: Mode, first = false): void {
       el.classList.add("swap");
     }
   }
+  for (const row of rows) {
+    const on = row.dataset.kbRow === mode;
+    row.classList.toggle("on", on);
+    row.setAttribute("aria-pressed", String(on));
+  }
   const { title, text, kb } = MODES[mode];
   document.getElementById("mi-title")!.textContent = title;
   document.getElementById("mi-text")!.textContent = text;
   document.getElementById("mi-size")!.textContent = `${kb} KB`;
-  document.getElementById("mi-meter")!.style.transform = `scaleX(${kb / MODES.full.kb})`;
 }
+// The ledger bars are drawn from the same numbers as the readout, so they can't drift apart.
+for (const row of rows) row.style.setProperty("--w", `${(MODES[row.dataset.kbRow as Mode].kb / MODES.full.kb) * 100}%`);
 tabs.forEach((tab, i) => {
   tab.addEventListener("click", () => setMode(tab.dataset.mode as Mode));
   tab.addEventListener("keydown", (e) => {
@@ -67,6 +81,7 @@ tabs.forEach((tab, i) => {
     setMode(next.dataset.mode as Mode);
   });
 });
+for (const row of rows) row.addEventListener("click", () => setMode(row.dataset.kbRow as Mode));
 setMode("full", true);
 addEventListener("resize", () => moveThumb(selected()));
 void document.fonts?.ready.then(() => moveThumb(selected()));

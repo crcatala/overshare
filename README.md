@@ -674,7 +674,7 @@ reload). Its "see an example" links open the example session above in the viewer
 With the landing page in the build, the deploy files change: `/` is served instead of
 redirected to `/s/`, only `/s/*` carries `noindex` (and `robots.txt` disallows only `/s/`),
 and each path gets its own Content-Security-Policy. The page's is same-origin only: no inline
-code, no remote fonts (Mona Sans and the viewer's JetBrains Mono are self-hosted). The npm
+code, no remote fonts (Bricolage Grotesque and the viewer's JetBrains Mono are self-hosted). The npm
 package ships the viewer build alone, without the landing page.
 
 Deploying your own viewer without it: drop `npm run build:site` from the `deploy` script

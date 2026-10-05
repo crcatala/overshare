@@ -20,6 +20,32 @@ function headerRules(text: string): Record<string, string[]> {
   return rules;
 }
 
+/**
+ * Selectors whose `animation` is not switched off by a *later* `prefers-reduced-motion` rule. Order matters:
+ * a reduce block above the animation it targets loses to it (equal specificity, later rule wins).
+ */
+function motionGaps(source: string): string[] {
+  const css = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  const reduce: { start: number; end: number }[] = [];
+  for (const m of css.matchAll(/@media \(prefers-reduced-motion: reduce\)\s*\{/g)) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    while (depth && i < css.length) depth += css[i] === "{" ? 1 : css[i] === "}" ? -1 : 0, i++;
+    reduce.push({ start: m.index, end: i });
+  }
+  const inReduce = (pos: number) => reduce.some((r) => pos >= r.start && pos < r.end);
+  const rules = [...css.matchAll(/([^{}@]+)\{([^{}]*)\}/g)].map((m) => ({ pos: m.index, selectors: m[1]!.split(",").map((x) => x.trim()), body: m[2]! }));
+  const off = rules.filter((r) => inReduce(r.pos) && /(?:^|[;\s])animation\s*:\s*none/.test(r.body));
+  const gaps = new Set<string>();
+  for (const rule of rules) {
+    if (inReduce(rule.pos)) continue;
+    const value = rule.body.match(/(?:^|[;\s])animation\s*:\s*([^;]+)/)?.[1]?.trim();
+    if (!value || value === "none") continue;
+    for (const sel of rule.selectors) if (!off.some((o) => o.pos > rule.pos && o.selectors.includes(sel))) gaps.add(sel);
+  }
+  return [...gaps];
+}
+
 describe("deploy files with the landing page", () => {
   const files = deployFiles({}, { site: true }) as Record<string, string>;
   const rules = headerRules(files._headers!);
@@ -60,10 +86,26 @@ describe("landing page build", () => {
     expect(html).not.toMatch(/\sstyle="/);
     expect(html).toContain(`href="/s/#url:${EXAMPLE_SHARE_PATH}"`);
 
+    // The size ledger rows are controls: they must be buttons, so keyboard and screen-reader users get them too.
+    const rows = [...html.matchAll(/<(\w+)[^>]*\sdata-kb-row="/g)];
+    expect(rows.length).toBe(SHARE_MODES.length);
+    for (const [, tag] of rows) expect(tag).toBe("button");
+
     // Every in-page link has a target.
     const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
     for (const [, target] of html.matchAll(/href="#([^"]+)"/g)) expect(ids, `#${target}`).toContain(target);
   }, 30_000);
+
+  it("switches off every animation under prefers-reduced-motion, with the override after it", () => {
+    // The checker itself: an override above its animation, or none at all, is reported.
+    const reduceNone = "@media (prefers-reduced-motion: reduce) { .a { animation: none; } }";
+    expect(motionGaps(`.a { animation: x 1s; } ${reduceNone}`)).toEqual([]);
+    expect(motionGaps(`${reduceNone} .a { animation: x 1s; }`)).toEqual([".a"]);
+    expect(motionGaps(".a { animation: x 1s; }")).toEqual([".a"]);
+    expect(motionGaps(`.a { animation: x 1s; } ${reduceNone} .b { animation: y 1s; }`)).toEqual([".b"]);
+
+    expect(motionGaps(readFileSync(join(repo, "site/src/site.css"), "utf8"))).toEqual([]);
+  });
 
   it("quotes the example session's real share-file size for every mode", () => {
     const script = readFileSync(join(repo, "site/src/main.ts"), "utf8");

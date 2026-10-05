@@ -14,8 +14,7 @@
 <meta property="og:title" content="overshare — share coding-agent sessions as links" />
 <meta property="og:description" content="Turn a Claude Code or pi session into a readable, redacted transcript your team can open in a browser. No server, no account." />
 <meta name="twitter:card" content="summary" />
-<meta name="theme-color" content="#fafaf8" media="(prefers-color-scheme: light)" />
-<meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#151311" />
 <link rel="icon" href="./logo.svg" type="image/svg+xml" />
 <link rel="stylesheet" href="./src/site.css" />
 </head>
@@ -25,96 +24,135 @@
     <a class="brand" href="#"><img src="logo.svg" alt="" />overshare</a>
     <nav class="links" aria-label="Primary"><a href="#how">How it works</a><a href="#modes">Modes</a><a href="#redaction">Redaction</a><a href="#faq">FAQ</a></nav>
     <div class="right">
-      <a class="btn" href="https://github.com/crcatala/overshare"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.88.87 2.34.66.07-.52.28-.87.5-1.07-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.83-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg>GitHub</a>
-      <a class="btn primary" href="#install">Install</a>
+      <a class="btn ghost" href="https://github.com/crcatala/overshare"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.88.87 2.34.66.07-.52.28-.87.5-1.07-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.83-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg>GitHub</a>
+      <a class="btn hot" href="#install">Install</a>
     </div>
   </div>
 </header>
 
 <main>
-  <div class="wrap hero">
-    <a class="pill" href="https://github.com/crcatala/overshare"><b>0.1</b> Open source, MIT licensed</a>
-    <h1>Share <span class="nw">coding-agent</span> sessions <span class="hl">as links.</span></h1>
-    <p class="lede">overshare turns a Claude Code or pi session into a readable, redacted transcript your team can open in a browser. Published to your own GitHub gists. No server, no account.</p>
-    <div class="ctas">
-      <div class="copy"><span>npm i -g overshare</span><button type="button" data-copy="npm i -g overshare"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 3.5V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span class="t">Copy</span></button></div>
-      <a class="btn primary" href="/s/#url:examples/session.json">See an example <span class="arrow">→</span></a>
-    </div>
-    <p class="works">Works with <b>Claude Code</b><i></i><b>pi</b></p>
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <a class="pill" href="https://github.com/crcatala/overshare"><b>0.1</b> Open source, MIT licensed</a>
+        <h1>Share <span class="nw">coding-agent</span> sessions <span class="as">as links.</span></h1>
+        <p class="lede">overshare turns a Claude Code or pi session into a readable, redacted transcript your team can open in a browser. Published to your own GitHub gists. No server, no account.</p>
+        <div class="ctas">
+          <div class="copy"><span>npm i -g overshare</span><button type="button" data-copy="npm i -g overshare"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 3.5V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span class="t">Copy</span></button></div>
+          <a class="btn cream big" href="/s/#url:examples/session.json">See an example <span class="arrow">→</span></a>
+        </div>
+        <p class="works">Works with <b>Claude Code</b><i></i><b>pi</b></p>
+      </div>
 
-    <div class="stage" id="stage">
-      <div class="float a" aria-hidden="true">
-        <h5>overshare report <span class="tag">full</span></h5>
-        <div class="row"><span>home-path</span><b>62</b></div>
-        <div class="row"><span>known-secret</span><b>11</b></div>
-        <div class="row"><span>secret-pattern</span><b>2</b></div>
-        <div class="row"><span>email</span><b>2</b></div>
-        <div class="row end"><span>Final re-scan</span><span class="ok">clean ✓</span></div>
-      </div>
-      <div class="frame">
-        <div class="frame-bar"><span class="dots"><i></i><i></i><i></i></span><div class="url"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="currentColor"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>overshare.link<b>/s/#you/5260b8cf…</b></div></div>
-        <picture>
-          <source srcset="./assets/viewer-dark-diff.webp" media="(prefers-color-scheme: dark)" />
-          <img src="./assets/viewer-light-diff.webp" alt="A shared session in the overshare viewer: a failing test, two diffs, a passing test, with contents and token rails" width="2880" height="1800" />
-        </picture>
-      </div>
-      <div class="float b" aria-hidden="true">
-        <h5>Shared <span class="tag">secret gist</span></h5>
-        <div class="link">https://overshare.link/s/#you/5260b8cf9b1b…</div>
-        <div class="row end"><span>Published 23.1 KB</span><span class="ok">done ✓</span></div>
+      <div class="receipt-wrap" aria-label="An overshare session receipt" data-reveal>
+        <div class="receipt" id="receipt">
+          <div class="r-head">
+            <img src="logo.svg" alt="" />
+            <b>OVERSHARE</b>
+            <span>SESSION RECEIPT · № 5260B8CF</span>
+          </div>
+          <div class="r-sec">
+            <p class="r-title">fix-500-invoices</p>
+            <p class="r-row"><span>Claude Code</span><span>8 prompts</span></p>
+          </div>
+          <div class="r-sec">
+            <p class="r-row"><span>Model calls</span><i></i><span>20</span></p>
+            <p class="r-row"><span>Tokens processed</span><i></i><span>400k</span></p>
+            <p class="r-row"><span>Est. cost</span><i></i><span>$0.811</span></p>
+          </div>
+          <div class="r-sec">
+            <p class="r-label">Redactions</p>
+            <p class="r-row"><span>home-path</span><i></i><span>62</span></p>
+            <p class="r-row"><span>known-secret</span><i></i><span>11</span></p>
+            <p class="r-row"><span>secret-pattern</span><i></i><span>2</span></p>
+            <p class="r-row"><span>email</span><i></i><span>2</span></p>
+            <p class="r-row total"><span>Final re-scan</span><i></i><span class="ok">clean ✓</span></p>
+          </div>
+          <div class="r-sec last">
+            <p class="r-row"><span>Published 23.1 KB</span><span>secret gist</span></p>
+            <div class="barcode" aria-hidden="true"></div>
+            <p class="r-link">overshare.link/s/#you/5260b8cf…</p>
+            <p class="r-thanks">Thank you for not oversharing</p>
+          </div>
+        </div>
       </div>
     </div>
+  </section>
+
+
+  <section class="shotsec">
+    <div class="wrap">
+      <div class="stage" data-reveal>
+        <div class="frame">
+          <div class="frame-bar"><span class="dots"><i></i><i></i><i></i></span><div class="url"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="currentColor"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>overshare.link<b>/s/#you/5260b8cf…</b></div></div>
+          <img src="./assets/viewer-light-diff.webp" alt="A shared session in the overshare viewer: a failing test, two diffs, a passing test, with contents and token rails" width="2880" height="1800" />
+        </div>
+        <svg class="sticker" viewBox="0 0 200 200" aria-hidden="true">
+          <defs><path id="circ" d="M100,100 m-72,0 a72,72 0 1,1 144,0 a72,72 0 1,1 -144,0"/></defs>
+          <circle cx="100" cy="100" r="98" fill="#ffc82e" stroke="#151311" stroke-width="3"/>
+          <g class="spin"><text><textPath href="#circ" startOffset="0">NO SERVER ✱ NO ACCOUNT ✱ NO SECRETS ✱ NO SERVER ✱</textPath></text></g>
+          <path d="M70 102 92 124 134 78" fill="none" stroke="#151311" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <div class="ticker" aria-hidden="true">
+    <div class="track"><span>No server ✱ No account ✱ Redacted ✱ Unlisted ✱ One command ✱ Your own gists ✱ </span><span>No server ✱ No account ✱ Redacted ✱ Unlisted ✱ One command ✱ Your own gists ✱ </span></div>
   </div>
 
-  <section>
+  <section class="statement-sec">
     <div class="wrap">
       <p class="statement">The interesting part of AI-written code is how it got written. <span class="soft">Right now that lives in your scrollback, next to your <span class="redact" tabindex="0">API keys</span>.</span>
         <small>(hover the bar. overshare would have kept it.)</small></p>
     </div>
   </section>
 
-  <section id="how" class="flush-top">
+  <section id="how" class="peach">
     <div class="wrap">
-      <div class="head"><h2>From session to link in one command.</h2><p>Everything runs on your machine. The only thing that leaves it is the redacted share file.</p></div>
+      <div class="head"><p class="tag">01 / How it works</p><h2>From session to link in one command.</h2><p>Everything runs on your machine. The only thing that leaves it is the redacted share file.</p></div>
       <div class="how">
-        <div class="step">
-          <span class="node">01</span>
-          <h3>Find the session</h3>
-          <p>Share the one you're in, search every local session in a terminal browser, or ask the agent itself.</p>
-          <div class="term"><div class="bar"><i></i><i></i><i></i></div>
-<pre><span class="c">overshare publish --current</span>
+        <article class="ticket" data-reveal>
+          <div class="stub"><span>01</span></div>
+          <div class="body">
+            <h3>Find the session</h3>
+            <p>Share the one you're in, search every local session in a terminal browser, or ask the agent itself.</p>
+            <div class="term"><pre><span class="c">overshare publish --current</span>
 <span class="c">overshare browse</span>
 <span class="c">/share-session brief</span>
 <span class="d">  # in Claude Code or pi</span></pre></div>
-        </div>
-        <div class="step">
-          <span class="node">02</span>
-          <h3>See what gets removed</h3>
-          <p>A report lists every redaction by rule and location. It never prints the values.</p>
-          <div class="term"><div class="bar"><i></i><i></i><i></i></div>
-<pre>Redactions:
+          </div>
+        </article>
+        <article class="ticket" data-reveal>
+          <div class="stub"><span>02</span></div>
+          <div class="body">
+            <h3>See what gets removed</h3>
+            <p>A report lists every redaction by rule and location. It never prints the values.</p>
+            <div class="term"><pre>Redactions:
   home-path       17
   known-secret    11  <span class="w">← review</span>
   email            2
 Final re-scan: <span class="ok">clean ✓</span></pre></div>
-        </div>
-        <div class="step">
-          <span class="node">03</span>
-          <h3>Send the link</h3>
-          <p>A secret gist under your account and a link that opens in the viewer.</p>
-          <div class="term"><div class="bar"><i></i><i></i><i></i></div>
-<pre>Publish 23.1 KB to a secret
+          </div>
+        </article>
+        <article class="ticket" data-reveal>
+          <div class="stub"><span>03</span></div>
+          <div class="body">
+            <h3>Send the link</h3>
+            <p>A secret gist under your account and a link that opens in the viewer.</p>
+            <div class="term"><pre>Publish 23.1 KB to a secret
 (unlisted) gist? [y/N] y
 
 Shared: <span class="a">overshare.link/s/#you/5260b8cf…</span></pre></div>
-        </div>
+          </div>
+        </article>
       </div>
     </div>
   </section>
 
-  <section id="modes" class="band">
+  <section id="modes">
     <div class="wrap">
-      <div class="head"><h2>Choose how much to share.</h2><p>Four modes, cut down before redaction and upload. What you leave out is never published.</p></div>
+      <div class="head"><p class="tag">02 / Modes</p><h2>Choose how much to share.</h2><p>Four modes, cut down before redaction and upload. What you leave out is never published.</p></div>
       <div class="modes">
         <div>
           <div class="seg" role="tablist" aria-label="Share mode">
@@ -125,38 +163,44 @@ Shared: <span class="a">overshare.link/s/#you/5260b8cf…</span></pre></div>
             <button role="tab" aria-selected="false" data-mode="prompts">Prompts</button>
           </div>
           <div class="v" aria-live="polite">
-            <div class="user"><small>07:02</small>POST /v1/invoices returns a 500 when the request has no currency field. It should default to the customer's currency, and fall back to USD.</div>
-            <div data-show="full brief"><p class="think">thinking 180 tok</p><p class="say">I'll find where invoice creation resolves the currency.</p></div>
-            <div data-show="full">
-              <div class="tl"><b>grep</b> currency in src · 4 lines</div>
-              <div class="tl"><b>read</b> src/invoices/create.ts · 78 lines</div>
-              <div class="tl errbg"><b>$ npm test -- src/invoices</b> <span class="err">error</span><br />× creates an invoice without currency</div>
-              <div class="tl"><b>edit</b> src/invoices/create.ts <span class="p">+2</span> <span class="err">−1</span><span class="dl">- const rate = rates[body.currency.toUpperCase()];</span><span class="ad">+ const currency = (body.currency ?? customer.currency ?? "USD")…</span><span class="ad">+ const rate = rates[currency];</span></div>
-              <div class="tl"><b>$ npm test -- src/invoices</b> <span class="p">✓ 6 tests</span></div>
-            </div>
-            <div data-show="brief"><span class="badge">Bash ×2</span><span class="badge">Grep ×1</span><span class="badge">Read ×2</span><span class="badge">Edit ×2</span><p class="act">src/invoices/create.ts · src/invoices/schema.ts · npm test -- src/invoices</p></div>
-            <div data-show="minimal"><p class="act">7 tools</p></div>
-            <div data-show="prompts"><p class="act">7 tool calls · 1 error · 2 files read · 2 edited · 180 thinking tok · 3.1k output tok</p></div>
-            <p class="say" data-show="full brief minimal">Fixed. The route dereferenced <code>body.currency</code> before validation, so a missing field threw inside <code>createInvoice</code>.</p>
+<div class="user"><small>07:02</small>POST /v1/invoices returns a 500 when the request has no currency field. It should default to the customer's currency, and fall back to USD.</div>
+<div data-show="full brief"><p class="think">thinking 180 tok</p><p class="say">I'll find where invoice creation resolves the currency.</p></div>
+<div data-show="full">
+  <div class="tl"><b>grep</b> currency in src · 4 lines</div>
+  <div class="tl"><b>read</b> src/invoices/create.ts · 78 lines</div>
+  <div class="tl errbg"><b>$ npm test -- src/invoices</b> <span class="err">error</span><br />× creates an invoice without currency</div>
+  <div class="tl"><b>edit</b> src/invoices/create.ts <span class="p">+2</span> <span class="err">−1</span><span class="dl">- const rate = rates[body.currency.toUpperCase()];</span><span class="ad">+ const currency = (body.currency ?? customer.currency ?? "USD")…</span><span class="ad">+ const rate = rates[currency];</span></div>
+  <div class="tl"><b>$ npm test -- src/invoices</b> <span class="p">✓ 6 tests</span></div>
+</div>
+<div data-show="brief"><span class="badge">Bash ×2</span><span class="badge">Grep ×1</span><span class="badge">Read ×2</span><span class="badge">Edit ×2</span><p class="act">src/invoices/create.ts · src/invoices/schema.ts · npm test -- src/invoices</p></div>
+<div data-show="minimal"><p class="act">7 tools</p></div>
+<div data-show="prompts"><p class="act">7 tool calls · 1 error · 2 files read · 2 edited · 180 thinking tok · 3.1k output tok</p></div>
+<p class="say" data-show="full brief minimal">Fixed. The route dereferenced <code>body.currency</code> before validation, so a missing field threw inside <code>createInvoice</code>.</p>
           </div>
         </div>
-        <div class="mode-info">
+        <aside class="mode-info">
           <h3 id="mi-title">Full</h3>
           <p id="mi-text">Everything after redaction: prompts, replies, thinking, every tool call with its input and output (each cut at 20k characters).</p>
           <div class="size">
-            <div class="lbl"><span>Share file for this example session</span><b id="mi-size">51.9 KB</b></div>
-            <div class="meter"><i id="mi-meter"></i></div>
+            <div class="lbl"><span>Share file for this example session</span></div>
+            <div class="big" id="mi-size">51.9 KB</div>
+            <ul class="ledger" aria-label="Share file size by mode">
+              <li><button type="button" data-kb-row="full" aria-pressed="true"><span>Full</span><i></i><b>51.9</b></button></li>
+              <li><button type="button" data-kb-row="brief" aria-pressed="false"><span>Brief</span><i></i><b>17.8</b></button></li>
+              <li><button type="button" data-kb-row="minimal" aria-pressed="false"><span>Minimal</span><i></i><b>16.5</b></button></li>
+              <li><button type="button" data-kb-row="prompts" aria-pressed="false"><span>Prompts</span><i></i><b>8.5</b></button></li>
+            </ul>
           </div>
           <p class="meta">Every mode keeps the metadata: harness, models, repo and branch, duration, tool counts, tokens and cost. Readers can switch to a smaller mode in the viewer, never a larger one.</p>
-        </div>
+        </aside>
       </div>
     </div>
   </section>
 
   <section id="redaction" class="dark">
     <div class="wrap">
-      <div class="head"><h2>Redacted before it leaves your machine.</h2><p>Then the exact bytes are scanned again. If anything is still there, overshare refuses to publish. <a class="inline" href="/s/#url:examples/session.json&amp;turn=3">See it in the example session →</a></p></div>
-      <div class="panes" id="panes">
+      <div class="head"><p class="tag">03 / Redaction</p><h2>Redacted before it leaves your machine.</h2><p>Then the exact bytes are scanned again. If anything is still there, overshare refuses to publish. <a class="inline" href="/s/#url:examples/session.json&amp;turn=3">See it in the example session →</a></p></div>
+      <div class="panes" id="panes" data-reveal>
         <div class="pane"><h4><b>In the transcript</b><span>tool output, turn 3</span></h4>
 <pre>$ cat <span class="sec">/home/dana</span>/acme/.env.test
 DATABASE_URL=postgres://app:<span class="sec">h7Qe2pXr9v</span>@db:5432
@@ -170,29 +214,27 @@ STRIPE_SECRET_KEY=<span class="rd">[REDACTED:STRIPE_SECRET_KEY]</span>
 ANTHROPIC_API_KEY=<span class="rd">[REDACTED:ANTHROPIC_API_KEY]</span>
 OPS_CONTACT=<span class="rd">[email]</span></pre></div>
       </div>
-      <div class="layers">
-        <div><span class="n">1</span><b>Structural drop</b><span>System prompts, CLAUDE.md and environment attachments, reminders, image data.</span></div>
-        <div><span class="n">2</span><b>Known values</b><span>Exact values of secret-looking env vars and your project's <code>.env</code> files.</span></div>
-        <div><span class="n">3</span><b>Patterns</b><span>About 1,100 token formats: GitHub, Anthropic, OpenAI, AWS, Stripe, JWTs, keys.</span></div>
-        <div><span class="n">4</span><b>Paths and PII</b><span>Home directory, username and email addresses.</span></div>
-        <div><span class="n">5</span><b>Final re-scan</b><span>Anything left blocks publishing.</span></div>
-      </div>
+      <ol class="layers">
+        <li><span class="n">1</span><b>Structural drop</b><span>System prompts, CLAUDE.md and environment attachments, reminders, image data.</span></li>
+        <li><span class="n">2</span><b>Known values</b><span>Exact values of secret-looking env vars and your project's <code>.env</code> files.</span></li>
+        <li><span class="n">3</span><b>Patterns</b><span>About 1,100 token formats: GitHub, Anthropic, OpenAI, AWS, Stripe, JWTs, keys.</span></li>
+        <li><span class="n">4</span><b>Paths and PII</b><span>Home directory, username and email addresses.</span></li>
+        <li><span class="n">5</span><b>Final re-scan</b><span>Anything left blocks publishing.</span></li>
+      </ol>
     </div>
   </section>
 
   <section>
     <div class="wrap">
       <div class="split">
-        <div class="shot">
-          <picture>
-            <source srcset="./assets/viewer-dark.webp" media="(prefers-color-scheme: dark)" />
-            <img src="./assets/viewer-light.webp" alt="The top of a shared session: metadata, the first prompt, contents and token rails" width="2880" height="1800" />
-          </picture>
+        <div class="shot" data-reveal>
+          <img src="./assets/viewer-light.webp" alt="The top of a shared session: metadata, the first prompt, contents and token rails" width="2880" height="1800" />
           <span class="pin p1"><i>1</i><span>Contents rail</span></span>
           <span class="pin p2"><i>2</i><span>Session stats</span></span>
           <span class="pin p3"><i>3</i><span>Token rail</span></span>
         </div>
-        <div>
+        <div class="split-copy">
+          <p class="tag">04 / Viewer</p>
           <h3>A viewer built for reading agent work.</h3>
           <p>It reads like the terminal the work happened in, laid out so you can follow it.</p>
           <ul class="ticks num">
@@ -201,52 +243,53 @@ OPS_CONTACT=<span class="rd">[email]</span></pre></div>
             <li><span>Tokens per turn and per model call, cache misses called out</span></li>
           </ul>
           <ul class="ticks more">
-            <li><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>One line per tool call, real diffs, highlighted shell</span></li>
-            <li><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Light and dark, desktop and phone</span></li>
+            <li><span>One line per tool call, real diffs, highlighted shell</span></li>
+            <li><span>Light and dark, desktop and phone</span></li>
           </ul>
         </div>
       </div>
       <div class="split rev">
-        <div class="shot"><img class="tui" src="./assets/tui-browse-still.svg" alt="overshare browse: a session list with a search highlighted in the preview" width="1016" height="534" /></div>
-        <div>
+        <div class="shot tuiwrap" data-reveal><img class="tui" src="./assets/tui-browse-still.svg" alt="overshare browse: a session list with a search highlighted in the preview" width="1016" height="534" /></div>
+        <div class="split-copy">
+          <p class="tag">05 / Finder</p>
           <h3>Find the session worth sharing.</h3>
           <p><code>overshare browse</code> is a terminal browser over every local Claude Code and pi session.</p>
           <ul class="ticks">
-            <li><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Search prompts, filter by repo, harness, model or tool</span></li>
-            <li><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Preview, then read the whole session in two panes</span></li>
-            <li><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Press <code>p</code> to publish with the same redaction</span></li>
+            <li><span>Search prompts, filter by repo, harness, model or tool</span></li>
+            <li><span>Preview, then read the whole session in two panes</span></li>
+            <li><span>Press <code>p</code> to publish with the same redaction</span></li>
           </ul>
         </div>
       </div>
     </div>
   </section>
 
-  <section id="faq" class="band">
+  <section id="faq" class="mustard">
     <div class="wrap faq-grid">
       <div class="faq-side">
+        <p class="tag">06 / FAQ</p>
         <h2>Questions</h2>
         <p>The short answers. The README has the long ones.</p>
-        <a class="btn" href="https://github.com/crcatala/overshare">Read the README <span class="arrow">→</span></a>
+        <a class="btn ink" href="https://github.com/crcatala/overshare">Read the README <span class="arrow">→</span></a>
       </div>
       <div class="faq">
-        <details open><summary>Who can see a shared session?</summary><p>Anyone with the link. Shares are unlisted, not private: a secret gist isn't listed on your profile or in search, but the link is all it takes to read it.</p></details>
-        <details><summary>Where is it stored?</summary><p>In a secret gist on your own GitHub account, created with the <code>gh</code> CLI. You can use your own public R2 bucket instead. There is no overshare server.</p></details>
-        <details><summary>How do I unpublish?</summary><p><code>overshare delete &lt;link&gt;</code> deletes the gist, and the link stops working.</p></details>
-        <details><summary>Is the redaction perfect?</summary><p>No redaction can promise that. overshare layers known values, ~1,100 patterns and PII rules, re-scans the exact bytes, and asks you to confirm when anything was found or looks suspicious. Values with no recognizable format can't be detected, so <code>overshare report</code> tells you which turns to check.</p></details>
-        <details><summary>Can I host my own viewer?</summary><p>Yes. The viewer is a static page: fork the repo and deploy it anywhere, then point <code>viewerUrl</code> at it.</p></details>
-        <details><summary>Which agents are supported?</summary><p>Claude Code and pi today. Sessions are normalized into one format, so a new harness is an adapter away.</p></details>
+<details open><summary>Who can see a shared session?</summary><p>Anyone with the link. Shares are unlisted, not private: a secret gist isn't listed on your profile or in search, but the link is all it takes to read it.</p></details>
+<details><summary>Where is it stored?</summary><p>In a secret gist on your own GitHub account, created with the <code>gh</code> CLI. You can use your own public R2 bucket instead. There is no overshare server.</p></details>
+<details><summary>How do I unpublish?</summary><p><code>overshare delete &lt;link&gt;</code> deletes the gist, and the link stops working.</p></details>
+<details><summary>Is the redaction perfect?</summary><p>No redaction can promise that. overshare layers known values, ~1,100 patterns and PII rules, re-scans the exact bytes, and asks you to confirm when anything was found or looks suspicious. Values with no recognizable format can't be detected, so <code>overshare report</code> tells you which turns to check.</p></details>
+<details><summary>Can I host my own viewer?</summary><p>Yes. The viewer is a static page: fork the repo and deploy it anywhere, then point <code>viewerUrl</code> at it.</p></details>
+<details><summary>Which agents are supported?</summary><p>Claude Code and pi today. Sessions are normalized into one format, so a new harness is an adapter away.</p></details>
       </div>
     </div>
   </section>
 
   <section class="cta" id="install">
     <div class="wrap">
-      <img class="mark" src="logo.svg" alt="" />
-      <h2>Start sharing sessions.</h2>
+      <h2>Start sharing <br />sessions.</h2>
       <p>Redacted, so you never really overshare.</p>
       <div class="ctas">
         <div class="copy"><span>npm i -g overshare</span><button type="button" data-copy="npm i -g overshare"><svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 3.5V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span class="t">Copy</span></button></div>
-        <a class="btn" href="https://github.com/crcatala/overshare">Read the docs <span class="arrow">→</span></a>
+        <a class="btn cream big" href="https://github.com/crcatala/overshare">Read the docs <span class="arrow">→</span></a>
       </div>
     </div>
   </section>

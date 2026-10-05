@@ -31,7 +31,7 @@ export async function accessWarnings(config: OvershareConfig, target: ShareTarge
   try {
     const check = await checkPublicAccess(result.rawUrl, origin, doFetch);
     if (check.status !== 200) return [`public URL returned ${check.status} — is public access enabled on the bucket, and does r2.publicUrl match it?`];
-    if (!check.cors) return [`the bucket's CORS policy does not allow ${origin}; the viewer will not be able to load it (see README "Storage targets")`];
+    if (!check.cors) return [`the bucket's CORS policy does not allow ${origin}; the viewer will not be able to load it (see docs/sharing.md "Storage targets")`];
   } catch (err) {
     return [`could not verify the public URL: ${(err as Error).message}`];
   }

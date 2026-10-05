@@ -96,7 +96,7 @@ program
 Redaction reads secret-looking environment variables and the session project's .env files by default.
 Credential files (pi/Claude/Codex auth, gh hosts.yml, ~/.npmrc, ~/.netrc) and \`gh auth token\` are opt-in:
 set redact.knownSources.credentialFiles / .ghToken to true in ~/.config/overshare/config.json (or $OVERSHARE_CONFIG). 'overshare report' shows which
-sources were read. Use --secrets-file for values you know are sensitive. See README: "What this tool reads and why".`,
+sources were read. Use --secrets-file for values you know are sensitive. See https://github.com/crcatala/overshare/blob/main/docs/redaction.md#what-this-tool-reads-and-why`,
   );
 
 program

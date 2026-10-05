@@ -186,7 +186,7 @@ describe("viewer search", () => {
     text = d.text();
     expect(text).toContain("everything · 6 of 6");
     expect(text).not.toContain("/ currency");
-    expect(text).toContain("agent-share  ›");
+    expect(text).toContain("overshare  ›");
   });
 
   it("needs every word in one message", async () => {
@@ -232,10 +232,10 @@ describe("viewer search", () => {
     const d = await openViewer({ query: "currency" });
     await d.press("x");
     expect(d.text()).not.toContain("/ currency");
-    expect(d.text()).toContain("agent-share  ›");
+    expect(d.text()).toContain("overshare  ›");
     const e = await openViewer({ query: "currency" });
     await e.press(KEY.esc);
-    expect(e.text()).not.toContain("agent-share  ›"); // back in the session list
+    expect(e.text()).not.toContain("overshare  ›"); // back in the session list
   });
 
   it("/ over words handed over from the list starts a new search instead of adding to them", async () => {

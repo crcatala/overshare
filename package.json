@@ -1,10 +1,15 @@
 {
-  "name": "agent-share",
+  "name": "overshare",
   "version": "0.1.0",
   "description": "Share coding-agent session transcripts (Claude Code, pi) with redaction, share modes, and a static viewer",
   "type": "module",
   "bin": {
-    "agent-share": "./dist/cli.js"
+    "overshare": "./dist/cli.js",
+    "ovs": "./dist/cli.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crcatala/overshare.git"
   },
   "files": [
     "dist",
@@ -51,7 +56,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/crcatala/agent-share-session.git"
+    "url": "git+https://github.com/crcatala/overshare.git"
   },
-  "homepage": "https://github.com/crcatala/agent-share-session#readme"
+  "homepage": "https://github.com/crcatala/overshare#readme"
 }

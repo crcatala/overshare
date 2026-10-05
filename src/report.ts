@@ -23,7 +23,7 @@ export function formatReport(r: ShareReport, opts: { maxFindings?: number; color
   const yellow = color(33);
   const lines: string[] = [];
   const s = r.stats;
-  lines.push(bold(`agent-share report · ${r.harness} · ${r.sessionId.slice(0, 8)} · mode=${r.mode}`));
+  lines.push(bold(`overshare report · ${r.harness} · ${r.sessionId.slice(0, 8)} · mode=${r.mode}`));
   if (r.title) lines.push(`  "${r.title}"`);
   const cost = formatSessionCost(s);
   const tokenLine = `${plural(s.responses, "model call")} · ${formatTokens(totalTokens(s.tokens))} tokens processed${cost ? ` · est. cost ${cost}` : ""}`;
@@ -76,7 +76,7 @@ export function formatReport(r: ShareReport, opts: { maxFindings?: number; color
     }
     if (r.suspicious.length > max) lines.push(dim(`  … ${r.suspicious.length - max} more (use --all-findings)`));
     lines.push(
-      dim(`  Look at these places in the transcript${opts.transcriptPath ? ` (${stripControls(opts.transcriptPath)})` : ""} (turn numbers as in \`agent-share browse\`, line numbers of the file).`),
+      dim(`  Look at these places in the transcript${opts.transcriptPath ? ` (${stripControls(opts.transcriptPath)})` : ""} (turn numbers as in \`overshare browse\`, line numbers of the file).`),
       dim("  A value that is fine can be added to redact.allowlist. This check cannot see secrets that have no recognizable format."),
     );
   }

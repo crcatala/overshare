@@ -203,12 +203,12 @@ describe("robustness", () => {
     let quit = 0;
     d.app.onQuit = () => quit++;
     await d.press("q"); // clears the query
-    expect(d.text()).not.toContain("Quit agent-share?");
+    expect(d.text()).not.toContain("Quit overshare?");
     await d.press("q"); // nothing left to clear: confirm first
     expect(quit).toBe(0);
-    expect(d.text()).toContain("Quit agent-share?");
+    expect(d.text()).toContain("Quit overshare?");
     await d.press("n"); // stay
-    expect(d.text()).not.toContain("Quit agent-share?");
+    expect(d.text()).not.toContain("Quit overshare?");
     await d.press(KEY.esc, KEY.esc); // esc asks as well; esc on the dialog stays
     expect(quit).toBe(0);
     d.app.handleInput("q"); // no timers run between the keys: the index is still midway
@@ -223,7 +223,7 @@ describe("robustness", () => {
       d.app.onQuit = () => quit++;
       await d.press("q", "j", "x", "/"); // stray keys do nothing while asking
       expect(quit).toBe(0);
-      expect(d.text()).toContain("Quit agent-share?");
+      expect(d.text()).toContain("Quit overshare?");
       await d.press(yes);
       expect(quit).toBe(1);
     }
@@ -236,7 +236,7 @@ describe("robustness", () => {
     d.app.onQuit = () => quit++;
     await d.press("q");
     expect(quit).toBe(1);
-    expect(d.text()).not.toContain("Quit agent-share?");
+    expect(d.text()).not.toContain("Quit overshare?");
   });
 
   it("? shows the key help and any key dismisses it", async () => {

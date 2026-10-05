@@ -124,7 +124,7 @@ export interface LocalShareSummary {
 /**
  * Share files exposed under `local/`: `local/<name>` returns the file, and
  * `local/index.json` lists them so the viewer can show a picker when opened without
- * a share in the hash. Shared by `agent-share serve` and the Vite dev server.
+ * a share in the hash. Shared by `overshare serve` and the Vite dev server.
  */
 export function localShares(files: string[]): { names: string[]; respond(name: string): Buffer | string | undefined } {
   const byName = new Map<string, string>();

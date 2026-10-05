@@ -268,7 +268,7 @@ describe("browse source", () => {
   const saved = { ...process.env };
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "browse-susp-"));
-    process.env.AGENT_SHARE_SHARES = join(dir, "state", "shares.json");
+    process.env.OVERSHARE_SHARES = join(dir, "state", "shares.json");
   });
   afterEach(() => {
     process.env = { ...saved };

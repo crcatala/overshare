@@ -3,7 +3,7 @@
  *   #<owner>/<gistId>     secret gist via raw URL (no API rate limit)  ← what `publish` emits
  *   #gist:<gistId>        gist via the GitHub API (60 req/h/IP unauthenticated)
  *   #<32-hex gistId>      same as gist:
- *   #local:<name>         file served by `agent-share serve` at ./local/<name>
+ *   #local:<name>         file served by `overshare serve` at ./local/<name>
  *   #url:<path>           same-origin path
  *   #<source>:<id>        a source configured at build time in viewer.config.json,
  *                         e.g. #r2:<id> → https://shares.example.com/s/<id>.json
@@ -18,8 +18,8 @@ export type Source =
   | { kind: "configured"; source: string; id: string };
 
 /** Share sources baked in by vite.config.ts from viewer.config.json. */
-declare const __AGENT_SHARE_SOURCES__: Record<string, string>;
-const SOURCES: Record<string, string> = typeof __AGENT_SHARE_SOURCES__ === "undefined" ? {} : __AGENT_SHARE_SOURCES__;
+declare const __OVERSHARE_SOURCES__: Record<string, string>;
+const SOURCES: Record<string, string> = typeof __OVERSHARE_SOURCES__ === "undefined" ? {} : __OVERSHARE_SOURCES__;
 const SHARE_ID = /^[A-Za-z0-9_-]{8,128}$/;
 
 export interface HashState {

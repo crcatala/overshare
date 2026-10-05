@@ -385,7 +385,7 @@ describe("planted secrets never surface in output, even when things fail", () =>
       expect(err, publisher.name).toBeInstanceOf(Error);
       if (publisher === real) expect(err?.message).toContain("HTTP 502");
       expect(leaks(`${err?.message}\n${err?.stack}`, planted), publisher.name).toEqual([]);
-      console.error(`agent-share: ${err?.message}`);
+      console.error(`overshare: ${err?.message}`);
     }
     expect(leaks(captured.join("\n"), planted)).toEqual([]);
   });
@@ -409,8 +409,8 @@ describe("the CLI never prints planted values, including on failure", () => {
 
   it("report, blocked report, failed publish and malformed transcript", { timeout: 60_000 }, () => {
     const p = plant();
-    mkdirSync(join(p.home, ".config", "agent-share"), { recursive: true });
-    writeFileSync(join(p.home, ".config", "agent-share", "config.json"), JSON.stringify({ redact: { knownSources: ALL_SOURCES } }));
+    mkdirSync(join(p.home, ".config", "overshare"), { recursive: true });
+    writeFileSync(join(p.home, ".config", "overshare", "config.json"), JSON.stringify({ redact: { knownSources: ALL_SOURCES } }));
 
     const clean = cli(p, ["report", "--mode", "full", "--json"], write(p, dumpTranscript(p)));
     expect(clean.status).toBe(2); // redacted something, needs review

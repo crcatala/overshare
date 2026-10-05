@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { PI_INPUT_PROVENANCE_TYPE, totalsOf, type ResponsePurpose, type ResponseUsage, type TokenRates, type Usage } from "../schema.js";
+import { isPiInputProvenanceType, totalsOf, type ResponsePurpose, type ResponseUsage, type TokenRates, type Usage } from "../schema.js";
 import {
   TurnBuilder,
   baseSession,
@@ -92,7 +92,7 @@ export function parsePi(raw: string, options: AdapterOptions = {}): AdapterResul
       case "session":
         break;
       case "custom":
-        if (e.customType !== PI_INPUT_PROVENANCE_TYPE) bump(dropped, `custom:${e.customType ?? "?"}`);
+        if (!isPiInputProvenanceType(e.customType)) bump(dropped, `custom:${e.customType ?? "?"}`);
         break;
       default:
         bump(dropped, e.customType ? `${e.type}:${e.customType}` : e.type ?? "unknown");
@@ -154,7 +154,7 @@ function inheritedTest(header: Entry): (e: Entry) => boolean {
 
 /** Verify binding on the selected branch, never by text similarity or file order alone. */
 function authoredInput(e: Entry, previous: Entry | undefined): string | undefined {
-  if (e.message?.role !== "user" || previous?.type !== "custom" || previous.customType !== PI_INPUT_PROVENANCE_TYPE ||
+  if (e.message?.role !== "user" || previous?.type !== "custom" || !isPiInputProvenanceType(previous.customType) ||
       typeof previous.id !== "string" || e.parentId !== previous.id) return;
   const d = previous.data;
   if (!d || d.version !== 1 || typeof d.text !== "string" || (d.source !== "interactive" && d.source !== "rpc") ||

@@ -1,5 +1,5 @@
 /**
- * The local sessions page: what `agent-share serve` (or the dev server) offers when the
+ * The local sessions page: what `overshare serve` (or the dev server) offers when the
  * viewer is opened without a share in the link. Each row is a link plus small labels for
  * what the share is.
  */
@@ -62,7 +62,7 @@ export function renderPicker(shares: LocalShare[], opts: PickerOptions): HTMLEle
       "header",
       { class: "hdr" },
       h("div", { class: "hdr-top" }, h("h1", { class: "hdr-title" }, "Local sessions"), h("div", { class: "hdr-actions" }, iconButton("Toggle color theme", "", opts.toggleTheme, "theme"), settingsButton(opts.settings))),
-      h("p", { class: "fine" }, `Served by agent-share serve · ${plural(shares.length, "file")}`),
+      h("p", { class: "fine" }, `Served by overshare serve · ${plural(shares.length, "file")}`),
     ),
     h(
       "ul",

@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { TurnInfo } from "../viewer/src/transcript.ts";
 
-(globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
+(globalThis as { __OVERSHARE_SOURCES__?: Record<string, string> }).__OVERSHARE_SOURCES__ = {};
 const { renderToc } = await import("../viewer/src/toc.ts");
 const { fold } = await import("../viewer/src/filter.ts");
 type SearchDoc = import("../viewer/src/search.ts").SearchDoc;

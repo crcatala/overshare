@@ -5,11 +5,11 @@
  *                        reload the page, which keeps the session since it lives in the
  *                        URL hash). Local shares are served at /session/local/ — the
  *                        fixture sessions by default (regenerated on every start),
- *                        or the files in $AGENT_SHARE_DEV_SHARES.
+ *                        or the files in $OVERSHARE_DEV_SHARES.
  *   npm run build:viewer viewer/dist/session/ (relative asset URLs, so any base path
  *                        works) plus _headers, _redirects and robots.txt in viewer/dist/.
  *
- * `viewer.config.json` (or $AGENT_SHARE_VIEWER_CONFIG) adds share sources; their
+ * `viewer.config.json` (or $OVERSHARE_VIEWER_CONFIG) adds share sources; their
  * origins go into the Content-Security-Policy.
  */
 import { readdirSync, writeFileSync } from "node:fs";
@@ -31,7 +31,7 @@ export default defineConfig(({ command }) => {
     root: viewerRoot,
     base: dev ? "/session/" : "./",
     publicDir: false,
-    define: { __AGENT_SHARE_SOURCES__: JSON.stringify(sources) },
+    define: { __OVERSHARE_SOURCES__: JSON.stringify(sources) },
     // Listens on localhost only unless you pass `npm run dev -- --host`. Any Host header is
     // accepted (e.g. a VPS domain, Tailscale name or tunnel), which disables Vite's
     // DNS-rebinding protection. To keep that safe, Vite may only read the viewer and the
@@ -51,7 +51,7 @@ export default defineConfig(({ command }) => {
 
 function cspPlugin(sources: Record<string, string>, dev: boolean): Plugin {
   return {
-    name: "agent-share:csp",
+    name: "overshare:csp",
     transformIndexHtml: (html) => html.replace("{{CSP}}", contentSecurityPolicy(sources, { dev })),
   };
 }
@@ -59,7 +59,7 @@ function cspPlugin(sources: Record<string, string>, dev: boolean): Plugin {
 function deployFilesPlugin(sources: Record<string, string>): Plugin {
   let write = true;
   return {
-    name: "agent-share:deploy-files",
+    name: "overshare:deploy-files",
     apply: "build",
     configResolved(config) {
       write = config.build.write;
@@ -74,10 +74,10 @@ function deployFilesPlugin(sources: Record<string, string>): Plugin {
   };
 }
 
-/** Serve share JSON at /session/local/ during development, like `agent-share serve`. */
+/** Serve share JSON at /session/local/ during development, like `overshare serve`. */
 function localSharesPlugin(): Plugin {
   return {
-    name: "agent-share:local-shares",
+    name: "overshare:local-shares",
     apply: "serve",
     configureServer(server) {
       const files = devShareFiles((msg) => server.config.logger.info(msg));
@@ -99,18 +99,18 @@ function localSharesPlugin(): Plugin {
         if (!body) return void res.writeHead(404).end("not found");
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }).end(body);
       });
-      server.config.logger.info(`  agent-share: ${files.length} local shares at /session/ (picker) — ${files.length ? "e.g. #local:" + files[0]!.split("/").at(-1) : "none"}`);
+      server.config.logger.info(`  overshare: ${files.length} local shares at /session/ (picker) — ${files.length ? "e.g. #local:" + files[0]!.split("/").at(-1) : "none"}`);
     },
   };
 }
 
 function devShareFiles(log: (msg: string) => void): string[] {
-  const fromEnv = process.env.AGENT_SHARE_DEV_SHARES?.split(/[,\s]+/).filter(Boolean);
+  const fromEnv = process.env.OVERSHARE_DEV_SHARES?.split(/[,\s]+/).filter(Boolean);
   if (fromEnv?.length) return fromEnv.map((f) => resolve(f));
   const outDir = join(repo, "fixtures-out");
   const sharesDir = join(outDir, "shares");
   // Generated from code and deterministic, so regenerate every time rather than keep shares that may predate a schema change.
-  log("  agent-share: generating fixture sessions in fixtures-out/ …");
+  log("  overshare: generating fixture sessions in fixtures-out/ …");
   exportFixtureShares(generateFixtures({ outDir }), outDir, loadConfig());
   return readdirSync(sharesDir)
     .filter((f) => f.endsWith(".json"))

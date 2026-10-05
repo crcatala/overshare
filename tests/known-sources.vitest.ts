@@ -134,7 +134,7 @@ describe("redact.knownSources config", () => {
   const withConfig = (value: unknown) => {
     const file = join(mkdtempSync(join(tmpdir(), "as-ks-cfg-")), "config.json");
     writeFileSync(file, JSON.stringify(value));
-    return () => loadConfig({ AGENT_SHARE_CONFIG: file });
+    return () => loadConfig({ OVERSHARE_CONFIG: file });
   };
 
   it("defaults when unset, and a partial setting only changes the named sources", () => {

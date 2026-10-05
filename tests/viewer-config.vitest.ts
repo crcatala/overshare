@@ -65,11 +65,11 @@ describe("viewer build", () => {
 
 describe("viewer share links", () => {
   afterEach(() => {
-    delete (globalThis as Record<string, unknown>).__AGENT_SHARE_SOURCES__;
+    delete (globalThis as Record<string, unknown>).__OVERSHARE_SOURCES__;
   });
 
   it("parses configured sources, gists and local files", async () => {
-    (globalThis as Record<string, unknown>).__AGENT_SHARE_SOURCES__ = { r2: "https://shares.example.com/s/{id}.json" };
+    (globalThis as Record<string, unknown>).__OVERSHARE_SOURCES__ = { r2: "https://shares.example.com/s/{id}.json" };
     const { parseHash, formatHash } = await import("../viewer/src/source.ts");
     expect(parseHash("#r2:AbCdEfGhIjKlMnOpQrStUv&ui=brief")).toMatchObject({
       source: { kind: "configured", source: "r2", id: "AbCdEfGhIjKlMnOpQrStUv" },

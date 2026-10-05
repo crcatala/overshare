@@ -8,7 +8,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const RESERVED = new Set(["gist", "local", "url"]);
 const GIST_ORIGINS = ["https://api.github.com", "https://gist.githubusercontent.com"];
 
-export function loadViewerConfig(path = process.env.AGENT_SHARE_VIEWER_CONFIG ?? join(root, "viewer.config.json")) {
+export function loadViewerConfig(path = process.env.OVERSHARE_VIEWER_CONFIG ?? join(root, "viewer.config.json")) {
   const config = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
   const sources = config.sources ?? {};
   for (const [name, template] of Object.entries(sources)) {

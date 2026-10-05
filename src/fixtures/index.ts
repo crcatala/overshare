@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
-import type { AgentShareConfig } from "../config.js";
+import type { OvershareConfig } from "../config.js";
 import { prepareShare } from "../pipeline.js";
 import { readSecretsFile } from "../redact/known-values.js";
 import { projectDirName } from "../resolve.js";
@@ -37,7 +37,7 @@ export interface GeneratedFixtures {
   home: string;
   username: string;
   cwd: string;
-  /** Directories to point AGENT_SHARE_CLAUDE_PROJECTS / AGENT_SHARE_PI_SESSIONS at. */
+  /** Directories to point OVERSHARE_CLAUDE_PROJECTS / OVERSHARE_PI_SESSIONS at. */
   roots: { "claude-code": string; pi: string };
 }
 
@@ -88,7 +88,7 @@ export interface ExportedShare {
 }
 
 /** Redact and export each fixture transcript in every mode to `<outDir>/shares/<harness>-<mode>.json`. */
-export function exportFixtureShares(fx: GeneratedFixtures, outDir: string, config: AgentShareConfig): ExportedShare[] {
+export function exportFixtureShares(fx: GeneratedFixtures, outDir: string, config: OvershareConfig): ExportedShare[] {
   const sharesDir = join(outDir, "shares");
   mkdirSync(sharesDir, { recursive: true });
   const extraKnownSecrets = readSecretsFile(fx.secretsFile);

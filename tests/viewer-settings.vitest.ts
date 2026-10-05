@@ -2,7 +2,7 @@
 /** View settings: the `&ui=` tokens, where each field comes from, and the settings and share menus. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-(globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
+(globalThis as { __OVERSHARE_SOURCES__?: Record<string, string> }).__OVERSHARE_SOURCES__ = {};
 const vs = await import("../viewer/src/viewsettings.ts");
 const { settingsButton } = await import("../viewer/src/settings.ts");
 const { shareButton, shareLink } = await import("../viewer/src/share.ts");
@@ -127,7 +127,7 @@ describe("storage", () => {
   });
 
   it("reads a damaged value as far as it can", () => {
-    localStorage.setItem("agent-share-default-view", "log.???");
+    localStorage.setItem("overshare-default-view", "log.???");
     expect(vs.loadSaved()).toEqual({ variant: "log" });
   });
 

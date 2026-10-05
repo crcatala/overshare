@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Build-time share sources are baked in by Vite; provide one before the module loads.
-(globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {
+(globalThis as { __OVERSHARE_SOURCES__?: Record<string, string> }).__OVERSHARE_SOURCES__ = {
   r2: "https://shares.example.com/s/{id}.json",
 };
 const { markdown, provenanceLine, sanitizeHtml } = await import("../viewer/src/dom.ts");

@@ -67,7 +67,7 @@ async function confirm(question: string): Promise<boolean> {
 
 const program = new Command();
 program
-  .name("agent-share")
+  .name("overshare")
   .description("Share coding-agent session transcripts with redaction, share modes and a static viewer")
   .version(TOOL_VERSION)
   .addHelpText(
@@ -75,7 +75,7 @@ program
     `
 Redaction reads secret-looking environment variables and the session project's .env files by default.
 Credential files (pi/Claude/Codex auth, gh hosts.yml, ~/.npmrc, ~/.netrc) and \`gh auth token\` are opt-in:
-set redact.knownSources.credentialFiles / .ghToken to true in ~/.config/agent-share/config.json (or $AGENT_SHARE_CONFIG). 'agent-share report' shows which
+set redact.knownSources.credentialFiles / .ghToken to true in ~/.config/overshare/config.json (or $OVERSHARE_CONFIG). 'overshare report' shows which
 sources were read. Use --secrets-file for values you know are sensitive. See README: "What this tool reads and why".`,
   );
 
@@ -190,7 +190,7 @@ withSessionOptions(program.command("publish"), "brief")
       } else {
         console.log(`\nShared: ${result.viewerUrl}`);
         console.log(`${target === "gist" ? "Gist:  " : "Data:  "} ${result.url}`);
-        console.log(`Local viewer: agent-share serve --open-hash '${result.viewerUrl.split("#")[1] ?? ""}'`);
+        console.log(`Local viewer: overshare serve --open-hash '${result.viewerUrl.split("#")[1] ?? ""}'`);
       }
     },
   );
@@ -238,10 +238,10 @@ program
       for (const r of exportFixtureShares(fx, opts.out, loadConfig())) {
         console.log(`  ${rel(r.file).padEnd(44)} ${formatBytes(r.bytes).padStart(9)}  ${r.status}`);
       }
-      console.log(`\nView them:   agent-share serve ${rel(join(opts.out, "shares"))}/*.json   (or: agent-share demo)`);
+      console.log(`\nView them:   overshare serve ${rel(join(opts.out, "shares"))}/*.json   (or: overshare demo)`);
     }
-    console.log(`Try the CLI: AGENT_SHARE_CLAUDE_PROJECTS=${rel(fx.roots["claude-code"])} AGENT_SHARE_PI_SESSIONS=${rel(fx.roots.pi)} agent-share list`);
-    console.log(`             agent-share report ${rel(fx.claudeFile)} --mode full --secrets-file ${rel(fx.secretsFile)}`);
+    console.log(`Try the CLI: OVERSHARE_CLAUDE_PROJECTS=${rel(fx.roots["claude-code"])} OVERSHARE_PI_SESSIONS=${rel(fx.roots.pi)} overshare list`);
+    console.log(`             overshare report ${rel(fx.claudeFile)} --mode full --secrets-file ${rel(fx.secretsFile)}`);
   });
 
 program
@@ -282,6 +282,6 @@ program
   });
 
 program.parseAsync().catch((err: unknown) => {
-  console.error(`agent-share: ${err instanceof Error ? err.message : String(err)}`);
+  console.error(`overshare: ${err instanceof Error ? err.message : String(err)}`);
   process.exitCode = err instanceof PromptsUnavailableError ? EXIT.blocked : EXIT.error;
 });

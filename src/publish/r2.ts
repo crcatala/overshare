@@ -29,8 +29,8 @@ export interface R2Credentials {
 export const R2_SOURCE = "r2";
 
 export function r2CredentialsFromEnv(env: NodeJS.ProcessEnv = process.env): R2Credentials | undefined {
-  const accessKeyId = env.AGENT_SHARE_R2_ACCESS_KEY_ID ?? env.R2_ACCESS_KEY_ID;
-  const secretAccessKey = env.AGENT_SHARE_R2_SECRET_ACCESS_KEY ?? env.R2_SECRET_ACCESS_KEY;
+  const accessKeyId = env.OVERSHARE_R2_ACCESS_KEY_ID ?? env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = env.OVERSHARE_R2_SECRET_ACCESS_KEY ?? env.R2_SECRET_ACCESS_KEY;
   return accessKeyId && secretAccessKey ? { accessKeyId, secretAccessKey } : undefined;
 }
 
@@ -53,7 +53,7 @@ export function r2SourceTemplate(config: R2Config): string {
 
 function endpoint(config: R2Config): string {
   if (config.endpoint) return config.endpoint.replace(/\/+$/, "");
-  if (!config.accountId) throw new Error("r2.accountId (or r2.endpoint) is required in the agent-share config");
+  if (!config.accountId) throw new Error("r2.accountId (or r2.endpoint) is required in the overshare config");
   return `https://${config.accountId}.r2.cloudflarestorage.com`;
 }
 

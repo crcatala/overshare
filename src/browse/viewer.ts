@@ -475,7 +475,7 @@ export class SessionViewer {
   private header(width: number): string[] {
     const s = this.session;
     const v = this.view;
-    const lines = [`${st.bold("agent-share")}  ${st.dim("›")}  ${st.bold(cut(s.title ?? "(untitled)", width - 20))}`];
+    const lines = [`${st.bold("overshare")}  ${st.dim("›")}  ${st.bold(cut(s.title ?? "(untitled)", width - 20))}`];
     lines.push(cut(st.dim([s.harness === "pi" ? "pi" : "Claude Code", s.project, branchLabel(s), s.models.map(shortModel).join(", ")].filter(Boolean).join(" · ")), width));
     if (!v) return lines;
     const d = v.stats;

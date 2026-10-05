@@ -1,7 +1,7 @@
 import { hostname as osHostname, homedir, userInfo } from "node:os";
 import { parseSession } from "./adapters/index.js";
 import type { DropCounts, SubagentFileInput } from "./adapters/shared.js";
-import type { AgentShareConfig } from "./config.js";
+import type { OvershareConfig } from "./config.js";
 import { capRedacted } from "./cap.js";
 import { capToolText, projectSession } from "./modes.js";
 import { collectKnownSecrets, type KnownSecret, type KnownSourceUse } from "./redact/known-values.js";
@@ -15,7 +15,7 @@ import { TOOL_NAME, TOOL_VERSION } from "./version.js";
 
 export interface PrepareOptions {
   mode: ShareMode;
-  config: AgentShareConfig;
+  config: OvershareConfig;
   harness?: HarnessName;
   leafId?: string;
   /** Subagent transcripts of the session (Claude Code); see `loadSubagentFiles`. */

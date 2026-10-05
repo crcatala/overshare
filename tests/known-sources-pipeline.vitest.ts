@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { summarizeShare } from "../src/browse/job.js";
-import { DEFAULT_CONFIG, type AgentShareConfig } from "../src/config.js";
+import { DEFAULT_CONFIG, type OvershareConfig } from "../src/config.js";
 import { prepareShare } from "../src/pipeline.js";
 import { knownSecret } from "../src/redact/known-values.js";
 import { formatKnownSources, formatReport } from "../src/report.js";
@@ -49,7 +49,7 @@ function dump(p: Planted) {
     .toJsonl();
 }
 
-const withSources = (knownSources: Partial<AgentShareConfig["redact"]["knownSources"]>): AgentShareConfig => ({
+const withSources = (knownSources: Partial<OvershareConfig["redact"]["knownSources"]>): OvershareConfig => ({
   ...DEFAULT_CONFIG,
   redact: { ...DEFAULT_CONFIG.redact, knownSources: { ...DEFAULT_CONFIG.redact.knownSources, ...knownSources } },
 });
@@ -67,7 +67,7 @@ describe("harvesting through the real pipeline", () => {
     for (const k of Object.keys(process.env)) delete process.env[k];
     Object.assign(process.env, saved);
   });
-  const run = (config: AgentShareConfig) => prepareShare(dump(p), { mode: "full", config, machine: { homeDir: p.home, username: "tester", hostname: "box" } });
+  const run = (config: OvershareConfig) => prepareShare(dump(p), { mode: "full", config, machine: { homeDir: p.home, username: "tester", hostname: "box" } });
   const survivors = (json: string) => Object.entries(p.secrets).filter(([, value]) => json.includes(value)).map(([name]) => name);
 
   it("by default redacts the planted env var and .env value, and calls gh for nothing", () => {
@@ -160,7 +160,7 @@ describe("the CLI", () => {
       const r = spawnSync(process.execPath, ["--import", import.meta.resolve("tsx"), join(root, "src", "cli.ts"), "report", "--mode", "full", "--json", file], {
         encoding: "utf8",
         cwd: p.project,
-        env: { ...p.env, HOME: p.home, AGENT_SHARE_CONFIG: configFile, NO_COLOR: "1" },
+        env: { ...p.env, HOME: p.home, OVERSHARE_CONFIG: configFile, NO_COLOR: "1" },
         input: "",
       });
       return { text: [r.stdout, r.stderr].join("\n"), report: JSON.parse(r.stdout) as { knownSources: Array<{ id: string; enabled: boolean; count: number }> } };

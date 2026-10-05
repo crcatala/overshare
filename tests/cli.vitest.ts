@@ -50,7 +50,7 @@ describe("cli", { timeout: 30_000 }, () => {
     const r = cli(["export", sessionFile(secret), "--mode", "full", "-o", out, "-q"]);
     expect(r.status).toBe(0);
     const json = readFileSync(out, "utf8");
-    expect(JSON.parse(json).schema).toBe("agentshare/2");
+    expect(JSON.parse(json).schema).toBe("overshare/1");
     expect(json).not.toContain(secret);
   });
 
@@ -92,14 +92,14 @@ describe("cli", { timeout: 30_000 }, () => {
   });
 
   it("delete refuses to run without confirmation when there is no TTY", () => {
-    const r = cli(["delete", "https://agent.nub.sh/session/#octo/5260b8cf9b1baae31a40717ac1ab5f08"], { PATH: "/nonexistent" });
+    const r = cli(["delete", "https://overshare.link/session/#octo/5260b8cf9b1baae31a40717ac1ab5f08"], { PATH: "/nonexistent" });
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("Refusing to delete without confirmation");
   });
 
   describe("delete updates shares.json", () => {
     const GIST = "5260b8cf9b1baae31a40717ac1ab5f08";
-    const viewer = `https://agent.nub.sh/session/#octo/${GIST}`;
+    const viewer = `https://overshare.link/session/#octo/${GIST}`;
     const record = (url: string, target: "gist" | "r2") => ({ url, mode: "brief", target, sharedAt: "2026-01-01T00:00:00Z" });
 
     /** A fake `gh` that succeeds (or fails) and logs its arguments. */
@@ -115,16 +115,16 @@ describe("cli", { timeout: 30_000 }, () => {
       return path;
     }
     const seed = () => ({
-      "pi:s1": [record(viewer, "gist"), record("https://agent.nub.sh/session/#r2:AbCdEfGhIjKlMnOpQrStUv", "r2")],
+      "pi:s1": [record(viewer, "gist"), record("https://overshare.link/session/#r2:AbCdEfGhIjKlMnOpQrStUv", "r2")],
       "claude-code:s2": [record(viewer, "gist")],
-      "pi:s3": [record(`https://agent.nub.sh/session/#octo/0123456789abcdef0123456789abcdef`, "gist")],
+      "pi:s3": [record(`https://overshare.link/session/#octo/0123456789abcdef0123456789abcdef`, "gist")],
     });
 
     it("removes only the deleted share's records, whichever form was given", () => {
       for (const input of [viewer, `https://gist.github.com/octo/${GIST}`, GIST]) {
         const gh = fakeGh(0);
         const path = sharesFile(seed());
-        const r = cli(["delete", input, "--yes"], { PATH: gh.bin, AGENT_SHARE_SHARES: path });
+        const r = cli(["delete", input, "--yes"], { PATH: gh.bin, OVERSHARE_SHARES: path });
         expect(r.status).toBe(0);
         expect(r.stdout).toContain(`Deleted gist share ${GIST}.`);
         expect(r.stderr).not.toContain("warning");
@@ -138,10 +138,10 @@ describe("cli", { timeout: 30_000 }, () => {
     it("leaves shares.json untouched when the remote delete fails or is declined", () => {
       const path = sharesFile(seed());
       const before = readFileSync(path, "utf8");
-      const failing = cli(["delete", viewer, "--yes"], { PATH: fakeGh(1).bin, AGENT_SHARE_SHARES: path });
+      const failing = cli(["delete", viewer, "--yes"], { PATH: fakeGh(1).bin, OVERSHARE_SHARES: path });
       expect(failing.status).toBe(1);
       expect(failing.stdout).not.toContain("Deleted");
-      const declined = cli(["delete", viewer], { PATH: fakeGh(0).bin, AGENT_SHARE_SHARES: path });
+      const declined = cli(["delete", viewer], { PATH: fakeGh(0).bin, OVERSHARE_SHARES: path });
       expect(declined.status).toBe(1); // no TTY: refuses before touching anything
       expect(readFileSync(path, "utf8")).toBe(before);
     });
@@ -149,19 +149,19 @@ describe("cli", { timeout: 30_000 }, () => {
     it("deleting an unrecorded share succeeds silently, even with no shares.json", () => {
       const gh = fakeGh(0);
       const missing = join(mkdtempSync(join(tmpdir(), "as-cli-none-")), "shares.json");
-      const r = cli(["delete", GIST, "--yes"], { PATH: gh.bin, AGENT_SHARE_SHARES: missing });
+      const r = cli(["delete", GIST, "--yes"], { PATH: gh.bin, OVERSHARE_SHARES: missing });
       expect(r.status).toBe(0);
       expect(r.stderr).toBe("");
       expect(existsSync(missing)).toBe(false);
       const path = sharesFile(seed());
       const before = readFileSync(path, "utf8");
-      expect(cli(["delete", "fedcba9876543210fedcba9876543210", "--yes"], { PATH: gh.bin, AGENT_SHARE_SHARES: path }).stderr).toBe("");
+      expect(cli(["delete", "fedcba9876543210fedcba9876543210", "--yes"], { PATH: gh.bin, OVERSHARE_SHARES: path }).stderr).toBe("");
       expect(readFileSync(path, "utf8")).toBe(before);
     });
 
     it("warns but still succeeds when shares.json is corrupt", () => {
       const path = sharesFile("{nope");
-      const r = cli(["delete", GIST, "--yes"], { PATH: fakeGh(0).bin, AGENT_SHARE_SHARES: path });
+      const r = cli(["delete", GIST, "--yes"], { PATH: fakeGh(0).bin, OVERSHARE_SHARES: path });
       expect(r.status).toBe(0);
       expect(r.stdout).toContain(`Deleted gist share ${GIST}.`);
       expect(r.stderr).toContain("could not update shares.json");
@@ -180,6 +180,6 @@ describe("cli browse", { timeout: 30_000 }, () => {
     const r = cli(["browse"]);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("interactive terminal");
-    expect(r.stderr).toContain("agent-share list");
+    expect(r.stderr).toContain("overshare list");
   });
 });

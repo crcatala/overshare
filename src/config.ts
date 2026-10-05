@@ -4,12 +4,12 @@ import { join } from "node:path";
 import type { R2Config } from "./publish/r2.js";
 import { DEFAULT_KNOWN_SOURCES, KNOWN_SOURCES, type KnownSourceSettings } from "./redact/known-values.js";
 
-export interface AgentShareConfig {
+export interface OvershareConfig {
   /** Viewer base URL; shares link to `<viewerUrl>#<owner>/<gistId>`. */
   viewerUrl: string;
   /** Where viewerUrl came from (not a config-file setting). */
   viewerUrlSource?: "default" | "config" | "env";
-  /** Default publish target (override with --target or AGENT_SHARE_TARGET). */
+  /** Default publish target (override with --target or OVERSHARE_TARGET). */
   target: ShareTarget;
   /** Public R2 bucket settings for `target: "r2"`. Credentials come from env vars. */
   r2?: R2Config;
@@ -31,37 +31,37 @@ export interface AgentShareConfig {
 export type ShareTarget = "gist" | "r2";
 export const SHARE_TARGETS: readonly ShareTarget[] = ["gist", "r2"];
 
-export const DEFAULT_CONFIG: AgentShareConfig = {
-  viewerUrl: "https://agent.nub.sh/session/",
+export const DEFAULT_CONFIG: OvershareConfig = {
+  viewerUrl: "https://overshare.link/session/",
   target: "gist",
   maxToolChars: 20_000,
   redact: { emails: true, username: true, hostname: false, denylist: [], allowlist: [], knownSources: DEFAULT_KNOWN_SOURCES },
 };
 
 export function configPath(env: NodeJS.ProcessEnv = process.env): string {
-  if (env.AGENT_SHARE_CONFIG) return env.AGENT_SHARE_CONFIG;
-  return join(env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "agent-share", "config.json");
+  if (env.OVERSHARE_CONFIG) return env.OVERSHARE_CONFIG;
+  return join(env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "overshare", "config.json");
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentShareConfig {
-  let user: Partial<AgentShareConfig> = {};
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): OvershareConfig {
+  let user: Partial<OvershareConfig> = {};
   const path = configPath(env);
   try {
     user = JSON.parse(readFileSync(path, "utf8"));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw new Error(`Invalid config at ${path}: ${(err as Error).message}`);
   }
-  const config: AgentShareConfig = {
+  const config: OvershareConfig = {
     ...DEFAULT_CONFIG,
     ...user,
     redact: { ...DEFAULT_CONFIG.redact, ...(user.redact ?? {}), knownSources: parseKnownSources(user.redact?.knownSources, path) },
   };
   config.viewerUrlSource = user.viewerUrl ? "config" : "default";
-  if (env.AGENT_SHARE_VIEWER_URL) {
-    config.viewerUrl = env.AGENT_SHARE_VIEWER_URL;
+  if (env.OVERSHARE_VIEWER_URL) {
+    config.viewerUrl = env.OVERSHARE_VIEWER_URL;
     config.viewerUrlSource = "env";
   }
-  if (env.AGENT_SHARE_TARGET) config.target = env.AGENT_SHARE_TARGET as ShareTarget;
+  if (env.OVERSHARE_TARGET) config.target = env.OVERSHARE_TARGET as ShareTarget;
   if (!SHARE_TARGETS.includes(config.target)) throw new Error(`Unknown target "${config.target}" (use ${SHARE_TARGETS.join(" or ")})`);
   return config;
 }

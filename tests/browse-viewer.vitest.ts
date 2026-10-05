@@ -115,7 +115,7 @@ describe("session viewer", () => {
     expect(d.app.viewer).toBeDefined();
     await d.press(KEY.esc);
     expect(d.app.viewer).toBeUndefined();
-    expect(d.text()).toContain("agent-share");
+    expect(d.text()).toContain("overshare");
   });
 });
 

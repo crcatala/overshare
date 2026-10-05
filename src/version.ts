@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-export const TOOL_NAME = "agent-share";
+export const TOOL_NAME = "overshare";
 
 export const TOOL_VERSION: string = (() => {
   try {

@@ -1,12 +1,16 @@
 /**
- * The normalized, harness-agnostic session format ("agentshare/2").
+ * The normalized, harness-agnostic session format ("overshare/1").
  *
  * Adapters convert each harness's native transcript into this shape; redaction,
  * mode projection, publishing and the viewer only ever see this shape. This file
  * is shared with the browser viewer, so it must stay free of Node imports.
  */
 
-export const SCHEMA_VERSION = "agentshare/2" as const;
+export const SCHEMA_VERSION = "overshare/1" as const;
+/** The same format under the project's earlier name (agent-share); links published before the rename carry it. */
+export const LEGACY_SCHEMA_VERSIONS: readonly string[] = ["agentshare/2"];
+export const isSupportedSchema = (schema: unknown): boolean =>
+  schema === SCHEMA_VERSION || LEGACY_SCHEMA_VERSIONS.includes(schema as string);
 
 export type ShareMode = "full" | "brief" | "minimal" | "prompts";
 export const SHARE_MODES: readonly ShareMode[] = ["full", "brief", "minimal", "prompts"];
@@ -14,7 +18,11 @@ export const SHARE_MODES: readonly ShareMode[] = ["full", "brief", "minimal", "p
 export type HarnessName = "claude-code" | "pi";
 
 /** Local-only pi extension entry; its payload is never copied into a share. */
-export const PI_INPUT_PROVENANCE_TYPE = "agent-share:authored-input";
+export const PI_INPUT_PROVENANCE_TYPE = "overshare:authored-input";
+/** What the extension wrote before the rename; pi sessions recorded then still carry it. */
+export const LEGACY_PI_INPUT_PROVENANCE_TYPES: readonly string[] = ["agent-share:authored-input"];
+export const isPiInputProvenanceType = (type: unknown): boolean =>
+  type === PI_INPUT_PROVENANCE_TYPE || LEGACY_PI_INPUT_PROVENANCE_TYPES.includes(type as string);
 
 export interface Usage {
   /** Uncached prompt tokens. */

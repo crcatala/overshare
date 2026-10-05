@@ -80,7 +80,7 @@ export function shareButton(opts: ShareOptions): HTMLElement {
       toPrompt(false),
       toPrompt(true),
     ];
-    const foot = opts.source.kind === "local" ? [h("div", { class: "menu-foot" }, "Local links only open on this machine, while agent-share serve runs")] : [];
+    const foot = opts.source.kind === "local" ? [h("div", { class: "menu-foot" }, "Local links only open on this machine, while overshare serve runs")] : [];
     return { children: [h("div", { class: "menu-head" }, "Share"), ...items, ...foot], items };
   });
 }

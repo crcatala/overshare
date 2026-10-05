@@ -1,6 +1,6 @@
 /**
  * Which sessions have been published, so a browser can mark them and never share one twice by accident.
- * `~/.local/state/agent-share-session/shares.json`: `{ "<harness>:<sessionId>": ShareRecord[] }`.
+ * `~/.local/state/overshare/shares.json`: `{ "<harness>:<sessionId>": ShareRecord[] }`.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -19,7 +19,7 @@ export interface ShareRecord {
 export type SharesFile = Record<string, ShareRecord[]>;
 
 export function sharesPath(env: NodeJS.ProcessEnv = process.env): string {
-  return env.AGENT_SHARE_SHARES ?? join(env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "agent-share-session", "shares.json");
+  return env.OVERSHARE_SHARES ?? join(env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "overshare", "shares.json");
 }
 
 export const shareKey = (harness: HarnessName, id: string): string => `${harness}:${id}`;

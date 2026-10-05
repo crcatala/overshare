@@ -7,7 +7,7 @@ import "./styles/hybrid.css";
 import "./styles/log.css";
 import { plural } from "../../src/format.ts";
 import { projectSession, promptsUnavailableReason } from "../../src/modes.ts";
-import { SCHEMA_VERSION, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
+import { isSupportedSchema, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
 import { beacon } from "./beacon.ts";
 import { clearHits, pulseHits, refreshHits, showHits } from "./findhits.ts";
 import { relayoutTables, releaseTables, setTableStyle } from "./asciitable.ts";
@@ -492,7 +492,7 @@ async function main(): Promise<void> {
   try {
     const loaded = await loadSource(state.source);
     const data = loaded.data as NormalizedSession;
-    if (!data || data.schema !== SCHEMA_VERSION) throw new Error(`Unsupported share format (${(data as { schema?: string })?.schema ?? "unknown"}).`);
+    if (!data || !isSupportedSchema(data.schema)) throw new Error(`Unsupported share format (${(data as { schema?: string })?.schema ?? "unknown"}).`);
     const reason = data.mode === "prompts" ? promptsUnavailableReason(data) : undefined;
     if (reason) throw new Error(reason);
     shared = data;

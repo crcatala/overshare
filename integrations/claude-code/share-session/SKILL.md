@@ -1,12 +1,12 @@
 ---
 name: share-session
-description: Share the current Claude Code session as a redacted, unlisted link (secret GitHub gist + agent-share viewer). Use when the user asks to share, publish, or post this session/transcript, optionally with a mode (full, brief, minimal, prompts). `prompts` refuses unverified pi
+description: Share the current Claude Code session as a redacted, unlisted link (secret GitHub gist + overshare viewer). Use when the user asks to share, publish, or post this session/transcript, optionally with a mode (full, brief, minimal, prompts). `prompts` refuses unverified pi
 sessions rather than publishing expanded template instructions as user text.
 ---
 
 # Share this session
 
-Publishes the current session with the `agent-share` CLI. Redaction always runs before
+Publishes the current session with the `overshare` CLI. Redaction always runs before
 anything leaves the machine; the CLI refuses to publish if its final re-scan finds a
 leftover secret.
 
@@ -21,7 +21,7 @@ Modes (default `brief`):
 2. Preview what would be shared (writes nothing):
 
    ```bash
-   agent-share report --current --harness claude-code --mode <mode>
+   overshare report --current --harness claude-code --mode <mode>
    ```
 
    `--current` resolves this session via `$CLAUDE_CODE_SESSION_ID`.
@@ -30,7 +30,7 @@ Modes (default `brief`):
 3. Act on the result:
    - **Clean (exit 0):** publish directly:
      ```bash
-     agent-share publish --current --harness claude-code --mode <mode> --yes
+     overshare publish --current --harness claude-code --mode <mode> --yes
      ```
    - **Needs review (exit 2):** show the user the `Findings` section verbatim (rules and
      locations only; it never contains secret values or the text around them) and ask whether to publish. Only after they explicitly
@@ -44,7 +44,7 @@ Modes (default `brief`):
      (`--yes --allow-suspicious`, plus `--allow-findings` if secrets were also redacted). `--yes` and
      `--allow-findings` do not cover them. Never add `--allow-suspicious` on your own.
    - **Blocked (exit 3):** do not publish. Tell the user which rule fired and suggest
-     fixing the source or adding an `allowlist` entry in `~/.config/agent-share/config.json`.
+     fixing the source or adding an `allowlist` entry in `~/.config/overshare/config.json`.
 
 4. Reply with the `Shared:` viewer URL and the gist URL from the output. Mention that
    the link is unlisted but public (anyone with it can read it) and that deleting the

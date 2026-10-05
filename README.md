@@ -1,8 +1,10 @@
-# agent-share
+# overshare
+
+> Share your coding-agent sessions as links. Redacted, so you never really overshare.
 
 Share coding-agent sessions (Claude Code, pi) as **redacted, unlisted links** with a
 static viewer. Transcripts are normalized into one harness-agnostic format
-(`agentshare/2`), redacted locally, projected to a share mode, re-scanned, and only
+(`overshare/1`), redacted locally, projected to a share mode, re-scanned, and only
 then uploaded as a public-by-link file (a secret GitHub gist or a public R2 bucket).
 
 ```
@@ -18,19 +20,19 @@ it, and deploy your own viewer if you want to own the code you share through.
 ## Quick start
 
 ```bash
-git clone https://github.com/crcatala/agent-share-session.git
-cd agent-share-session
+git clone https://github.com/crcatala/overshare.git
+cd overshare
 npm install
 npm run build
-npm link                       # puts `agent-share` on PATH
+npm link                       # puts `overshare` (and its short alias `ovs`) on PATH
 
-agent-share browse                                # interactive: find an old session, preview it, share it
-agent-share list                                  # recent sessions (both harnesses)
-agent-share report --current                      # what would be shared/redacted (writes nothing)
-agent-share export <id> --mode full -o out.json   # redacted share JSON, locally
-agent-share publish --current --mode brief        # review → confirm → secret gist → link
-agent-share serve out.json                        # local viewer: …/session/#local:out.json
-agent-share demo                                  # fake sessions in the local viewer, nothing uploaded
+overshare browse                                # interactive: find an old session, preview it, share it
+overshare list                                  # recent sessions (both harnesses)
+overshare report --current                      # what would be shared/redacted (writes nothing)
+overshare export <id> --mode full -o out.json   # redacted share JSON, locally
+overshare publish --current --mode brief        # review → confirm → secret gist → link
+overshare serve out.json                        # local viewer: …/session/#local:out.json
+overshare demo                                  # fake sessions in the local viewer, nothing uploaded
 ```
 
 `serve` (and `demo`) listen on 127.0.0.1:3000 by default, so only this machine can
@@ -44,14 +46,14 @@ files you pass it — only redacted exports — to anyone who can reach the port
 current directory. `--harness claude-code|pi` narrows the search; `--leaf <id>`
 exports a specific branch of a tree-shaped (pi) session.
 
-## Browsing sessions (`agent-share browse`)
+## Browsing sessions (`overshare browse`)
 
 An interactive browser for finding an older session and sharing it. It lists every local Claude Code and pi session
 with a preview, filters and search, a two-pane session viewer, and a publish dialog that runs the same redaction
 and final re-scan as `publish`. Needs a terminal (Node ≥ 22.19).
 
 ```
-agent-share  7/7
+overshare  7/7
  harness: all   repo: all   time: any   shared: any   group: date   sort: default ↓
 / search  ·  harness:pi  since:7d  shared:no  tool:Bash  model:opus
 ── Today ─────────────────────────────────────────────── │ Fix invoice currency bug
@@ -124,7 +126,7 @@ shows a branch column only when the terminal is wide enough to leave the titles 
 
 ### Browser settings
 
-Preferences live in `~/.config/agent-share/browse.json` (`AGENT_SHARE_BROWSE_SETTINGS` overrides), separate from
+Preferences live in `~/.config/overshare/browse.json` (`OVERSHARE_BROWSE_SETTINGS` overrides), separate from
 `config.json` because the browser rewrites this file whenever you change one in the UI. A missing or invalid file, or
 field, falls back to its default.
 
@@ -134,7 +136,7 @@ field, falls back to its default.
 
 | Setting | Values | Where |
 | --- | --- | --- |
-| `confirmQuit` | `true` (default) asks "Quit agent-share?" before leaving; `false` quits at once | `,` |
+| `confirmQuit` | `true` (default) asks "Quit overshare?" before leaving; `false` quits at once | `,` |
 | `dateFormat` | `relative` (default, `5h ago`) · `smart` (`14:05` today, `Jul 14`, `2025-07-14`) · `short` (`Jul 14 14:05`) · `date` (`2026-07-14`) · `datetime` (`2026-07-14 14:05`); local time except relative | `,` |
 | `viewer.indentReplies` | indent assistant replies one level under their prompt (default `false`) | `V` in a session |
 | `viewer.indentTools` | indent tool calls, thinking, subagents and events one level deeper than replies (default `false`) | `V` in a session |
@@ -143,7 +145,7 @@ field, falls back to its default.
 `ctrl-c` always quits immediately, without asking.
 
 - **Index.** Session summaries (title, repo, branch, models, first/last prompts, last reply, tool counts) are cached in
-  `~/.cache/agent-share-session/index.json` (`AGENT_SHARE_INDEX` overrides), keyed by path, mtime and size. The first run reads
+  `~/.cache/overshare/index.json` (`OVERSHARE_INDEX` overrides), keyed by path, mtime and size. The first run reads
   every transcript (a couple of seconds for ~500 sessions); later runs only `stat` the files. The list appears at once, with
   `reading…` rows that fill in (newest first) while a counter shows progress; keys work meanwhile, search and the repo filter
   cover only the sessions read so far, and a row cannot be opened or published until it has been read. The cache is saved
@@ -152,8 +154,8 @@ field, falls back to its default.
 - **Target.** The publish dialog names where the share goes, starting on your configured `target`; `t` switches between gist and R2 for
   that one publish (the config is never rewritten). A target that is not set up (no `r2` section, no credentials) is marked `✗`, says what
   is missing and cannot be published to. The review is made for the target on screen, so switching scans again and what you reviewed is what is uploaded there.
-- **Shared marks.** Every successful `publish` (CLI or browser) is recorded in `~/.local/state/agent-share-session/shares.json`
-  (`AGENT_SHARE_SHARES` overrides). The browser shows a ✓ on those sessions and can filter by them.
+- **Shared marks.** Every successful `publish` (CLI or browser) is recorded in `~/.local/state/overshare/shares.json`
+  (`OVERSHARE_SHARES` overrides). The browser shows a ✓ on those sessions and can filter by them.
 - **What gets published.** The publish dialog reviews the chosen mode with the real pipeline and uploads exactly the payload you
   reviewed. Modes the pipeline refuses (for example `prompts` on a legacy pi session) say why and cannot be selected; a blocked
   re-scan cannot be published, and suspicious values (see "Suspicious values") need an extra confirmation first. The viewer itself shows your local transcript unredacted, because it never leaves your machine.
@@ -248,7 +250,7 @@ walks, so what the re-scan can still find sits where the redactor does not look:
 conversation text. Those are reported as **suspicious**: they may be secrets, they are still in the payload, and you decide.
 
 - The report (terminal, `--json`, browse dialog) lists each one by rule, length and **location** (`turn 3 · Bash · input (object key)`,
-  turn numbers as in `agent-share browse`), the **line numbers** of the transcript file where the value is (`… · line 42`; up to five,
+  turn numbers as in `overshare browse`), the **line numbers** of the transcript file where the value is (`… · line 42`; up to five,
   then `(+N more)`; a hit in a Claude Code subagent transcript is labelled `subagent-file-N`, numbered in file-name order, never by name), plus the transcript file to look at. Never the
   value, a fragment or a hash. Blocked re-scan issues carry the same location and lines, in the terminal and in the browse dialog.
   The lines are found by looking the value up in the source file, not read off the payload, so they never reach the upload; a value
@@ -256,7 +258,7 @@ conversation text. Those are reported as **suspicious**: they may be secrets, th
 - `publish --yes` stops with exit 2 and does not publish; `--allow-findings` does not cover it either, because those secrets are
   redacted and these are not. After inspecting the values, pass `--allow-suspicious`, or add a value that is fine to
   `redact.allowlist` so it is not reported again.
-- In `agent-share browse`, a payload with suspicious values gets an extra screen before the final confirmation, needing an explicit
+- In `overshare browse`, a payload with suspicious values gets an extra screen before the final confirmation, needing an explicit
   `c`; enter never continues, and nothing is sent before the final `y`.
 - Expect this to be rare: on 486 of the author's local sessions it fired on none. Honest limit: it only surfaces what a pattern
   layer matched. A secret with **no recognizable format** matches nothing, so no layer reports it; that is what the known-value
@@ -317,15 +319,15 @@ included a full `env` dump with a dozen API keys and an age secret key.
 
 ## Config
 
-`~/.config/agent-share/config.json` (or `$AGENT_SHARE_CONFIG`):
+`~/.config/overshare/config.json` (or `$OVERSHARE_CONFIG`):
 
 ```json
 {
-  "viewerUrl": "https://agent.nub.sh/session/",
+  "viewerUrl": "https://overshare.link/session/",
   "target": "gist",
   "r2": {
     "accountId": "<cloudflare-account-id>",
-    "bucket": "agent-share",
+    "bucket": "overshare",
     "prefix": "s/",
     "publicUrl": "https://shares.example.com"
   },
@@ -341,7 +343,7 @@ included a full `env` dump with a dozen API keys and an age secret key.
 }
 ```
 
-Environment overrides: `AGENT_SHARE_VIEWER_URL`, `AGENT_SHARE_TARGET` (`gist` | `r2`).
+Environment overrides: `OVERSHARE_VIEWER_URL`, `OVERSHARE_TARGET` (`gist` | `r2`).
 `publish --target r2` overrides the target per run; in `browse`, press `t` in the publish dialog. `--secrets-file <file>` (on
 `report`/`export`/`publish`) adds exact values to redact: `UPPER_SNAKE=value` lines are
 split at the first `=`; any other line is redacted whole (so base64 padding or an `=`
@@ -356,7 +358,7 @@ tweaking it, and deploying your own copy of the viewer — so you know exactly w
 renders what you share.
 
 ```
-agent-share publish ──upload──► gist  or  public R2 bucket   (your credentials, from your machine)
+overshare publish ───upload───► gist  or  public R2 bucket   (your credentials, from your machine)
                                         ▲
 viewer (static, any host) ──fetch───────┘  …/session/#owner/gistId  or  …/session/#r2:<id>
 ```
@@ -378,10 +380,10 @@ listed, so shares stay unlisted. One-time setup:
    cat > cors.json <<'JSON'
    { "rules": [ { "allowed": { "origins": ["https://agent.example.com"], "methods": ["GET"] } } ] }
    JSON
-   npx wrangler r2 bucket cors set agent-share --file cors.json
+   npx wrangler r2 bucket cors set overshare --file cors.json
    ```
 3. Create an R2 API token with *Object Read & Write* on that bucket and export it:
-   `AGENT_SHARE_R2_ACCESS_KEY_ID` / `AGENT_SHARE_R2_SECRET_ACCESS_KEY`
+   `OVERSHARE_R2_ACCESS_KEY_ID` / `OVERSHARE_R2_SECRET_ACCESS_KEY`
    (`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` also work).
 4. Add the `r2` section to the CLI config (above) and the matching source to
    `viewer.config.json` (below), then redeploy the viewer.
@@ -389,7 +391,7 @@ listed, so shares stay unlisted. One-time setup:
 After an R2 upload, `publish` fetches the object with the viewer's `Origin` and warns if
 public access or CORS is not set up.
 
-**Deleting.** `agent-share delete <viewer-link | gist URL | r2:<id> | id>` removes a
+**Deleting.** `overshare delete <viewer-link | gist URL | r2:<id> | id>` removes a
 share (`gh gist delete`, or an R2 `DELETE`). Anything already fetched or cached (R2
 objects are cached for up to 5 minutes) may linger, so rotate anything that leaked.
 
@@ -403,7 +405,7 @@ server):
 | `#owner/gistId` | `gist.githubusercontent.com` raw URL (no API rate limit) |
 | `#gist:<id>` / `#<id>` | GitHub API (60 req/h per IP unauthenticated) |
 | `#<source>:<id>` | a source from `viewer.config.json`, e.g. `#r2:<id>` |
-| `#local:<name>` | file served by `agent-share serve` |
+| `#local:<name>` | file served by `overshare serve` |
 | `#url:<path>` | same-origin path |
 | `…&ui=log.brief.dark.L.toc-all` | open with these view settings (see *View settings*) |
 | `…&turn=3` | open at prompt 3 |
@@ -563,7 +565,7 @@ and IBM Plex Sans for the `hybrid` prose. The CSP allows `font-src 'self'`.
 
 The template must equal the CLI's `r2.publicUrl` + `r2.prefix` + `{id}.json`. Each
 source's origin is added to the Content-Security-Policy; the viewer only ever fetches
-from GitHub gist hosts and the sources you list. (`$AGENT_SHARE_VIEWER_CONFIG` points
+from GitHub gist hosts and the sources you list. (`$OVERSHARE_VIEWER_CONFIG` points
 the build at a different file.)
 
 **Build output** (`npm run build:viewer`, via Vite → `viewer/dist/`): `session/` (the
@@ -580,13 +582,13 @@ npm run dev     # Vite dev server → http://localhost:3000/session/
 
 - **Variants:** `viewer/src/styles/<variant>.css` (scoped by `html[data-variant]`) over
   `base.css`; `viewer/src/variants.ts` lists them. Point the dev server at longer sessions
-  to judge them: `agent-share fixtures --out /tmp/big --turns 120` then
-  `AGENT_SHARE_DEV_SHARES="/tmp/big/shares/claude-code-full.json" npm run dev`.
+  to judge them: `overshare fixtures --out /tmp/big --turns 120` then
+  `OVERSHARE_DEV_SHARES="/tmp/big/shares/claude-code-full.json" npm run dev`.
 - **HMR:** CSS edits hot-swap in place; TypeScript edits reload the page (the viewer is
   framework-free), which keeps the open session because it lives in the URL hash.
 - **Data:** the fixture sessions are served at `/session/local/` (generated into
   `fixtures-out/` on first run), so the picker lists them immediately. Point it at other
-  exports with `AGENT_SHARE_DEV_SHARES="a.json b.json" npm run dev`.
+  exports with `OVERSHARE_DEV_SHARES="a.json b.json" npm run dev`.
 - **CSP:** dev only allows inline styles and the HMR WebSocket; builds keep the strict
   policy.
 - **File access:** Vite may only read `viewer/`, `src/` and the bundled prose font's
@@ -604,7 +606,7 @@ npm run dev     # Vite dev server → http://localhost:3000/session/
 ```bash
 npx wrangler login          # once
 npm run deploy              # builds the viewer and deploys it
-# → https://agent-share-viewer.<your-subdomain>.workers.dev/session/
+# → https://overshare-viewer.<your-subdomain>.workers.dev/session/
 ```
 
 Custom domains (e.g. `agent.example.com`) are attached to the Worker in the Cloudflare
@@ -617,10 +619,10 @@ you deployed (`https://…/session/`).
   `ln -s "$PWD/integrations/claude-code/share-session" ~/.claude/skills/share-session`,
   then `/share-session [full|brief|minimal|prompts]`. Reload the extension before a
 `prompts` share: it must record the typed input before pi expands templates or skills.
-- **pi** — `integrations/pi/agent-share.ts` registers `/share-session` (pi's own `/share`
+- **pi** — `integrations/pi/overshare.ts` registers `/share-session` (pi's own `/share`
   is untouched). It passes the exact session file and live branch leaf. Install:
-  `ln -s "$PWD/integrations/pi/agent-share.ts" ~/.pi/agent/extensions/agent-share.ts`.
-  Set `AGENT_SHARE_BIN` if `agent-share` is not on PATH.
+  `ln -s "$PWD/integrations/pi/overshare.ts" ~/.pi/agent/extensions/overshare.ts`.
+  Set `OVERSHARE_BIN` if `overshare` is not on PATH.
 
 Both publish directly when the report is clean and ask for confirmation otherwise.
 
@@ -656,7 +658,7 @@ npm start -- report --current   # run from source via tsx
 
 ### Fake sessions for testing
 
-`agent-share fixtures` (or `npm run fixtures`) writes realistic, deterministic Claude
+`overshare fixtures` (or `npm run fixtures`) writes realistic, deterministic Claude
 Code and pi transcripts — plus redacted shares in every mode — that exercise the whole
 viewer (thinking, all tool kinds, errors, diffs, images, subagents, slash commands,
 skills, interrupts, API errors, compaction, model changes, rewinds/branches, queued
@@ -668,18 +670,18 @@ Quickest way to look at the viewer locally — generates the fixtures, exports s
 every mode, and serves them (nothing is uploaded):
 
 ```bash
-npm run demo          # or: agent-share demo [--seed 2] [--turns 30] [--port 3000]
+npm run demo          # or: overshare demo [--seed 2] [--turns 30] [--port 3000]
 # All sessions: http://localhost:3000/session/   ← picker listing every local share
 ```
 
 Opening the viewer without a share in the link shows that picker whenever it is served
-by `agent-share serve`/`demo` (it reads `./local/index.json`; deployed viewers have none).
+by `overshare serve`/`demo` (it reads `./local/index.json`; deployed viewers have none).
 
 ```bash
-agent-share fixtures --out fixtures-out --seed 1 [--turns 30]
-agent-share serve fixtures-out/shares/*.json                       # browse them
-agent-share report fixtures-out/claude/projects/*/*.jsonl --mode full --secrets-file fixtures-out/secrets.env
-AGENT_SHARE_CLAUDE_PROJECTS=fixtures-out/claude/projects agent-share list
+overshare fixtures --out fixtures-out --seed 1 [--turns 30]
+overshare serve fixtures-out/shares/*.json                       # browse them
+overshare report fixtures-out/claude/projects/*/*.jsonl --mode full --secrets-file fixtures-out/secrets.env
+OVERSHARE_CLAUDE_PROJECTS=fixtures-out/claude/projects overshare list
 ```
 
 Transcripts use your home directory and username by default (so home-path redaction

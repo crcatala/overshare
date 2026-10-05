@@ -19,8 +19,8 @@ export interface SessionRef {
 export function defaultRoots(env: NodeJS.ProcessEnv = process.env): SessionRoots {
   const home = homedir();
   return {
-    "claude-code": env.AGENT_SHARE_CLAUDE_PROJECTS ?? join(env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), "projects"),
-    pi: env.AGENT_SHARE_PI_SESSIONS ?? env.PI_CODING_AGENT_SESSION_DIR ?? join(env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), "sessions"),
+    "claude-code": env.OVERSHARE_CLAUDE_PROJECTS ?? join(env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), "projects"),
+    pi: env.OVERSHARE_PI_SESSIONS ?? env.PI_CODING_AGENT_SESSION_DIR ?? join(env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), "sessions"),
   };
 }
 

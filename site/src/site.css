@@ -104,7 +104,7 @@ h1 .as { color: var(--cream); text-shadow: .035em .035em 0 var(--ink); }
 .url svg { width: 12px; height: 12px; } .url b { color: var(--ink); font-weight: 600; }
 .frame img { display: block; width: 100%; height: auto; }
 .sticker { position: absolute; right: -52px; top: -70px; width: 156px; height: 156px; filter: drop-shadow(4px 5px 0 var(--ink)); transform: rotate(12deg); z-index: 3; }
-.sticker text { font: 800 19.5px var(--disp); letter-spacing: .1em; fill: var(--ink); }
+.sticker text { font: 800 19.5px var(--disp); letter-spacing: .089em; fill: var(--ink); }
 .sticker .spin { transform-origin: 100px 100px; animation: spin 26s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -212,7 +212,7 @@ h2 { font: 800 clamp(44px, 6.4vw, 92px)/.88 var(--disp); font-stretch: 75%; lett
 .shot img { width: 100%; height: auto; display: block; border-radius: 16px; border: 2px solid var(--ink); box-shadow: 10px 10px 0 var(--tomato); }
 .shot img.tui { background: #0d1117; box-shadow: 10px 10px 0 var(--mustard); }
 .pin { position: absolute; display: flex; align-items: center; gap: 8px; transform: translate(-12px, -50%); font: 700 13.5px var(--disp); white-space: nowrap; z-index: 2; }
-.pin.p1 { left: 6%; top: 40%; } .pin.p2 { left: 40%; top: 22%; } .pin.p3 { left: 82%; top: 62%; }
+.pin.p1 { left: 6%; top: 40%; } .pin.p2 { left: 72%; top: 21%; } .pin.p3 { left: 72%; top: 62%; }
 .pin i { width: 26px; height: 26px; border-radius: 50%; background: var(--tomato); color: var(--ink); border: 2px solid var(--ink); font: 700 12.5px var(--mono); font-style: normal; display: grid; place-items: center; }
 .pin span { background: var(--ink); color: var(--cream); padding: 2px 10px; border-radius: 999px; }
 .split-copy h3 { font: 800 clamp(40px, 4.6vw, 62px)/.9 var(--disp); font-stretch: 78%; letter-spacing: -.015em; margin: 0 0 16px; text-wrap: balance; }

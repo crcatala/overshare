@@ -84,13 +84,13 @@
     <div class="wrap">
       <div class="stage" data-reveal>
         <div class="frame">
-          <div class="frame-bar"><span class="dots"><i></i><i></i><i></i></span><div class="url"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="currentColor"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>overshare.link<b>/s/#you/5260b8cf…</b></div></div>
-          <img src="./assets/viewer-light-diff.webp" alt="A shared session in the overshare viewer: a failing test, two diffs, a passing test, with contents and token rails" width="2880" height="1800" />
+          <div class="frame-bar"><span class="dots"><i></i><i></i><i></i></span><div class="url">$ overshare publish<b>--current</b></div></div>
+          <img src="./assets/demo.svg" alt="overshare publishing a session from the terminal: secrets are redacted on your machine, the file is re-scanned and uploaded to a secret gist or your R2 bucket, then the link opens in the viewer, where readers can switch share modes" width="1280" height="720" />
         </div>
         <svg class="sticker" viewBox="0 0 200 200" aria-hidden="true">
           <defs><path id="circ" d="M100,100 m-72,0 a72,72 0 1,1 144,0 a72,72 0 1,1 -144,0"/></defs>
           <circle cx="100" cy="100" r="98" fill="#ffc82e" stroke="#151311" stroke-width="3"/>
-          <g class="spin"><text><textPath href="#circ" startOffset="0">NO SERVER ✱ NO ACCOUNT ✱ NO SECRETS ✱ NO SERVER ✱</textPath></text></g>
+          <g class="spin"><text><textPath href="#circ" startOffset="0">REDACTED LOCALLY ✱ YOUR OWN GIST ✱&nbsp;</textPath></text></g>
           <path d="M70 102 92 124 134 78" fill="none" stroke="#151311" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </div>
@@ -228,7 +228,7 @@ OPS_CONTACT=<span class="rd">[email]</span></pre></div>
     <div class="wrap">
       <div class="split">
         <div class="shot" data-reveal>
-          <img src="./assets/viewer-light.webp" alt="The top of a shared session: metadata, the first prompt, contents and token rails" width="2880" height="1800" />
+          <img src="./assets/viewer-light-diff.webp" alt="A shared session in the overshare viewer: a failing test, two diffs, a passing test, with contents and token rails" width="2880" height="1800" />
           <span class="pin p1"><i>1</i><span>Contents rail</span></span>
           <span class="pin p2"><i>2</i><span>Session stats</span></span>
           <span class="pin p3"><i>3</i><span>Token rail</span></span>

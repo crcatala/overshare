@@ -480,7 +480,7 @@ export class SessionViewer {
     lines.push(cut(st.dim([HARNESS_META[s.harness].label, s.project, branchLabel(s), s.models.map(shortModel).join(", ")].filter(Boolean).join(" · ")), width));
     const last = latestShare(this.source.shares, s.harness, s.id);
     if (last) {
-      const label = `✓ shared (${last.record.mode})  `;
+      const label = `✓ shared (${last.record.mode})${last.earlier ? ` · +${last.earlier} earlier` : ""}  `;
       lines.push(cut(`${st.green(label)}${st.cyan(elide(last.link, width - w(label)))}`, width));
     }
     if (!v) return lines;

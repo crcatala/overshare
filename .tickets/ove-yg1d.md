@@ -31,3 +31,7 @@ Preview and viewer show the latest link for shared sessions and nothing for unsh
 **2026-10-05T22:59:16Z**
 
 Implemented items 1-3 (preview link + '+N earlier', viewer header line, honest OSC 52 footer with the whole link). latestShare() in src/sessions/shares.ts sanitizes the stored url once for both drawing and copying; y now goes through BrowserApp's copy hook. Not done: `overshare link <session>` (out of scope).
+
+**2026-10-05T23:25:43Z**
+
+Review follow-ups: the footer keeps the whole link on narrow terminals (shrinks, then drops its explanation and the key hints; cuts the link only when it alone is wider than the terminal); y after publishing prints the link in the footer too, and the dialog cuts it in the middle; the viewer header shows +N earlier. Possible follow-up: print links copied during a browse session to stdout on quit, for links wider than the terminal.

@@ -57,7 +57,42 @@ describe("y on a shared session", () => {
     const d = drive({ copy: (t) => void copied.push(t) });
     await d.press("p", KEY.enter, "y", "y");
     expect(copied).toEqual(["https://viewer.example/#s1"]);
-    expect(d.text()).toContain("link sent to clipboard (OSC 52)");
+    expect(d.lines().at(-1)).toContain("link sent to clipboard (OSC 52): https://viewer.example/#s1");
+  });
+
+  it("keeps the whole link in the footer of a narrow terminal, dropping the explanation first", async () => {
+    const R2 = "https://overshare.link/s/#r2:AbCdEfGhIjKlMnOpQrStUv";
+    for (const [link, width, note] of [
+      [GIST, 100, `link sent to clipboard (OSC 52): ${GIST}`],
+      [GIST, 90, `sent (OSC 52): ${GIST}`],
+      [GIST, 80, GIST],
+      [R2, 84, `link sent to clipboard (OSC 52): ${R2}`],
+      [R2, 80, `sent (OSC 52): ${R2}`],
+      [R2, 60, R2],
+    ] as const) {
+      const d = drive({ shares: shared(record(link)), copy: () => {} });
+      await d.press("y");
+      expect(d.lines(width).at(-1)!.trimEnd(), `${link} @ ${width}`).toBe(note);
+    }
+  });
+
+  it("cuts the link only when the link alone is wider than the terminal", async () => {
+    const d = drive({ shares: shared(record(GIST)), copy: () => {} });
+    await d.press("y");
+    const footer = d.lines(60).at(-1)!;
+    expect(footer.startsWith("https://overshare.link/s/#octocat/")).toBe(true);
+    expect(footer.trimEnd()).toHaveLength(60);
+  });
+
+  it("prints a link too long for the publish dialog whole in the footer after publishing", async () => {
+    const long = "https://overshare.link/s/#a-rather-long-username/5260b8cf9b1baae31a40717ac1ab5f08";
+    const copied: string[] = [];
+    const d = drive({ copy: (t) => void copied.push(t), publish: async () => ({ url: long, warnings: [] }) });
+    await d.press("p", KEY.enter, "y");
+    expect(d.text(100), "the dialog cuts it in the middle").toMatch(/https:\/\/overshare\S*…\S*ab5f08/);
+    await d.press("y");
+    expect(copied).toEqual([long]);
+    expect(d.lines(100).at(-1)).toContain(`sent (OSC 52): ${long}`);
   });
 });
 
@@ -87,6 +122,12 @@ describe("the share link in the session viewer", () => {
     const d = drive({ shares: shared(record(GIST)) });
     await d.press(KEY.enter);
     expect(d.lines(140).slice(0, 4).join("\n")).toContain(`✓ shared (full)  ${GIST}`);
+  });
+
+  it("says how many shares came before it, like the preview", async () => {
+    const d = drive({ shares: shared(record("https://overshare.link/s/#r2:older", { mode: "brief" }), record(GIST)) });
+    await d.press(KEY.enter);
+    expect(d.lines(140).slice(0, 4).join("\n")).toContain(`✓ shared (full) · +1 earlier  ${GIST}`);
   });
 
   it("adds no header line to a session that was never shared", async () => {

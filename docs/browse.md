@@ -127,7 +127,8 @@ field, falls back to its default.
   (`OVERSHARE_SHARES` overrides). The browser shows a ✓ on those sessions and can filter by them. The preview and the
   session viewer's header show the latest link (cut in the middle when it does not fit) and how many earlier shares there are.
   OSC 52 asks the terminal to set the clipboard and nothing reports whether it did (macOS Terminal.app, and tmux without
-  `set-clipboard on`, ignore it), so after `y` the footer prints the whole link to select by hand. The stored link is printed
+  `set-clipboard on`, ignore it), so after `y` the footer prints the whole link to select by hand (on a narrow terminal it
+  drops its explanation first, and cuts the link only when the link alone is wider than the terminal). The stored link is printed
   and copied without control characters or whitespace, so what you paste is what you saw.
 - **What gets published.** The publish dialog reviews the chosen mode with the real pipeline and uploads exactly the payload you
   reviewed. Modes the pipeline refuses (for example `prompts` on a legacy pi session) say why and cannot be selected; a blocked

@@ -20,12 +20,12 @@ import { formatKnownSources } from "../report.js";
 import { HARNESS_META, HARNESS_NAMES, type HarnessName } from "../harnesses/meta.js";
 import { SHARE_MODES } from "../schema.js";
 import { facet, parseQuery, searchSessions } from "../sessions/query.js";
-import { sharesFor } from "../sessions/shares.js";
+import { latestShare, sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import { ago, branchLabel, DATE_FORMATS, dateFormat, dayBucket, durationMs, plural, sessionDuration, shortModel, toolSummary, type DateFormatId } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { copyToClipboard, MODE_HINT, PublishFlow } from "./flow.js";
-import { box, columns, composite, cut, fit, hr, isKey, isPlain, isShift, padLines, pagingKey, Screen, st, w, wrap, type PageMove } from "./kit.js";
+import { box, columns, composite, cut, elide, fit, hr, isKey, isPlain, isShift, padLines, pagingKey, Screen, st, w, wrap, type PageMove } from "./kit.js";
 import { markLine, snippet } from "./mark.js";
 import { MIN_HIGHLIGHT } from "../sessions/query.js";
 import { memorySettings, SAVE_FAILED_MESSAGE, type SettingsPatch, type SettingsStore } from "./settings.js";
@@ -70,6 +70,8 @@ const SORT_KEY: Record<SortField, (s: SessionSummary) => number | string> = {
 };
 
 /** Width of the list's branch column, and the narrowest title the list keeps to make room for it. */
+/** What `y` can honestly say: OSC 52 asks the terminal to set the clipboard, and nothing reports whether it did. */
+const COPIED = "link sent to clipboard (OSC 52)";
 const BRANCH_COL = 16;
 const MIN_TITLE = 28;
 /** Most "matched in prompts" lines the preview shows. */
@@ -87,7 +89,7 @@ export interface BrowserOptions {
   now?: () => number;
   /** Preferences (confirm-on-quit, date format, viewer layout). In memory unless the caller passes a file-backed store. */
   settings?: SettingsStore;
-  /** Where `y` in the viewer sends the selected message; the system clipboard (OSC 52) unless a test says otherwise. */
+  /** Where `y` sends a share link or the viewer's selected message; the system clipboard (OSC 52) unless a test says otherwise. */
   copy?: (text: string) => void;
 }
 
@@ -531,8 +533,8 @@ export class BrowserApp extends Screen {
       else if (data === "n" || data === "N") f.back();
     } else if (f.step === "done") {
       if (isKey(data, "y") && f.url) {
-        copyToClipboard(f.url);
-        this.message = "link copied";
+        this.copyText(f.url);
+        this.message = COPIED;
       } else if (isKey(data, "enter")) f.next();
     } else if (f.step === "error") {
       if (isKey(data, "enter")) f.next();
@@ -540,10 +542,11 @@ export class BrowserApp extends Screen {
   }
 
   private copyLink(s: SessionSummary): void {
-    const link = sharesFor(this.source.shares, s.harness, s.id).at(-1)?.url;
-    if (link) {
-      copyToClipboard(link);
-      this.message = "link copied";
+    const last = latestShare(this.source.shares, s.harness, s.id);
+    if (last) {
+      this.copyText(last.link);
+      // The footer is the widest place the whole link fits, to select by hand where the clipboard write did nothing.
+      this.message = `${COPIED}: ${last.link}`;
     } else this.message = "not shared yet (p to publish)";
   }
 
@@ -700,8 +703,11 @@ export class BrowserApp extends Screen {
     out.push(st.dim(`${plural(s.prompts, "prompt")} · ${plural(s.calls, "model call")} · ${formatBytes(s.size)}${s.subagents ? ` · ${plural(s.subagents, "subagent")}` : ""}`));
     const tools = toolSummary(s.tools);
     if (tools) out.push(st.dim(tools));
-    const last = sharesFor(this.source.shares, s.harness, s.id).at(-1);
-    if (last) out.push(st.green(`✓ shared ${ago(Date.parse(last.sharedAt), this.now())} (${last.mode})`));
+    const last = latestShare(this.source.shares, s.harness, s.id);
+    if (last) {
+      out.push(st.green(`✓ shared ${ago(Date.parse(last.record.sharedAt), this.now())} (${last.record.mode})`) + (last.earlier ? st.dim(` · +${last.earlier} earlier`) : ""));
+      out.push(st.cyan(elide(last.link, width)));
+    }
     const found = words.length ? this.matchSnippets(s, words, width) : [];
     if (found.length) out.push("", st.cyan("matched in prompts"), ...found.map((l) => mark(`${st.dim("· ")}${cut(l, width - 2)}`)));
     out.push("", st.cyan("first prompt"), ...wrap(s.firstPrompt ?? "", width).slice(0, 4).map((l) => mark(st.dim(l))));

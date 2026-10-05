@@ -18,14 +18,13 @@
 :root {
   color-scheme: light;
   --tomato: #ff5233; --tomato-d: #e63c1c; --mustard: #ffc82e; --cream: #fbf5e6; --peach: #ffe2d1;
-  --ink: #151311; --ink-2: #47423a; --dim: #81796b; --line: #e2d8c1; --blue: #2447ff; --ok: #1f7a3a;
+  --ink: #151311; --ink-2: #47423a; --dim: #6f685a; --line: #e2d8c1; --blue: #2447ff; --err: #b3261e; --ok: #1f7a3a;
   --disp: "Bricolage Grotesque Variable", "Helvetica Neue", Arial, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --ease: cubic-bezier(.16, 1, .3, 1);
 }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; overflow-x: clip; }
-@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 body { margin: 0; background: var(--cream); color: var(--ink); font: 400 17px/1.6 var(--disp); font-stretch: 100%; -webkit-font-smoothing: antialiased; overflow-x: clip; }
 a { color: inherit; }
 code { font-family: var(--mono); }
@@ -108,10 +107,6 @@ h1 .as { color: var(--cream); text-shadow: .035em .035em 0 var(--ink); }
 .sticker text { font: 800 19.5px var(--disp); letter-spacing: .1em; fill: var(--ink); }
 .sticker .spin { transform-origin: 100px 100px; animation: spin 26s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) {
-  .sticker .spin, .ticker .track { animation: none; }
-  .receipt, .stage, .ticket, .shot, .rd { transition: none; }
-}
 
 /* ticker */
 .ticker { background: var(--ink); color: var(--cream); overflow: hidden; transform: rotate(-1.4deg); margin: -34px -20px 0; position: relative; z-index: 5; border-block: 3px solid var(--mustard); }
@@ -144,7 +139,7 @@ h2 { font: 800 clamp(44px, 6.4vw, 92px)/.88 var(--disp); font-stretch: 75%; lett
 .js .ticket:not(.in) { opacity: 0; transform: translateY(40px); }
 .stub { height: 76px; padding: 0 26px; display: flex; align-items: center; justify-content: space-between; border-bottom: 3px dashed rgb(21 19 17 / .3); }
 .stub::before { content: "Step"; font: 600 13px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
-.stub span { font: 800 54px/1 var(--disp); font-stretch: 75%; color: var(--tomato); }
+.stub span { font: 800 54px/1 var(--disp); font-stretch: 75%; color: var(--tomato-d); }
 .ticket .body { padding: 24px 26px 26px; display: flex; flex-direction: column; flex: 1; }
 .ticket h3 { font: 800 30px/1 var(--disp); font-stretch: 80%; letter-spacing: -.01em; margin: 0 0 10px; }
 .ticket p { margin: 0 0 22px; color: var(--ink-2); font-size: 16.5px; line-height: 1.5; font-weight: 500; }
@@ -162,12 +157,11 @@ h2 { font: 800 clamp(44px, 6.4vw, 92px)/.88 var(--disp); font-stretch: 75%; lett
 .v { background: #fffdf7; border: 2px solid var(--ink); border-radius: 16px; padding: 26px 28px; min-height: 450px; font: 400 13.4px/1.62 var(--mono); box-shadow: 10px 10px 0 var(--ink); }
 .v .swap { animation: up .4s var(--ease) both; }
 @keyframes up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .v .swap { animation: none; } }
 .v .user { background: var(--peach); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
 .v .user small { display: block; color: var(--dim); font-size: 12px; margin-bottom: 4px; }
 .v .think { color: var(--dim); font-style: italic; margin: 0 0 8px; } .v .say { margin: 0 0 12px; }
 .v .tl { background: #f5eed9; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; color: var(--ink-2); } .v .tl b { color: var(--ink); }
-.v .tl .p { color: var(--ok); } .v .tl .err { color: var(--tomato-d); } .v .tl.errbg { background: #ffd9ce; }
+.v .tl .p { color: var(--ok); } .v .tl .err { color: var(--err); } .v .tl.errbg { background: #ffd9ce; }
 .v .dl { display: block; background: #ffd0c4; color: #a9250d; padding: 0 6px; margin-top: 6px; border-radius: 3px; }
 .v .ad { display: block; background: #d8efc9; color: #1f6a2f; padding: 0 6px; border-radius: 3px; }
 .v .badge { display: inline-block; background: var(--mustard); border-radius: 6px; padding: 0 9px; margin: 0 6px 6px 0; font-weight: 600; }
@@ -179,11 +173,12 @@ h2 { font: 800 clamp(44px, 6.4vw, 92px)/.88 var(--disp); font-stretch: 75%; lett
 .size .lbl { font: 500 12px var(--mono); color: #b9b2a0; letter-spacing: .02em; }
 .size .big { font: 800 68px/1 var(--disp); font-stretch: 75%; color: var(--mustard); margin: 4px 0 14px; }
 .ledger { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.ledger li { display: grid; grid-template-columns: 74px 1fr 44px; gap: 10px; align-items: center; font: 500 12.5px var(--mono); color: #b9b2a0; cursor: pointer; padding: 3px 0; }
-.ledger li b { text-align: right; font-weight: 500; }
+.ledger button { display: grid; grid-template-columns: 74px 1fr 44px; gap: 10px; align-items: center; width: 100%; padding: 3px 0; border: 0; background: none; text-align: left; font: 500 12.5px var(--mono); color: #b9b2a0; cursor: pointer; }
+.ledger button b { text-align: right; font-weight: 500; }
+.ledger button:focus-visible { outline-color: var(--mustard); }
 .ledger i { position: relative; height: 10px; border-radius: 99px; background: rgb(251 245 230 / .12); }
 .ledger i::before { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w, 100%); background: #a69f8c; border-radius: inherit; transition: background .3s, width .3s; }
-.ledger li.on { color: var(--cream); } .ledger li.on i::before { background: var(--tomato); }
+.ledger button.on { color: var(--cream); } .ledger button.on i::before { background: var(--tomato); }
 .mode-info .meta { border-top: 2px dashed rgb(21 19 17 / .3); padding-top: 18px; font-size: 15px; color: var(--dim); margin: 0; }
 
 /* redaction */
@@ -267,4 +262,12 @@ footer nav { display: flex; gap: 22px; margin-left: auto; } footer a { text-deco
   .seg button { padding: 7px 11px; font-size: 14px; } .sticker { width: 96px; height: 96px; right: -4px; top: -48px; }
   .ticker span { font-size: 22px; } summary { font-size: 20px; } footer nav { margin-left: 0; }
   .statement-sec { padding: 100px 0 90px; }
+}
+
+/* Last on purpose: these must come after every animation and transition they switch off
+   (an earlier block loses to a later rule of equal specificity; tests/site.vitest.ts checks this). */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .sticker .spin, .ticker .track, .v .swap { animation: none; }
+  .receipt, .stage, .ticket, .shot, .rd { transition: none; }
 }

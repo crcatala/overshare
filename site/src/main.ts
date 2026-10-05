@@ -37,7 +37,7 @@ const MODES: Record<Mode, { title: string; text: string; kb: number }> = {
   prompts: { title: "Prompts", text: "Only what you typed, followed by a compact activity line per turn. No replies, filenames, commands or tool output.", kb: 8.5 },
 };
 const tabs = [...document.querySelectorAll<HTMLButtonElement>(".seg button")];
-const rows = [...document.querySelectorAll<HTMLElement>("[data-kb-row]")];
+const rows = [...document.querySelectorAll<HTMLButtonElement>("[data-kb-row]")];
 const thumb = document.querySelector<HTMLElement>(".seg .thumb")!;
 const selected = () => tabs.find((t) => t.getAttribute("aria-selected") === "true") ?? tabs[0]!;
 function moveThumb(tab: HTMLElement): void {
@@ -60,7 +60,11 @@ function setMode(mode: Mode, first = false): void {
       el.classList.add("swap");
     }
   }
-  for (const row of rows) row.classList.toggle("on", row.dataset.kbRow === mode);
+  for (const row of rows) {
+    const on = row.dataset.kbRow === mode;
+    row.classList.toggle("on", on);
+    row.setAttribute("aria-pressed", String(on));
+  }
   const { title, text, kb } = MODES[mode];
   document.getElementById("mi-title")!.textContent = title;
   document.getElementById("mi-text")!.textContent = text;

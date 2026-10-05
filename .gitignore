@@ -9,4 +9,5 @@ coverage/
 out/
 *.share.json
 fixtures-out/
+*.tgz
 .wrangler/

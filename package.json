@@ -2,6 +2,28 @@
   "name": "overshare",
   "version": "0.1.0",
   "description": "Share coding-agent session transcripts (Claude Code, pi) with redaction, share modes, and a static viewer",
+  "keywords": [
+    "claude-code",
+    "pi",
+    "coding-agent",
+    "transcript",
+    "session",
+    "share",
+    "redaction",
+    "secret-scanning",
+    "cli",
+    "viewer"
+  ],
+  "license": "MIT",
+  "author": "Christian Catalan (https://github.com/crcatala)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crcatala/overshare.git"
+  },
+  "bugs": {
+    "url": "https://github.com/crcatala/overshare/issues"
+  },
+  "homepage": "https://github.com/crcatala/overshare#readme",
   "type": "module",
   "bin": {
     "overshare": "./dist/cli.js",
@@ -11,14 +33,17 @@
     "dist",
     "viewer/dist/s",
     "viewer/dist/standalone.html",
+    "!viewer/dist/**/*.map",
     "integrations",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=22.19.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && vite build",
+    "build": "npm run clean && tsc -p tsconfig.json && vite build",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build:viewer": "vite build",
     "build:site": "vite build --config vite.site.config.ts",
     "dev": "vite",
@@ -27,14 +52,20 @@
     "fixtures": "tsx src/cli.ts fixtures",
     "deploy": "npm run build:viewer && npm run build:site && wrangler deploy",
     "preview:cf": "npm run build:viewer && npm run build:site && wrangler dev",
-    "prepack": "npm run build",
     "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p viewer/tsconfig.json && tsc --noEmit -p site/tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "start": "tsx src/cli.ts",
     "audit:usage": "tsx scripts/audit-usage.ts",
-    "update:prices": "node scripts/update-prices.mjs"
+    "update:prices": "node scripts/update-prices.mjs",
+    "test:package": "bash scripts/test-package.sh",
+    "verify": "npm run typecheck && npm run build && npm test && npm run test:package",
+    "release": "release-it",
+    "release:dry": "release-it --dry-run --no-npm --no-github",
+    "release:first": "release-it $npm_package_version --npm.allowSameVersion",
+    "release:prep": "bash scripts/prep-release.sh",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run verify"
   },
-  "license": "MIT",
   "dependencies": {
     "@earendil-works/pi-tui": "^0.99.2",
     "@sanity-labs/secret-scan": "^1.1.0",
@@ -44,19 +75,19 @@
   "devDependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",
+    "@release-it/keep-a-changelog": "^8.0.1",
     "@types/node": "^24.10.1",
     "dompurify": "^3.4.0",
     "jsdom": "^30.1.1",
     "marked": "^18.0.0",
+    "release-it": "^21.1.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^8.3.1",
     "vitest": "^4.0.18",
     "wrangler": "^4.142.0"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/crcatala/overshare.git"
-  },
-  "homepage": "https://github.com/crcatala/overshare#readme"
+  "publishConfig": {
+    "access": "public"
+  }
 }

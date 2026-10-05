@@ -147,7 +147,12 @@ describe("pi authored-input provenance", () => {
     t.entry("custom", { ...provenance("expanded private instructions", "/review src/invoices", timestamp), customType: "agent-share:authored-input" });
     t.entry("message", { message: { role: "user", content: [{ type: "text", text: "expanded private instructions" }], timestamp } });
     const { session } = parsePi(t.toJsonl());
-    expect(session.turns[0]!.user?.authored).not.toBe(true);
+    // Unverified, like any pi session recorded without the extension: the stored (expanded) text stands as the
+    // prompt, so prompts mode refuses it and the other modes show it for review.
+    expect(session.turns[0]!.user).toMatchObject({ text: "expanded private instructions", authored: false });
+    expect(session.turns[0]!.user?.expanded).toBeUndefined();
+    expect(() => projectSession({ ...session, mode: "full" }, "prompts")).toThrow(/no verified pre-expansion input/);
+    expect(projectSession({ ...session, mode: "full" }, "brief").turns[0]!.user?.text).toBe("expanded private instructions");
   });
 
   it("keeps unchanged verified input and strips image-only expansions", () => {

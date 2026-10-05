@@ -7,16 +7,17 @@
  *                        fixture sessions by default (regenerated on every start),
  *                        or the files in $OVERSHARE_DEV_SHARES.
  *   npm run build:viewer viewer/dist/s/ (relative asset URLs, so any base path
- *                        works) plus _headers, _redirects and robots.txt in viewer/dist/.
+ *                        works) plus _headers, _redirects and robots.txt in viewer/dist/,
+ *                        and the example session at viewer/dist/s/examples/ (#url:examples/session.json).
  *
  * `viewer.config.json` (or $OVERSHARE_VIEWER_CONFIG) adds share sources; their
  * origins go into the Content-Security-Policy.
  */
-import { readdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import { loadConfig } from "./src/config.ts";
-import { exportFixtureShares, generateFixtures } from "./src/fixtures/index.ts";
+import { EXAMPLE_SHARE_PATH, exampleShare, exportFixtureShares, generateFixtures } from "./src/fixtures/index.ts";
 import { localShares } from "./src/serve.ts";
 // @ts-expect-error — plain ESM helper without type declarations (shared with tests)
 import { contentSecurityPolicy, deployFiles, loadViewerConfig } from "./viewer/config.mjs";
@@ -70,6 +71,9 @@ function deployFilesPlugin(sources: Record<string, string>): Plugin {
       for (const [name, content] of Object.entries(deployFiles(sources) as Record<string, string>)) {
         writeFileSync(join(viewerRoot, "dist", name), content);
       }
+      const example = join(viewerRoot, "dist", "s", EXAMPLE_SHARE_PATH);
+      mkdirSync(dirname(example), { recursive: true });
+      writeFileSync(example, exampleShare().json);
     },
   };
 }
@@ -82,11 +86,16 @@ function localSharesPlugin(): Plugin {
     configureServer(server) {
       const files = devShareFiles((msg) => server.config.logger.info(msg));
       const local = localShares(files);
+      let example: string | undefined;
       server.middlewares.use((req, res, next) => {
         const path = (req.url ?? "/").split("?")[0]!;
         if (path === "/" || path === "/s") {
           res.writeHead(302, { Location: "/s/" }).end();
           return;
+        }
+        if (path === `/s/${EXAMPLE_SHARE_PATH}`) {
+          example ??= exampleShare().json;
+          return void res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }).end(example);
         }
         if (!path.startsWith("/s/local/")) return next();
         let name: string;

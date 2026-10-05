@@ -1,8 +1,8 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir, userInfo } from "node:os";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
-import type { OvershareConfig } from "../config.js";
-import { prepareShare } from "../pipeline.js";
+import { DEFAULT_CONFIG, type OvershareConfig } from "../config.js";
+import { prepareShare, type PreparedShare } from "../pipeline.js";
 import { readSecretsFile } from "../redact/known-values.js";
 import { projectDirName } from "../resolve.js";
 import { SHARE_MODES } from "../schema.js";
@@ -85,6 +85,34 @@ export interface ExportedShare {
   file: string;
   bytes: number;
   status: "clean" | "needs review" | "BLOCKED";
+}
+
+/** Where the viewer build puts the example share, relative to the viewer page (open it with `#url:examples/session.json`). */
+export const EXAMPLE_SHARE_PATH = "examples/session.json";
+
+/**
+ * The example session linked from the landing page: the Claude Code fixture, redacted in full mode (so readers can
+ * step down to every other mode) with its planted fake secrets as known values, so the share shows real
+ * `[REDACTED:…]` replacements. A fixed home, username and the default config keep it the same on every machine.
+ */
+export function exampleShare(opts: { now?: Date } = {}): PreparedShare {
+  const dir = mkdtempSync(join(tmpdir(), "overshare-example-"));
+  try {
+    const fx = generateFixtures({ outDir: dir, home: "/home/dana", username: "dana" });
+    const share = prepareShare(readFileSync(fx.claudeFile, "utf8"), {
+      mode: "full",
+      config: DEFAULT_CONFIG,
+      harness: "claude-code",
+      knownSecrets: [],
+      extraKnownSecrets: readSecretsFile(fx.secretsFile),
+      machine: { homeDir: fx.home, username: fx.username, hostname: "devbox" },
+      now: opts.now,
+    });
+    if (share.report.blocked) throw new Error("the example share failed its final re-scan");
+    return share;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /** Redact and export each fixture transcript in every mode to `<outDir>/shares/<harness>-<mode>.json`. */

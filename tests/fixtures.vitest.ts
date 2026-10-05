@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { exportFixtureShares, generateFixtures } from "../src/fixtures/index.js";
+import { exampleShare, exportFixtureShares, generateFixtures } from "../src/fixtures/index.js";
 import { prepareShare } from "../src/pipeline.js";
 import { readSecretsFile } from "../src/redact/known-values.js";
 import { listSessions } from "../src/resolve.js";
-import { SHARE_MODES } from "../src/schema.js";
+import { isSupportedSchema, SHARE_MODES } from "../src/schema.js";
 
 const home = "/home/fixture-user";
 const machine = { homeDir: home, username: "fixture-user" };
@@ -134,5 +134,31 @@ describe("fixture generator", () => {
     const big = generateFixtures({ outDir: mkdtempSync(join(tmpdir(), "as-fx-")), seed: 5, extraTurns: 20, home, username: "fixture-user" });
     const { session } = prepareShare(readFileSync(big.claudeFile, "utf8"), { mode: "brief", config: DEFAULT_CONFIG, harness: "claude-code", machine, knownSecrets: [] });
     expect(session.stats.turns).toBe(28);
+  });
+});
+
+describe("example share (the landing page's demo session)", () => {
+  const now = new Date("2026-10-01T12:00:00Z");
+  const { json, report } = exampleShare({ now });
+  const share = JSON.parse(json);
+  // The same transcript exampleShare generates: seed 1, fixed home and user.
+  const planted = generateFixtures({ outDir: mkdtempSync(join(tmpdir(), "as-fx-")), home: "/home/dana", username: "dana" }).secrets;
+
+  it("is a full Claude Code share the viewer opens, so readers can step down to every other mode", () => {
+    expect(isSupportedSchema(share.schema)).toBe(true);
+    expect(share.mode).toBe("full");
+    expect(share.harness.name).toBe("claude-code");
+    expect(report.blocked).toBe(false);
+  });
+
+  it("shows redaction at work: the planted fake secrets are replaced, never published", () => {
+    expect(planted.length).toBeGreaterThan(0);
+    expect(json).toMatch(/\[REDACTED:[A-Z_]+\]/);
+    for (const secret of planted) expect(json).not.toContain(secret.value);
+    expect(json).not.toContain("/home/dana");
+  });
+
+  it("comes out the same on every build (fixed home, user and config)", () => {
+    expect(exampleShare({ now }).json).toBe(json);
   });
 });

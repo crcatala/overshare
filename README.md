@@ -406,7 +406,7 @@ server):
 | `#gist:<id>` / `#<id>` | GitHub API (60 req/h per IP unauthenticated) |
 | `#<source>:<id>` | a source from `viewer.config.json`, e.g. `#r2:<id>` |
 | `#local:<name>` | file served by `overshare serve` |
-| `#url:<path>` | same-origin path |
+| `#url:<path>` | same-origin path, e.g. `#url:examples/session.json` (the example session below) |
 | `…&ui=log.brief.dark.L.toc-all` | open with these view settings (see *View settings*) |
 | `…&turn=3` | open at prompt 3 |
 
@@ -612,6 +612,14 @@ npm run deploy              # builds the viewer and deploys it
 Custom domains (e.g. `agent.example.com`) are attached to the Worker in the Cloudflare
 dashboard; nothing in this repo assumes a domain. Set the CLI's `viewerUrl` to wherever
 you deployed (`https://…/s/`).
+
+The build also writes an **example session** to `s/examples/session.json`, so every deployment
+(and `overshare serve`, and the dev server) has a share to show without publishing anything:
+open `…/s/#url:examples/session.json`. It is the fake Claude Code fixture session, run through
+the real pipeline in `full` mode with its planted fake secrets, so it shows real
+`[REDACTED:…]` replacements (`&turn=3` jumps to the redacted `env` output) and readers can
+step down to every other mode. A fixed home, username and the default config make it the
+same whoever builds it.
 
 ## Integrations
 

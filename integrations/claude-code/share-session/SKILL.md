@@ -1,7 +1,6 @@
 ---
 name: share-session
-description: Share the current Claude Code session as a redacted, unlisted link (secret GitHub gist + overshare viewer). Use when the user asks to share, publish, or post this session/transcript, optionally with a mode (full, brief, minimal, prompts). `prompts` refuses unverified pi
-sessions rather than publishing expanded template instructions as user text.
+description: Share the current Claude Code session as a redacted, unlisted link (secret GitHub gist + overshare viewer). Use when the user asks to share, publish, or post this session/transcript, optionally with a mode (full, brief, minimal, prompts).
 ---
 
 # Share this session
@@ -14,6 +13,7 @@ Modes (default `brief`):
 - `full` — everything after redaction (tool inputs/outputs truncated to 20k chars each)
 - `brief` — prompts + replies; tool calls grouped (e.g. `Bash ×5 · Edit ×3`), no tool output
 - `minimal` — prompts, the final reply per turn, and counts
+- `prompts` — only the user's typed prompts, each with a one-line activity summary
 
 ## Steps
 

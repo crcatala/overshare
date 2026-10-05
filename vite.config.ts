@@ -9,8 +9,9 @@
  *   npm run build:viewer viewer/dist/s/ (relative asset URLs, so any base path
  *                        works) plus _headers, _redirects and robots.txt in viewer/dist/,
  *                        the example session at viewer/dist/s/examples/ (#url:examples/session.json),
+ *                        viewer/dist/s/font-licenses.txt (the bundled fonts' OFL licenses),
  *                        and viewer/dist/standalone.html, the template `export --format html`
- *                        fills in (the same viewer with everything inlined).
+ *                        fills in (the same viewer with everything inlined, licenses as a comment).
  *
  * `viewer.config.json` (or $OVERSHARE_VIEWER_CONFIG) adds share sources; their
  * origins go into the Content-Security-Policy.
@@ -24,6 +25,8 @@ import { localShares } from "./src/serve.ts";
 import { inlineViewer } from "./src/standalone.ts";
 // @ts-expect-error — plain ESM helper without type declarations (shared with tests)
 import { contentSecurityPolicy, deployFiles, loadViewerConfig } from "./viewer/config.mjs";
+// @ts-expect-error — plain ESM helper without type declarations (shared with the site build)
+import { FONT_LICENSES_FILE, fontLicenses, fontLicensesComment, VIEWER_FONTS } from "./viewer/font-licenses.mjs";
 
 const repo = import.meta.dirname;
 const viewerRoot = resolve(repo, "viewer");
@@ -80,6 +83,7 @@ function deployFilesPlugin(sources: Record<string, string>): Plugin {
       const example = join(viewerRoot, "dist", "s", EXAMPLE_SHARE_PATH);
       mkdirSync(dirname(example), { recursive: true });
       writeFileSync(example, exampleShare().json);
+      writeFileSync(join(viewerRoot, "dist", "s", FONT_LICENSES_FILE), fontLicenses(VIEWER_FONTS));
     },
   };
 }
@@ -107,7 +111,11 @@ function standalonePlugin(): Plugin {
       };
       walk(outDir);
       const html = assets.get("index.html")!.toString("utf8");
-      writeFileSync(join(outDir, "..", "standalone.html"), inlineViewer(html, assets));
+      // The fonts travel inside every export, so their licenses do too (right after <head>).
+      const page = inlineViewer(html, assets);
+      const head = page.indexOf("<head>") + "<head>".length;
+      if (head < "<head>".length) throw new Error("standalone viewer: no <head> to put the font licenses in");
+      writeFileSync(join(outDir, "..", "standalone.html"), `${page.slice(0, head)}\n${fontLicensesComment(VIEWER_FONTS)}${page.slice(head)}`);
     },
   };
 }

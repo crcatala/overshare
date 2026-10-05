@@ -23,7 +23,7 @@ export interface OvershareConfig {
     denylist: string[];
     /** Literal strings that must never be redacted (e.g. a known-public test key). */
     allowlist: string[];
-    /** Which machine sources supply exact secret values to redact (see README "What this tool reads and why"). */
+    /** Which machine sources supply exact secret values to redact (see docs/redaction.md "What this tool reads and why"). */
     knownSources: KnownSourceSettings;
   };
 }

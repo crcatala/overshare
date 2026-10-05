@@ -11,8 +11,13 @@ permissions:
 
 jobs:
   test:
-    name: Test
+    name: Test (Node ${{ matrix.node }})
     runs-on: ubicloud-standard-2
+    strategy:
+      fail-fast: false
+      matrix:
+        # The dev tooling (jsdom) needs 22.22+; the min-node job covers the oldest supported runtime.
+        node: [22.x, 24.x]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -22,7 +27,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: package-lock.json
 
@@ -38,3 +43,30 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      # Pack the npm tarball, install it like a user would, and run the installed CLI.
+      - name: Package smoke test
+        run: npm run test:package
+
+  # Users can run overshare on the oldest Node in package.json engines; check the installed package there.
+  min-node:
+    name: Package on Node 22.19
+    runs-on: ubicloud-standard-2
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.x
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Package smoke test
+        run: npm run test:package

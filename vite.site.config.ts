@@ -29,7 +29,7 @@ export default defineConfig(({ command }) => {
     publicDir: false,
     server: {
       port: 3001,
-      fs: { strict: true, allow: [siteRoot, resolve(repo, "viewer/src/fonts"), resolve(repo, "node_modules/@fontsource-variable/mona-sans")] },
+      fs: { strict: true, allow: [siteRoot, resolve(repo, "viewer/src/fonts"), resolve(repo, "node_modules/@fontsource-variable/bricolage-grotesque")] },
     },
     // Into the viewer's dist (not emptied: the viewer lives in s/), so one deploy serves both.
     build: { outDir: dist, emptyOutDir: false, sourcemap: false, target: "es2022", assetsInlineLimit: 0 },

@@ -559,7 +559,7 @@ export class BrowserApp extends Screen {
   }
 
   private drawQuit(width: number): string[] {
-    return box("Quit", ["Quit agent-share?", "", `${st.key("y")}${st.dim("/")}${st.key("enter")} ${st.dim("quit")}   ${st.key("n")}${st.dim("/")}${st.key("esc")} ${st.dim("stay")}`, "", st.dim("turn this off with , (settings)")], width);
+    return box("Quit", ["Quit overshare?", "", `${st.key("y")}${st.dim("/")}${st.key("enter")} ${st.dim("quit")}   ${st.key("n")}${st.dim("/")}${st.key("esc")} ${st.dim("stay")}`, "", st.dim("turn this off with , (settings)")], width);
   }
 
   private footer(width: number): string {
@@ -599,7 +599,7 @@ export class BrowserApp extends Screen {
     const indexing = this.source.index?.progress();
     // Search and the repo/branch/model/tool filters only see sessions that have been read; say so while that is true.
     const partial = indexing && (this.query || this.project) ? " · search covers the sessions read so far" : "";
-    const title = `${st.bold("agent-share")}  ${st.dim(`${this.view.length}/${this.source.sessions.length}`)}${indexing ? `  ${st.yellow(`reading sessions ${indexing.done}/${indexing.total}`)}${st.dim(partial)}` : ""}`;
+    const title = `${st.bold("overshare")}  ${st.dim(`${this.view.length}/${this.source.sessions.length}`)}${indexing ? `  ${st.yellow(`reading sessions ${indexing.done}/${indexing.total}`)}${st.dim(partial)}` : ""}`;
     const chips = [
       chip("harness", "h", this.harness ? HARNESS_META[this.harness].short : "all", !!this.harness),
       chip("repo", "r", this.project ?? "all", !!this.project),

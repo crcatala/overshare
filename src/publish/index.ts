@@ -1,4 +1,4 @@
-import type { AgentShareConfig, ShareTarget } from "../config.js";
+import type { OvershareConfig, ShareTarget } from "../config.js";
 import { formatTokens } from "../format.js";
 import { totalTokens, type HarnessName, type SessionStats, type ShareMode } from "../schema.js";
 import { recordShare, removeShares } from "../sessions/shares.js";
@@ -6,26 +6,26 @@ import { GistPublisher } from "./gist.js";
 import { R2Publisher, checkPublicAccess, r2CredentialsFromEnv, r2PublicUrl } from "./r2.js";
 import type { PublishResult, Publisher } from "./types.js";
 
-export function createPublisher(config: AgentShareConfig, target: ShareTarget, env: NodeJS.ProcessEnv = process.env): Publisher {
+export function createPublisher(config: OvershareConfig, target: ShareTarget, env: NodeJS.ProcessEnv = process.env): Publisher {
   if (target === "gist") return new GistPublisher({ viewerUrl: config.viewerUrl });
-  if (!config.r2) throw new Error('target "r2" needs an "r2" section in the agent-share config (bucket, publicUrl, accountId)');
+  if (!config.r2) throw new Error('target "r2" needs an "r2" section in the overshare config (bucket, publicUrl, accountId)');
   const credentials = r2CredentialsFromEnv(env);
-  if (!credentials) throw new Error("R2 credentials missing: set AGENT_SHARE_R2_ACCESS_KEY_ID and AGENT_SHARE_R2_SECRET_ACCESS_KEY");
+  if (!credentials) throw new Error("R2 credentials missing: set OVERSHARE_R2_ACCESS_KEY_ID and OVERSHARE_R2_SECRET_ACCESS_KEY");
   return new R2Publisher({ config: config.r2, credentials, viewerUrl: config.viewerUrl });
 }
 
 /** Problems that make a share unviewable, detectable before uploading. */
-export function preflightWarnings(config: AgentShareConfig, target: ShareTarget): string[] {
+export function preflightWarnings(config: OvershareConfig, target: ShareTarget): string[] {
   if (target === "r2" && config.viewerUrlSource === "default") {
     return [
-      `viewerUrl is the built-in default (${config.viewerUrl}); R2 links only open in a viewer built with your "r2" source in viewer.config.json — set viewerUrl in the agent-share config to your own deployment`,
+      `viewerUrl is the built-in default (${config.viewerUrl}); R2 links only open in a viewer built with your "r2" source in viewer.config.json — set viewerUrl in the overshare config to your own deployment`,
     ];
   }
   return [];
 }
 
 /** After an R2 upload, fetch the object like the viewer would to catch missing public access or CORS. */
-export async function accessWarnings(config: AgentShareConfig, target: ShareTarget, result: PublishResult, doFetch: typeof fetch = fetch): Promise<string[]> {
+export async function accessWarnings(config: OvershareConfig, target: ShareTarget, result: PublishResult, doFetch: typeof fetch = fetch): Promise<string[]> {
   if (target !== "r2" || !result.rawUrl) return [];
   const origin = new URL(config.viewerUrl).origin;
   try {
@@ -49,12 +49,12 @@ export interface PublishInput {
 
 /**
  * Upload a prepared (redacted, re-scanned) share and remember it in `shares.json`.
- * Shared by `agent-share publish` and the `browse` TUI, so both publish exactly the same way.
+ * Shared by `overshare publish` and the `browse` TUI, so both publish exactly the same way.
  * Refusing blocked or unconfirmed shares is the caller's job; this only uploads.
  */
 export async function publishPrepared(
   publisher: Publisher,
-  config: AgentShareConfig,
+  config: OvershareConfig,
   target: ShareTarget,
   prepared: PublishInput,
 ): Promise<{ result: PublishResult; warnings: string[] }> {
@@ -62,7 +62,7 @@ export async function publishPrepared(
   const result = await publisher.publish({
     filename: "session.json",
     content: prepared.json,
-    description: `agent-share: ${s.title ?? s.source.sessionId} (${s.harness.name}, ${s.mode}, ${formatTokens(totalTokens(s.stats.tokens))} tokens)`,
+    description: `overshare: ${s.title ?? s.source.sessionId} (${s.harness.name}, ${s.mode}, ${formatTokens(totalTokens(s.stats.tokens))} tokens)`,
   });
   const warnings = await accessWarnings(config, target, result);
   const recorded = recordShare(s.harness.name, s.source.sessionId, { url: result.viewerUrl, mode: s.mode, target, sharedAt: new Date().toISOString() });
@@ -96,12 +96,12 @@ const GIST_ID = "[0-9a-f]{20,40}";
 /**
  * Identify a share from anything `publish` prints, parsed strictly because `delete` is
  * destructive:
- *   viewer links   …/session/#r2:<id>, …/session/#<owner>/<gistId>, …#gist:<gistId>
+ *   viewer links   …/s/#r2:<id>, …/s/#<owner>/<gistId>, …#gist:<gistId>
  *   gist URLs      https://gist.github.com/[<owner>/]<id>, https://gist.githubusercontent.com/<owner>/<id>/raw/…
  *   R2 data URLs   <r2.publicUrl>/<r2.prefix><id>.json
  *   bare           r2:<id>, gist:<gistId>, a 20/32-hex gist id, or <id> when `fallback` is r2
  */
-export function parseShareRef(input: string, fallback: ShareTarget = "gist", r2?: AgentShareConfig["r2"]): ShareRef {
+export function parseShareRef(input: string, fallback: ShareTarget = "gist", r2?: OvershareConfig["r2"]): ShareRef {
   const value = input.trim();
   const match = (re: string) => new RegExp(`^${re}$`, "i").exec(value);
   const hash = value.includes("#") ? value.slice(value.indexOf("#") + 1).split("&")[0]! : undefined;

@@ -16,7 +16,7 @@ import { EMBEDDED_SHARE_ID } from "./embedded.js";
 import { viewerDistDir } from "./serve.js";
 
 /** Where `embedShare` puts the session. Left in the template, which is not a page until it is replaced. */
-export const SESSION_MARKER = "<!--agent-share:session-->";
+export const SESSION_MARKER = "<!--overshare:session-->";
 
 const FONT_TYPES: Record<string, string> = { woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf", otf: "font/otf" };
 

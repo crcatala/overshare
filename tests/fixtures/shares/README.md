@@ -1,7 +1,9 @@
 # Frozen shares
 
-One directory per `agentshare/N` format, holding real shares written in that format: the same fake
-sessions the `agent-share fixtures` command generates, redacted and exported by the code of that day.
+One directory per format, named after it (`overshare-1/` holds `overshare/1` shares), holding real shares
+written in that format: the same fake sessions the `overshare fixtures` command generates, redacted and
+exported by the code of that day. `agentshare-2/` is the same format as `overshare/1`, written under the
+project's earlier name (agent-share) before the rename; the viewer reads it as `overshare/1`.
 `tests/viewer-compat.vitest.ts` opens every one in the viewer, in every view and variant, so a
 format the viewer says it opens can't quietly stop working.
 
@@ -11,7 +13,7 @@ format the viewer says it opens can't quietly stop working.
 
 1. Bump `SCHEMA_VERSION` in `src/schema.ts` (additive changes, like a new optional field, don't need this).
 2. Add the migration for the old version in `viewer/src/compat.ts` (`MIGRATIONS`).
-3. Freeze a share in the new format, in a new `agentshare-<N>/` directory:
+3. Freeze a share in the new format, in a new `overshare-<N>/` directory:
 
    ```sh
    npx tsx src/cli.ts fixtures -o "$(mktemp -d)" --home /home/fixture-user --user fixture-user

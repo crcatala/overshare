@@ -2,7 +2,7 @@
  * Browser preferences, kept apart from the publish config: the TUI writes them whenever you change one, so they
  * live in their own file instead of rewriting a hand-edited `config.json`.
  *
- *   ~/.config/agent-share/browse.json   (`AGENT_SHARE_BROWSE_SETTINGS` overrides)
+ *   ~/.config/overshare/browse.json   (`OVERSHARE_BROWSE_SETTINGS` overrides)
  *   { "confirmQuit": true, "dateFormat": "relative", "viewer": { "indentReplies": false, "indentTools": false, "markers": "icon" } }
  *
  * Reading is forgiving (a missing, corrupt or partly invalid file falls back to defaults per field) because a
@@ -57,7 +57,7 @@ export function normalizeSettings(raw: unknown): BrowseSettings {
 }
 
 export function settingsPath(env: NodeJS.ProcessEnv = process.env): string {
-  return env.AGENT_SHARE_BROWSE_SETTINGS ?? join(env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "agent-share", "browse.json");
+  return env.OVERSHARE_BROWSE_SETTINGS ?? join(env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "overshare", "browse.json");
 }
 
 export interface SettingsStore {

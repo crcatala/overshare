@@ -19,7 +19,7 @@ export type { SessionSummary } from "./summary.js";
 const INDEX_VERSION = 5;
 
 export function indexPath(env: NodeJS.ProcessEnv = process.env): string {
-  return env.AGENT_SHARE_INDEX ?? join(env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "agent-share-session", "index.json");
+  return env.OVERSHARE_INDEX ?? join(env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "overshare", "index.json");
 }
 
 interface IndexFile {

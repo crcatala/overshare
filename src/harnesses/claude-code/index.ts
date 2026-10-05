@@ -14,7 +14,7 @@ const sessionId = (file: string): string => basename(file, ".jsonl");
 /** `~/.claude/projects/<cwd-slug>/<session-id>.jsonl`, with `<session-id>/subagents/agent-*.jsonl` beside it. */
 export const claudeCode: Harness = {
   name: "claude-code",
-  sessionsRoot: (env, home) => env.AGENT_SHARE_CLAUDE_PROJECTS ?? join(env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), "projects"),
+  sessionsRoot: (env, home) => env.OVERSHARE_CLAUDE_PROJECTS ?? join(env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), "projects"),
   listFiles: (root, cwd) => jsonlSessionFiles(root, cwd === undefined ? undefined : projectDir(cwd)),
   sessionId,
   detect: (e) => typeof e.sessionId === "string" || typeof e.uuid === "string" || e.type === "summary",

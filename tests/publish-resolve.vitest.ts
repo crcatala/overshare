@@ -18,16 +18,16 @@ describe("GistPublisher", () => {
       if (args[0] === "api") return { code: 0, stdout: "octocat\n", stderr: "" };
       return { code: 0, stdout: "", stderr: "" };
     };
-    const result = await new GistPublisher({ viewerUrl: "https://agent.nub.sh/session/", run }).publish({
+    const result = await new GistPublisher({ viewerUrl: "https://overshare.link/s/", run }).publish({
       filename: "session.json",
       content: "{}",
-      description: "agent-share: test",
+      description: "overshare: test",
     });
     expect(result).toEqual({
       publisher: "gist",
       id: "abc123def4567890abcd",
       url: "https://gist.github.com/abc123def4567890abcd",
-      viewerUrl: "https://agent.nub.sh/session/#octocat/abc123def4567890abcd",
+      viewerUrl: "https://overshare.link/s/#octocat/abc123def4567890abcd",
       rawUrl: "https://gist.githubusercontent.com/octocat/abc123def4567890abcd/raw/session.json",
     });
     const create = calls.find((c) => c[1] === "gist")!;
@@ -103,7 +103,7 @@ describe("startViewerServer", () => {
     try {
       const { server, port, url } = await startViewerServer({ port: taken, host: "127.0.0.1" });
       expect(port).toBeGreaterThan(taken);
-      expect(url).toBe(`http://127.0.0.1:${port}/session/`);
+      expect(url).toBe(`http://127.0.0.1:${port}/s/`);
       server.close();
       await expect(startViewerServer({ port: taken, host: "127.0.0.1", strictPort: true })).rejects.toThrow(/already in use/);
     } finally {
@@ -118,14 +118,14 @@ describe("serve bind address", () => {
     const local = await startViewerServer({ port: 0 });
     try {
       expect(local.server.address()).toMatchObject({ address: "127.0.0.1" });
-      expect(local.url).toBe(`http://127.0.0.1:${local.port}/session/`);
+      expect(local.url).toBe(`http://127.0.0.1:${local.port}/s/`);
     } finally {
       local.server.close();
     }
     const all = await startViewerServer({ port: 0, host: "0.0.0.0" });
     try {
       expect(all.server.address()).toMatchObject({ address: "0.0.0.0" });
-      expect(all.url).toBe(`http://localhost:${all.port}/session/`);
+      expect(all.url).toBe(`http://localhost:${all.port}/s/`);
     } finally {
       all.server.close();
     }
@@ -141,7 +141,7 @@ describe("local share index", () => {
     const dir = mkdtempSync(join(tmpdir(), "as-idx-"));
     const good = join(dir, "a.json");
     const bad = join(dir, "b.json");
-    writeFileSync(good, JSON.stringify({ schema: "agentshare/2", title: "T", harness: { name: "pi" }, mode: "brief", stats: { turns: 3 }, project: { name: "app", branch: "main" }, startedAt: "2026-01-01T00:00:00Z" }));
+    writeFileSync(good, JSON.stringify({ schema: "overshare/1", title: "T", harness: { name: "pi" }, mode: "brief", stats: { turns: 3 }, project: { name: "app", branch: "main" }, startedAt: "2026-01-01T00:00:00Z" }));
     writeFileSync(bad, "{not json");
     const { server, url } = await startViewerServer({ port: 0, host: "127.0.0.1", files: [good, bad] });
     try {
@@ -167,7 +167,7 @@ describe("serve with unusual file names", () => {
     const { startViewerServer } = await import("../src/serve.js");
     const dir = mkdtempSync(join(tmpdir(), "as-pct-"));
     const src = join(dir, "src.json");
-    writeFileSync(src, JSON.stringify({ schema: "agentshare/2", title: "pct" }));
+    writeFileSync(src, JSON.stringify({ schema: "overshare/1", title: "pct" }));
     const file = join(dir, "50%off.json");
     copyFileSync(src, file);
     const { server, url } = await startViewerServer({ port: 0, host: "127.0.0.1", files: [file] });
@@ -188,9 +188,9 @@ describe("loadConfig", () => {
     const { join } = await import("node:path");
     const { loadConfig } = await import("../src/config.js");
     const file = join(mkdtempSync(join(tmpdir(), "as-cfg-")), "config.json");
-    expect(loadConfig({ AGENT_SHARE_CONFIG: file }).viewerUrlSource).toBe("default");
-    writeFileSync(file, JSON.stringify({ viewerUrl: "https://mine.example.com/session/" }));
-    expect(loadConfig({ AGENT_SHARE_CONFIG: file })).toMatchObject({ viewerUrl: "https://mine.example.com/session/", viewerUrlSource: "config" });
-    expect(loadConfig({ AGENT_SHARE_CONFIG: file, AGENT_SHARE_VIEWER_URL: "https://env.example.com/" }).viewerUrlSource).toBe("env");
+    expect(loadConfig({ OVERSHARE_CONFIG: file }).viewerUrlSource).toBe("default");
+    writeFileSync(file, JSON.stringify({ viewerUrl: "https://mine.example.com/s/" }));
+    expect(loadConfig({ OVERSHARE_CONFIG: file })).toMatchObject({ viewerUrl: "https://mine.example.com/s/", viewerUrlSource: "config" });
+    expect(loadConfig({ OVERSHARE_CONFIG: file, OVERSHARE_VIEWER_URL: "https://env.example.com/" }).viewerUrlSource).toBe("env");
   });
 });

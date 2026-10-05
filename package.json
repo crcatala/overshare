@@ -1,14 +1,16 @@
 {
-  "name": "agent-share",
+  "name": "overshare",
   "version": "0.1.0",
   "description": "Share coding-agent session transcripts (Claude Code, pi) with redaction, share modes, and a static viewer",
   "type": "module",
   "bin": {
-    "agent-share": "./dist/cli.js"
+    "overshare": "./dist/cli.js",
+    "ovs": "./dist/cli.js"
   },
   "files": [
     "dist",
-    "viewer/dist",
+    "viewer/dist/s",
+    "viewer/dist/standalone.html",
     "integrations",
     "README.md"
   ],
@@ -18,14 +20,16 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && vite build",
     "build:viewer": "vite build",
+    "build:site": "vite build --config vite.site.config.ts",
     "dev": "vite",
+    "dev:site": "vite --config vite.site.config.ts",
     "demo": "npm run build:viewer && tsx src/cli.ts demo",
     "fixtures": "tsx src/cli.ts fixtures",
-    "deploy": "npm run build:viewer && wrangler deploy",
-    "preview:cf": "npm run build:viewer && wrangler dev",
+    "deploy": "npm run build:viewer && npm run build:site && wrangler deploy",
+    "preview:cf": "npm run build:viewer && npm run build:site && wrangler dev",
     "prepack": "npm run build",
     "test": "vitest run --config vitest.config.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p viewer/tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p viewer/tsconfig.json && tsc --noEmit -p site/tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "start": "tsx src/cli.ts",
     "audit:usage": "tsx scripts/audit-usage.ts",
     "update:prices": "node scripts/update-prices.mjs"
@@ -39,6 +43,7 @@
   },
   "devDependencies": {
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",
+    "@fontsource-variable/mona-sans": "^5.3.0",
     "@types/node": "^24.10.1",
     "dompurify": "^3.4.0",
     "jsdom": "^30.1.1",
@@ -51,7 +56,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/crcatala/agent-share-session.git"
+    "url": "git+https://github.com/crcatala/overshare.git"
   },
-  "homepage": "https://github.com/crcatala/agent-share-session#readme"
+  "homepage": "https://github.com/crcatala/overshare#readme"
 }

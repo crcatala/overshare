@@ -82,7 +82,7 @@ export function shareButton(opts: ShareOptions): HTMLElement {
     ];
     const footText =
       opts.source.kind === "local"
-        ? "Local links only open on this machine, while agent-share serve runs"
+        ? "Local links only open on this machine, while overshare serve runs"
         : opts.source.kind === "embedded"
           ? "Links open this file, so they work only where the file is saved or hosted"
           : undefined;

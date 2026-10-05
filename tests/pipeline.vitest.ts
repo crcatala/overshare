@@ -66,11 +66,11 @@ describe("prepareShare", () => {
     });
     expect(json).not.toContain("/home/tester");
     expect(session).toMatchObject({
-      schema: "agentshare/2",
+      schema: "overshare/1",
       mode: "brief",
       title: "check the env for ~/work/demo",
       project: { cwd: "~/work/demo", name: "demo" },
-      generator: { name: "agent-share", sharedAt: "2026-02-02T00:00:00.000Z" },
+      generator: { name: "overshare", sharedAt: "2026-02-02T00:00:00.000Z" },
       stats: { turns: 1, toolCalls: 1, tools: { Bash: 1 } },
     });
     expect(session.durationMs).toBeGreaterThan(0);

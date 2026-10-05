@@ -75,7 +75,7 @@ describe.each([false, true])("source that ignores the abort: %s", (ignore) => {
       expect(d.app.viewer).toBeUndefined();
       expect(view!.signal.aborted).toBe(true);
       expect(d.source.reviewSignals.every((s) => s.aborted)).toBe(true);
-      expect(d.text()).toContain("agent-share");
+      expect(d.text()).toContain("overshare");
     });
 
     it("drops a result that arrives after the viewer was closed, and never shows it in the next session", async () => {

@@ -113,7 +113,7 @@ describe("query", () => {
   const NOW = Date.UTC(2026, 8, 30);
   const day = 86_400_000;
   const all = [
-    mk({ id: "a", harness: "claude-code", project: "agent-share", title: "Fix gist upload", mtimeMs: NOW - day, searchText: "fix gist upload\nagent-share", models: ["claude-opus-5-5"], tools: { Bash: 2 } }),
+    mk({ id: "a", harness: "claude-code", project: "overshare", title: "Fix gist upload", mtimeMs: NOW - day, searchText: "fix gist upload\novershare", models: ["claude-opus-5-5"], tools: { Bash: 2 } }),
     mk({ id: "b", harness: "pi", project: "r2", title: "Bucket policy", mtimeMs: NOW - 10 * day, searchText: "bucket policy\nr2 gist mention" }),
     mk({ id: "c", harness: "pi", project: "r2", title: "subagent-worker-1", worker: true, mtimeMs: NOW, searchText: "gist" }),
   ];
@@ -155,8 +155,8 @@ describe("shares", () => {
 
 describe("forgetting deleted shares", () => {
   const GIST = "5260b8cf9b1baae31a40717ac1ab5f08";
-  const gist = (id = GIST): ShareRecord => ({ url: `https://agent.nub.sh/session/#octo/${id}`, mode: "brief", target: "gist", sharedAt: "t1" });
-  const r2 = (id = "AbCdEfGhIjKlMnOpQrStUv"): ShareRecord => ({ url: `https://agent.nub.sh/session/#r2:${id}`, mode: "full", target: "r2", sharedAt: "t2" });
+  const gist = (id = GIST): ShareRecord => ({ url: `https://overshare.link/s/#octo/${id}`, mode: "brief", target: "gist", sharedAt: "t1" });
+  const r2 = (id = "AbCdEfGhIjKlMnOpQrStUv"): ShareRecord => ({ url: `https://overshare.link/s/#r2:${id}`, mode: "full", target: "r2", sharedAt: "t2" });
   const fresh = () => join(mkdtempSync(join(tmpdir(), "shares-rm-")), "shares.json");
 
   it("removeShares drops matching records, keeps the rest, and removes emptied keys", () => {
@@ -191,7 +191,7 @@ describe("forgetting deleted shares", () => {
   });
 
   it.each([
-    ["viewer link", `https://agent.nub.sh/session/#octo/${GIST}`],
+    ["viewer link", `https://overshare.link/s/#octo/${GIST}`],
     ["gist url", `https://gist.github.com/octo/${GIST}`],
     ["bare gist id", GIST],
     ["gist: prefix", `gist:${GIST}`],
@@ -206,7 +206,7 @@ describe("forgetting deleted shares", () => {
   });
 
   it.each([
-    ["viewer link", "https://agent.nub.sh/session/#r2:AbCdEfGhIjKlMnOpQrStUv", "gist"],
+    ["viewer link", "https://overshare.link/s/#r2:AbCdEfGhIjKlMnOpQrStUv", "gist"],
     ["r2: prefix", "r2:AbCdEfGhIjKlMnOpQrStUv", "gist"],
     ["bare id with --target r2", "AbCdEfGhIjKlMnOpQrStUv", "r2"],
   ] as const)("forgetShare matches an r2 share given as %s", (_name, input, fallback) => {
@@ -221,7 +221,7 @@ describe("forgetting deleted shares", () => {
     const path = fresh();
     recordShare("pi", "s1", gist(), path);
     recordShare("pi", "s1", r2(), path);
-    expect(forgetShare(parseShareRef(`https://agent.nub.sh/session/#octo/${GIST.toUpperCase()}`), path)).toBe(true);
+    expect(forgetShare(parseShareRef(`https://overshare.link/s/#octo/${GIST.toUpperCase()}`), path)).toBe(true);
     expect(forgetShare(parseShareRef("r2:abcdefghijklmnopqrstuv"), path)).toBe(true);
     expect(sharesFor(loadShares(path), "pi", "s1").map((r) => r.target)).toEqual(["r2"]);
   });

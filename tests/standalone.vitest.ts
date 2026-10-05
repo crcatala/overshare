@@ -122,7 +122,7 @@ describe("inlineViewer", () => {
 describe("embedShare", () => {
   const template = inlineViewer(INDEX, assets());
   const nasty = {
-    schema: "agentshare/2",
+    schema: "overshare/1",
     text: ["</script><script>alert(1)</script>", "<!-- <script>", "$& $1 $` $'", "line sep ", "</SCRIPT >", "]]>"].join("\n"),
   };
 
@@ -158,7 +158,7 @@ describe("the real viewer build", () => {
     const files = new Map<string, Uint8Array | string>();
     for (const f of outputs.flatMap((o) => o.output)) if (!f.fileName.endsWith(".map")) files.set(f.fileName, (f.code ?? f.source) as Uint8Array | string);
 
-    const page = embedShare(inlineViewer(String(files.get("index.html")), files), JSON.stringify({ schema: "agentshare/2" }));
+    const page = embedShare(inlineViewer(String(files.get("index.html")), files), JSON.stringify({ schema: "overshare/1" }));
 
     // The page's own markup: the bundle quotes HTML in its strings (`<img src="${x}">`), which is text, not markup.
     const skeleton = page.replace(inner(page, "script", ' type="module"'), "").replace(inner(page, "style"), "").replace(inner(page, "script", ` type="application/json" id="${EMBEDDED_SHARE_ID}"`), "");

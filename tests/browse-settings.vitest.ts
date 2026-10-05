@@ -37,9 +37,9 @@ describe("normalizeSettings", () => {
 });
 
 describe("settingsPath", () => {
-  it("honours AGENT_SHARE_BROWSE_SETTINGS, then XDG_CONFIG_HOME", () => {
-    expect(settingsPath({ AGENT_SHARE_BROWSE_SETTINGS: "/x/b.json" })).toBe("/x/b.json");
-    expect(settingsPath({ XDG_CONFIG_HOME: "/cfg" })).toBe("/cfg/agent-share/browse.json");
+  it("honours OVERSHARE_BROWSE_SETTINGS, then XDG_CONFIG_HOME", () => {
+    expect(settingsPath({ OVERSHARE_BROWSE_SETTINGS: "/x/b.json" })).toBe("/x/b.json");
+    expect(settingsPath({ XDG_CONFIG_HOME: "/cfg" })).toBe("/cfg/overshare/browse.json");
   });
 });
 

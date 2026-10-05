@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { SCHEMA_VERSION, type NormalizedSession } from "../src/schema.ts";
 
-(globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
+(globalThis as { __OVERSHARE_SOURCES__?: Record<string, string> }).__OVERSHARE_SOURCES__ = {};
 const { MIGRATIONS, readShare, schemaVersion } = await import("../viewer/src/compat.ts");
 const { renderTranscript } = await import("../viewer/src/transcript.ts");
 const { renderCompatNotice } = await import("../viewer/src/notice.ts");
@@ -20,19 +20,26 @@ const { availableModes, projectSession, promptsUnavailableReason } = await impor
 const { VARIANTS } = await import("../viewer/src/variants.ts");
 
 const SHARES = join(import.meta.dirname, "fixtures", "shares");
-const versions = readdirSync(SHARES)
-  .map((d) => /^agentshare-(\d+)$/.exec(d))
-  .filter((m): m is RegExpExecArray => m !== null)
-  .map((m) => Number(m[1]))
-  .sort((a, b) => a - b);
+// One directory per format, named after it: overshare-1/ holds overshare/1 shares, agentshare-2/ the same
+// format from before the rename.
+const formats = readdirSync(SHARES, { withFileTypes: true })
+  .filter((d) => d.isDirectory())
+  .map((d) => ({ dir: d.name, schema: d.name.replace(/-(\d+)$/, "/$1") }))
+  .map((f) => ({ ...f, version: schemaVersion(f.schema) }))
+  .filter((f): f is typeof f & { version: number } => f.version !== undefined);
+const versions = [...new Set(formats.map((f) => f.version))].sort((a, b) => a - b);
 const frozen = (version: number) =>
-  readdirSync(join(SHARES, `agentshare-${version}`))
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => ({ name: f, json: readFileSync(join(SHARES, `agentshare-${version}`, f), "utf8") }));
+  formats
+    .filter((f) => f.version === version)
+    .flatMap(({ dir, schema }) =>
+      readdirSync(join(SHARES, dir))
+        .filter((f) => f.endsWith(".json"))
+        .map((f) => ({ name: `${dir}/${f}`, schema, json: readFileSync(join(SHARES, dir, f), "utf8") })),
+    );
 const current = schemaVersion(SCHEMA_VERSION)!;
 
 const parsed = (json: string) => JSON.parse(json) as Record<string, unknown>;
-const sample = () => parsed(frozen(current)[0]!.json);
+const sample = () => parsed(frozen(current).find((f) => f.schema === SCHEMA_VERSION)!.json);
 
 describe("reading a share by its format version", () => {
   it("reads the current version as is, without a notice", async () => {
@@ -41,27 +48,38 @@ describe("reading a share by its format version", () => {
     expect(read.session.schema).toBe(SCHEMA_VERSION);
   });
 
+  it("reads a share published before the rename (agentshare/2) as the current version, without a notice", async () => {
+    const read = await readShare({ ...sample(), schema: "agentshare/2" });
+    expect(read.newer).toBeUndefined();
+    expect(read.session.schema).toBe(SCHEMA_VERSION);
+  });
+
   it("reads a newer version best effort and says so", async () => {
-    const read = await readShare({ ...sample(), schema: `agentshare/${current + 1}` });
+    const read = await readShare({ ...sample(), schema: `overshare/${current + 1}` });
     expect(read.session.turns.length).toBeGreaterThan(0);
-    expect(read.newer).toEqual({ shared: `agentshare/${current + 1}`, viewer: SCHEMA_VERSION });
+    expect(read.newer).toEqual({ shared: `overshare/${current + 1}`, viewer: SCHEMA_VERSION });
   });
 
   it("refuses an older version no migration reaches the current one from", async () => {
-    await expect(readShare({ ...sample(), schema: `agentshare/${current - 1}` }, {})).rejects.toThrow("older format");
+    await expect(readShare({ ...sample(), schema: `overshare/${current - 1}` }, {})).rejects.toThrow("older format");
   });
 
   it("upgrades an older version through each migration in turn, loading only those it needs", async () => {
+    // overshare/1 is the first version, so pretend the viewer reads overshare/3 to have two versions below it.
+    vi.resetModules();
+    vi.doMock("../src/schema.ts", async (original) => ({ ...(await original<object>()), SCHEMA_VERSION: "overshare/3" }));
+    const { readShare } = await import("../viewer/src/compat.ts");
+    vi.doUnmock("../src/schema.ts");
     const seen: string[] = [];
     const load = vi.fn();
     const migrations = {
-      [current - 2]: async () => ({ default: (s: Record<string, unknown>) => (seen.push(`from ${s.schema}`), { ...s, title: "was renamed" }) }),
-      [current - 1]: async () => ({ default: (s: Record<string, unknown>) => (seen.push(`from ${s.schema}`), { ...s, mode: s.mode }) }),
-      [current + 5]: async () => (load(), { default: (s: Record<string, unknown>) => s }),
+      1: async () => ({ default: (s: Record<string, unknown>) => (seen.push(`from ${s.schema}`), { ...s, title: "was renamed" }) }),
+      2: async () => ({ default: (s: Record<string, unknown>) => (seen.push(`from ${s.schema}`), { ...s, mode: s.mode }) }),
+      8: async () => (load(), { default: (s: Record<string, unknown>) => s }),
     };
-    const read = await readShare({ ...sample(), schema: `agentshare/${current - 2}` }, migrations);
-    expect(seen).toEqual([`from agentshare/${current - 2}`, `from agentshare/${current - 1}`]);
-    expect(read.session.schema).toBe(SCHEMA_VERSION);
+    const read = await readShare({ ...sample(), schema: "agentshare/2" }, migrations);
+    expect(seen).toEqual(["from agentshare/2", "from overshare/2"]);
+    expect(read.session.schema).toBe("overshare/3");
     expect(read.session.title).toBe("was renamed");
     expect(read.newer).toBeUndefined();
     expect(load).not.toHaveBeenCalled();
@@ -72,9 +90,10 @@ describe("reading a share by its format version", () => {
     ["null", null],
     ["no schema", { turns: [] }],
     ["another kind of schema", { schema: "somebody-else/1", turns: [] }],
-    ["a non-numeric version", { schema: "agentshare/next", turns: [] }],
+    ["a non-numeric version", { schema: "overshare/next", turns: [] }],
+    ["a pre-rename version that never was overshare", { schema: "agentshare/1", turns: [] }],
   ])("refuses %s", async (_name, data) => {
-    await expect(readShare(data)).rejects.toThrow("isn't an agent-share session");
+    await expect(readShare(data)).rejects.toThrow("isn't an overshare session");
   });
 
   it("refuses a share with no turns", async () => {
@@ -99,9 +118,10 @@ describe("reading a share by its format version", () => {
   });
 
   it("parses versions strictly", () => {
-    expect(schemaVersion("agentshare/2")).toBe(2);
-    expect(schemaVersion("agentshare/12")).toBe(12);
-    for (const bad of ["agentshare/", "agentshare/2.1", "agentshare/-1", "xagentshare/2", "agentshare/2 ", 2, undefined]) expect(schemaVersion(bad)).toBeUndefined();
+    expect(schemaVersion("overshare/1")).toBe(1);
+    expect(schemaVersion("overshare/12")).toBe(12);
+    expect(schemaVersion("agentshare/2")).toBe(1);
+    for (const bad of ["overshare/", "overshare/2.1", "overshare/-1", "xovershare/1", "overshare/1 ", "agentshare/1", "agentshare/3", "toString", 2, undefined]) expect(schemaVersion(bad)).toBeUndefined();
   });
 });
 
@@ -167,14 +187,14 @@ describe("a step the viewer can't draw", () => {
 });
 
 describe("the notice for a newer format", () => {
-  const formats = { shared: "agentshare/3", viewer: "agentshare/2" };
+  const formats = { shared: "overshare/2", viewer: "overshare/1" };
 
   it("names both formats and counts what couldn't be shown, with a link to the first", () => {
     const goToFirst = vi.fn();
     const el = renderCompatNotice(formats, { count: 3, goToFirst });
     expect(el.getAttribute("role")).toBe("status");
-    expect(el.querySelector(".compat-title")?.textContent).toBe("Shared with a newer agent-share");
-    expect(Array.from(el.querySelectorAll("code"), (c) => c.textContent)).toEqual(["agentshare/3", "agentshare/2"]);
+    expect(el.querySelector(".compat-title")?.textContent).toBe("Shared with a newer overshare");
+    expect(Array.from(el.querySelectorAll("code"), (c) => c.textContent)).toEqual(["overshare/2", "overshare/1"]);
     expect(el.textContent).toContain("3 parts can't be shown.");
     const go = el.querySelector<HTMLButtonElement>("button.compat-go")!;
     expect(go.textContent).toBe("Jump to the first ↓");
@@ -205,13 +225,13 @@ describe("frozen shares", () => {
       expect(frozen(v).length).toBeGreaterThan(0);
     }
     const oldest = versions[0]!;
-    for (let v = oldest; v < current; v++) expect(MIGRATIONS[v], `no migration from agentshare/${v}`).toBeTypeOf("function");
+    for (let v = oldest; v < current; v++) expect(MIGRATIONS[v], `no migration from overshare/${v}`).toBeTypeOf("function");
   });
 
   const files = versions.flatMap((v) => frozen(v).map((f) => ({ version: v, ...f })));
-  it.each(files.map((f) => [`agentshare/${f.version} ${f.name}`, f] as const))("%s opens and renders in every view", async (_label, file) => {
+  it.each(files.map((f) => [f.name, f] as const))("%s opens and renders in every view", async (_label, file) => {
     const raw = parsed(file.json);
-    expect(raw.schema).toBe(`agentshare/${file.version}`);
+    expect(raw.schema).toBe(file.schema);
     const { session, newer } = await readShare(raw);
     expect(newer).toBeUndefined();
     expect(session.schema).toBe(SCHEMA_VERSION);
@@ -239,5 +259,6 @@ describe("frozen shares", () => {
         local: false,
       });
     }
-  });
+    // Every view in every variant: seconds per share on its own, more alongside the rest of the suite.
+  }, 30_000);
 });

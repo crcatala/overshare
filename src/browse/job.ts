@@ -10,7 +10,7 @@
  */
 import { readFileSync } from "node:fs";
 import { loadSubagentFiles, parseSession, UnrecognizedFormatError } from "../harnesses/index.js";
-import type { AgentShareConfig } from "../config.js";
+import type { OvershareConfig } from "../config.js";
 import { formatDuration, formatSessionCost, formatTokens, plural } from "../format.js";
 import { PromptsUnavailableError } from "../modes.js";
 import { formatSourceLines, type SourceLines } from "../redact/source-lines.js";
@@ -187,7 +187,7 @@ export function summarizeShare(prepared: PreparedShare): ShareReview {
 
 export type JobRequest =
   | { kind: "view"; path: string; harness: HarnessName }
-  | { kind: "review"; path: string; harness: HarnessName; mode: ShareMode; config: AgentShareConfig };
+  | { kind: "review"; path: string; harness: HarnessName; mode: ShareMode; config: OvershareConfig };
 
 /** The fields of the prepared session that `publishPrepared` uses to name and record an upload. */
 export type PublishSession = PublishInput["session"];

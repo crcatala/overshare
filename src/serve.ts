@@ -35,15 +35,15 @@ export interface ServeOptions {
 }
 
 /**
- * Serve the viewer at /session/ (mirroring the hosted layout) plus local share
- * files at /session/local/<name>, loadable via `#local:<name>`. If the port is in
+ * Serve the viewer at /s/ (mirroring the hosted layout) plus local share
+ * files at /s/local/<name>, loadable via `#local:<name>`. If the port is in
  * use, the next ports are tried (like Vite) unless `strictPort` is set.
  */
 export async function startViewerServer(
   opts: ServeOptions,
 ): Promise<{ server: Server; url: string; port: number; localNames: string[] }> {
   const dist = viewerDistDir();
-  if (!existsSync(join(dist, "session", "index.html"))) throw new Error(`Viewer not built at ${dist} — run \`npm run build:viewer\``);
+  if (!existsSync(join(dist, "s", "index.html"))) throw new Error(`Viewer not built at ${dist} — run \`npm run build:viewer\``);
   const local = localShares(opts.files ?? []);
 
   const server = createServer((req, res) => {
@@ -54,19 +54,19 @@ export async function startViewerServer(
     } catch {
       return void res.writeHead(400).end("bad request");
     }
-    if (path === "/" || path === "/session") {
-      res.writeHead(302, { Location: "/session/" }).end();
+    if (path === "/" || path === "/s") {
+      res.writeHead(302, { Location: "/s/" }).end();
       return;
     }
-    if (!path.startsWith("/session/")) return void res.writeHead(404).end("not found");
-    path = path.slice("/session/".length);
+    if (!path.startsWith("/s/")) return void res.writeHead(404).end("not found");
+    path = path.slice("/s/".length);
     if (path.startsWith("local/")) {
       const body = local.respond(path.slice("local/".length));
       if (!body) return void res.writeHead(404).end("not found");
       res.writeHead(200, { "Content-Type": MIME[".json"]!, "Cache-Control": "no-store" });
       return void res.end(body);
     }
-    const viewerDir = join(dist, "session");
+    const viewerDir = join(dist, "s");
     const candidate = normalize(join(viewerDir, path || "index.html"));
     const file = candidate.startsWith(viewerDir) && existsSync(candidate) && statSync(candidate).isFile() ? candidate : undefined;
     if (!file) return void res.writeHead(404).end("not found");
@@ -80,7 +80,7 @@ export async function startViewerServer(
     const candidate = opts.port + i;
     try {
       const port = await listen(server, candidate, host);
-      return { server, port, url: `http://${host === "0.0.0.0" ? "localhost" : host}:${port}/session/`, localNames: local.names };
+      return { server, port, url: `http://${host === "0.0.0.0" ? "localhost" : host}:${port}/s/`, localNames: local.names };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") throw err;
     }
@@ -124,7 +124,7 @@ export interface LocalShareSummary {
 /**
  * Share files exposed under `local/`: `local/<name>` returns the file, and
  * `local/index.json` lists them so the viewer can show a picker when opened without
- * a share in the hash. Shared by `agent-share serve` and the Vite dev server.
+ * a share in the hash. Shared by `overshare serve` and the Vite dev server.
  */
 export function localShares(files: string[]): { names: string[]; respond(name: string): Buffer | string | undefined } {
   const byName = new Map<string, string>();

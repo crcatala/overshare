@@ -24,7 +24,7 @@ let dir: string;
 const saved = { ...process.env };
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "browse-src-"));
-  process.env.AGENT_SHARE_SHARES = join(dir, "state", "shares.json");
+  process.env.OVERSHARE_SHARES = join(dir, "state", "shares.json");
 });
 afterEach(() => {
   process.env = { ...saved };
@@ -191,7 +191,7 @@ describe("createSource", () => {
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => publisher });
     await reviewAndPublish(source, session, "full");
     expect(publisher.payloads[0]!.content).not.toContain(secret);
-    expect(publisher.payloads[0]!.description).toContain("agent-share:");
+    expect(publisher.payloads[0]!.description).toContain("overshare:");
   });
 
   it("records the share in shares.json and in memory so the list marks it immediately", async () => {
@@ -209,7 +209,7 @@ describe("createSource", () => {
   it("does not hide an upload that succeeded when shares.json cannot be written", async () => {
     const { sessions, session } = indexed();
     writeFileSync(join(dir, "blocker"), "a file, not a directory");
-    process.env.AGENT_SHARE_SHARES = join(dir, "blocker", "shares.json");
+    process.env.OVERSHARE_SHARES = join(dir, "blocker", "shares.json");
     const source = createSource({ config: DEFAULT_CONFIG, sessions, publisher: () => recordingPublisher() });
     const { out } = await reviewAndPublish(source, session, "brief");
     expect(out.url).toBe("https://viewer.example/#abc123");
@@ -230,8 +230,8 @@ describe("createSource", () => {
 
   it("reports unusable publish targets before anything is scanned or sent", () => {
     const { sessions } = indexed();
-    delete process.env.AGENT_SHARE_R2_ACCESS_KEY_ID;
-    delete process.env.AGENT_SHARE_R2_SECRET_ACCESS_KEY;
+    delete process.env.OVERSHARE_R2_ACCESS_KEY_ID;
+    delete process.env.OVERSHARE_R2_SECRET_ACCESS_KEY;
     const r2 = createSource({ config: { ...DEFAULT_CONFIG, target: "r2" }, sessions });
     expect(r2.preflight("r2").error).toMatch(/r2/i);
     expect(r2.target).toBe("r2");
@@ -420,7 +420,7 @@ describe("subagent transcripts (parity with the CLI)", () => {
     expect(await createSource({ config: DEFAULT_CONFIG, sessions }).view(session, live.signal)).toEqual(viewFromSession(withFiles));
   });
 
-  it("the reviewed payload is byte-for-byte what `agent-share publish` would prepare", async () => {
+  it("the reviewed payload is byte-for-byte what `overshare publish` would prepare", async () => {
     const { sessions, session } = sessionWithSubagents();
     const raw = readFileSync(session.path, "utf8");
     const cli = prepareShare(raw, { mode: "full", config: DEFAULT_CONFIG, harness: "claude-code", subagentFiles: loadSubagentFiles(session.path) });
@@ -436,7 +436,7 @@ describe("publish target (ass-ihnf)", () => {
 
   /** The credentials come from either spelling of the variables, and a developer's shell may have one. */
   const noR2Credentials = () => {
-    for (const name of ["AGENT_SHARE_R2_ACCESS_KEY_ID", "AGENT_SHARE_R2_SECRET_ACCESS_KEY", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"]) delete process.env[name];
+    for (const name of ["OVERSHARE_R2_ACCESS_KEY_ID", "OVERSHARE_R2_SECRET_ACCESS_KEY", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"]) delete process.env[name];
   };
 
   /** One publisher fake per target, so a test sees which one an upload reached. */
@@ -543,8 +543,8 @@ describe("publish target (ass-ihnf)", () => {
     // With the section but no credentials, it is the credentials that are missing.
     const noCredentials = createSource({ config: r2Config, sessions }).preflight("r2");
     expect(noCredentials.error).toMatch(/R2 credentials missing/);
-    process.env.AGENT_SHARE_R2_ACCESS_KEY_ID = "id";
-    process.env.AGENT_SHARE_R2_SECRET_ACCESS_KEY = "secret";
+    process.env.OVERSHARE_R2_ACCESS_KEY_ID = "id";
+    process.env.OVERSHARE_R2_SECRET_ACCESS_KEY = "secret";
     expect(createSource({ config: r2Config, sessions }).preflight("r2")).toEqual({ warnings: [] });
   });
 

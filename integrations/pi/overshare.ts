@@ -1,12 +1,12 @@
 /**
  * pi extension: `/share-session [full|brief|minimal|prompts]`
  *
- * Shares the live session through the `agent-share` CLI. Unlike a prompt template,
+ * Shares the live session through the `overshare` CLI. Unlike a prompt template,
  * the extension knows the exact session file and the current branch leaf, so the
  * export matches what is on screen even in a branched session tree.
  *
- * Install: symlink or copy to ~/.pi/agent/extensions/agent-share.ts
- * Requires `agent-share` on PATH (or set AGENT_SHARE_BIN).
+ * Install: symlink or copy to ~/.pi/agent/extensions/overshare.ts
+ * Requires `overshare` on PATH (or set OVERSHARE_BIN).
  */
 import { createHash } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -14,7 +14,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const MODES = ["full", "brief", "minimal", "prompts"] as const;
 
 interface Report {
-  /** Transcript file, as printed by `agent-share report --json`. */
+  /** Transcript file, as printed by `overshare report --json`. */
   path?: string;
   clean: boolean;
   blocked: boolean;
@@ -26,7 +26,7 @@ interface Report {
   bytes: number;
 }
 
-export default function agentShare(pi: ExtensionAPI) {
+export default function overshare(pi: ExtensionAPI) {
   // Pi persists expanded template/skill text, not the command the user typed.
   // Idle inputs use input → before_agent_start → user message. Queued inputs have
   // no expansion hook, so only an exact, unambiguous unchanged-text match is safe.
@@ -71,7 +71,7 @@ export default function agentShare(pi: ExtensionAPI) {
     if (!captured) return;
     // message_end precedes native persistence. This custom entry must be the user
     // message's immediate parent; timestamp + hash prevent reuse/misassociation.
-    pi.appendEntry("agent-share:authored-input", {
+    pi.appendEntry("overshare:authored-input", {
       version: 1,
       text: captured.text,
       source: captured.source,
@@ -90,7 +90,7 @@ export default function agentShare(pi: ExtensionAPI) {
       const file = ctx.sessionManager.getSessionFile();
       if (!file) return ctx.ui.notify("This session is not saved to a file, so it cannot be shared.", "error");
       const leaf = ctx.sessionManager.getLeafId();
-      const bin = process.env.AGENT_SHARE_BIN ?? "agent-share";
+      const bin = process.env.OVERSHARE_BIN ?? "overshare";
       const base = [file, "--harness", "pi", "--mode", mode, ...(leaf ? ["--leaf", leaf] : [])];
 
       const reportRun = await pi.exec(bin, ["report", ...base, "--json"], { timeout: 120_000 });
@@ -98,11 +98,11 @@ export default function agentShare(pi: ExtensionAPI) {
       try {
         report = JSON.parse(reportRun.stdout) as Report;
       } catch {
-        return ctx.ui.notify(`agent-share report failed: ${reportRun.stderr.trim() || `exit ${reportRun.code}`}`, "error");
+        return ctx.ui.notify(`overshare report failed: ${reportRun.stderr.trim() || `exit ${reportRun.code}`}`, "error");
       }
       if (report.blocked) {
         return ctx.ui.notify(
-          `Not shared: the final re-scan found unredacted secrets (${report.rescan.map((r) => r.rule).join(", ")}). Run \`agent-share report\` for details.`,
+          `Not shared: the final re-scan found unredacted secrets (${report.rescan.map((r) => r.rule).join(", ")}). Run \`overshare report\` for details.`,
           "error",
         );
       }
@@ -143,9 +143,9 @@ export default function agentShare(pi: ExtensionAPI) {
         const result = JSON.parse(publishRun.stdout) as { viewerUrl: string; url: string; warnings?: string[] };
         ctx.ui.notify(`Shared (${mode}, redactions: ${counts}):\n${result.viewerUrl}\nStored at: ${result.url}`, "info");
         // e.g. bucket not public / CORS missing / default viewer: the link may not load.
-        for (const w of result.warnings ?? []) ctx.ui.notify(`agent-share: ${w}`, "warning");
+        for (const w of result.warnings ?? []) ctx.ui.notify(`overshare: ${w}`, "warning");
       } catch {
-        ctx.ui.notify(`agent-share publish failed: ${publishRun.stderr.trim().split("\n").at(-1) ?? `exit ${publishRun.code}`}`, "error");
+        ctx.ui.notify(`overshare publish failed: ${publishRun.stderr.trim().split("\n").at(-1) ?? `exit ${publishRun.code}`}`, "error");
       }
     },
   });

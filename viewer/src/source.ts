@@ -5,12 +5,12 @@ import { EMBEDDED_SHARE_ID } from "../../src/embedded.ts";
  *   #<owner>/<gistId>     secret gist via raw URL (no API rate limit)  ← what `publish` emits
  *   #gist:<gistId>        gist via the GitHub API (60 req/h/IP unauthenticated)
  *   #<32-hex gistId>      same as gist:
- *   #local:<name>         file served by `agent-share serve` at ./local/<name>
+ *   #local:<name>         file served by `overshare serve` at ./local/<name>
  *   #url:<path>           same-origin path
  *   #<source>:<id>        a source configured at build time in viewer.config.json,
  *                         e.g. #r2:<id> → https://shares.example.com/s/<id>.json
  *
- * A single-file HTML export (`agent-share export --format html`) carries its session in the page. It has no
+ * A single-file HTML export (`overshare export --format html`) carries its session in the page. It has no
  * hash form: a link can't ask for it (so the hosted viewer can't be pointed at some page's element), and
  * `embeddedSource` supplies it only when the page has one and the hash names nothing else.
  *
@@ -26,8 +26,8 @@ export type Source =
   | { kind: "embedded" };
 
 /** Share sources baked in by vite.config.ts from viewer.config.json. */
-declare const __AGENT_SHARE_SOURCES__: Record<string, string>;
-const SOURCES: Record<string, string> = typeof __AGENT_SHARE_SOURCES__ === "undefined" ? {} : __AGENT_SHARE_SOURCES__;
+declare const __OVERSHARE_SOURCES__: Record<string, string>;
+const SOURCES: Record<string, string> = typeof __OVERSHARE_SOURCES__ === "undefined" ? {} : __OVERSHARE_SOURCES__;
 const SHARE_ID = /^[A-Za-z0-9_-]{8,128}$/;
 
 export interface HashState {

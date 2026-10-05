@@ -2,7 +2,7 @@
 /** View settings: the `&ui=` tokens, where each field comes from, and the settings and share menus. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-(globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
+(globalThis as { __OVERSHARE_SOURCES__?: Record<string, string> }).__OVERSHARE_SOURCES__ = {};
 const vs = await import("../viewer/src/viewsettings.ts");
 const { settingsButton } = await import("../viewer/src/settings.ts");
 const { shareButton, shareLink } = await import("../viewer/src/share.ts");
@@ -127,7 +127,7 @@ describe("storage", () => {
   });
 
   it("reads a damaged value as far as it can", () => {
-    localStorage.setItem("agent-share-default-view", "log.???");
+    localStorage.setItem("overshare-default-view", "log.???");
     expect(vs.loadSaved()).toEqual({ variant: "log" });
   });
 
@@ -211,13 +211,13 @@ describe("settings menu", () => {
 describe("share menu", () => {
   // index.html has the toast's live region from the start.
   beforeEach(() => document.body.append(Object.assign(document.createElement("div"), { id: "toast" })));
-  const BASE = "https://view.example/session/?x=1#old";
+  const BASE = "https://view.example/s/?x=1#old";
   const source = { kind: "raw-gist" as const, owner: "someone", id: "0123456789abcdef0123" };
 
   it("builds links from the source, never the address bar", () => {
-    expect(shareLink(source, {}, BASE)).toBe("https://view.example/session/?x=1#someone/0123456789abcdef0123");
-    expect(shareLink(source, { ui: "log.brief.dark.L.toc-all" }, BASE)).toBe("https://view.example/session/?x=1#someone/0123456789abcdef0123&ui=log.brief.dark.L.toc-all");
-    expect(shareLink(source, { turn: "4" }, BASE)).toBe("https://view.example/session/?x=1#someone/0123456789abcdef0123&turn=4");
+    expect(shareLink(source, {}, BASE)).toBe("https://view.example/s/?x=1#someone/0123456789abcdef0123");
+    expect(shareLink(source, { ui: "log.brief.dark.L.toc-all" }, BASE)).toBe("https://view.example/s/?x=1#someone/0123456789abcdef0123&ui=log.brief.dark.L.toc-all");
+    expect(shareLink(source, { turn: "4" }, BASE)).toBe("https://view.example/s/?x=1#someone/0123456789abcdef0123&turn=4");
   });
 
   function open(turn?: { ordinal: number; label: string }, src: Parameters<typeof shareLink>[0] = source) {

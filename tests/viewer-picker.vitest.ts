@@ -2,7 +2,7 @@
 /** The local sessions page: what each row shows and where it links. */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-(globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
+(globalThis as { __OVERSHARE_SOURCES__?: Record<string, string> }).__OVERSHARE_SOURCES__ = {};
 const { fetchLocalShares, renderPicker } = await import("../viewer/src/picker.ts");
 const { variantKeyStep } = await import("../viewer/src/nav.ts");
 const { VARIANTS } = await import("../viewer/src/variants.ts");
@@ -37,7 +37,7 @@ describe("renderPicker", () => {
     expect(actions).toEqual(["icon theme", "icon settings"]);
     el.querySelector<HTMLButtonElement>("button.theme")!.click();
     expect(opts.toggleTheme).toHaveBeenCalledOnce();
-    expect(el.querySelector(".credit")?.textContent).toContain("Created with agent-share");
+    expect(el.querySelector(".credit")?.textContent).toContain("Created with overshare");
   });
 
   it("links to each share by name alone, encoded", () => {

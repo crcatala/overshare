@@ -1,4 +1,4 @@
-import type { AgentShareConfig } from "../config.js";
+import type { OvershareConfig } from "../config.js";
 import { HARNESS_META, HARNESS_NAMES, type HarnessName } from "../harnesses/meta.js";
 import { defaultRoots } from "../resolve.js";
 import { IndexJob } from "../sessions/index.js";
@@ -8,7 +8,7 @@ import { fileSettings } from "./settings.js";
 import { createSource } from "./source.js";
 
 export interface BrowseOptions {
-  config: AgentShareConfig;
+  config: OvershareConfig;
   /** Start with this harness filter (the list still indexes both). */
   harness?: HarnessName;
   /** Start with this search text. */
@@ -18,7 +18,7 @@ export interface BrowseOptions {
 /** Open the interactive session browser. Needs a TTY on both ends. */
 export function runBrowse(opts: BrowseOptions): void {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error("browse needs an interactive terminal; use `agent-share list` in scripts");
+    throw new Error("browse needs an interactive terminal; use `overshare list` in scripts");
   }
   // The list paints from a stat-only listing at once; summaries are read in the background and fill in
   // (the first run reads every transcript, seconds for hundreds of sessions; later runs read only what changed).

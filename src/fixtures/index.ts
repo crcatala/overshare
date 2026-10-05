@@ -1,12 +1,12 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir, userInfo } from "node:os";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
-import type { AgentShareConfig } from "../config.js";
-import { prepareShare } from "../pipeline.js";
+import { DEFAULT_CONFIG, type OvershareConfig } from "../config.js";
+import { prepareShare, type PreparedShare } from "../pipeline.js";
 import { readSecretsFile } from "../redact/known-values.js";
 import { projectDir as claudeProjectDir } from "../harnesses/claude-code/index.js";
 import { projectDir as piProjectDir } from "../harnesses/pi/index.js";
-import { SHARE_MODES } from "../schema.js";
+import { SHARE_MODES, type ShareMode } from "../schema.js";
 import { emitClaudeCode } from "./claude-code.js";
 import { emitPi } from "./pi.js";
 import { Rng } from "./random.js";
@@ -38,7 +38,7 @@ export interface GeneratedFixtures {
   home: string;
   username: string;
   cwd: string;
-  /** Directories to point AGENT_SHARE_CLAUDE_PROJECTS / AGENT_SHARE_PI_SESSIONS at. */
+  /** Directories to point OVERSHARE_CLAUDE_PROJECTS / OVERSHARE_PI_SESSIONS at. */
   roots: { "claude-code": string; pi: string };
 }
 
@@ -88,8 +88,36 @@ export interface ExportedShare {
   status: "clean" | "needs review" | "BLOCKED";
 }
 
+/** Where the viewer build puts the example share, relative to the viewer page (open it with `#url:examples/session.json`). */
+export const EXAMPLE_SHARE_PATH = "examples/session.json";
+
+/**
+ * The example session linked from the landing page: the Claude Code fixture, redacted in full mode by default (so
+ * readers can step down to every other mode) with its planted fake secrets as known values, so the share shows real
+ * `[REDACTED:…]` replacements. A fixed home, username and the default config keep it the same on every machine.
+ */
+export function exampleShare(opts: { now?: Date; mode?: ShareMode } = {}): PreparedShare {
+  const dir = mkdtempSync(join(tmpdir(), "overshare-example-"));
+  try {
+    const fx = generateFixtures({ outDir: dir, home: "/home/dana", username: "dana" });
+    const share = prepareShare(readFileSync(fx.claudeFile, "utf8"), {
+      mode: opts.mode ?? "full",
+      config: DEFAULT_CONFIG,
+      harness: "claude-code",
+      knownSecrets: [],
+      extraKnownSecrets: readSecretsFile(fx.secretsFile),
+      machine: { homeDir: fx.home, username: fx.username, hostname: "devbox" },
+      now: opts.now,
+    });
+    if (share.report.blocked) throw new Error("the example share failed its final re-scan");
+    return share;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /** Redact and export each fixture transcript in every mode to `<outDir>/shares/<harness>-<mode>.json`. */
-export function exportFixtureShares(fx: GeneratedFixtures, outDir: string, config: AgentShareConfig): ExportedShare[] {
+export function exportFixtureShares(fx: GeneratedFixtures, outDir: string, config: OvershareConfig): ExportedShare[] {
   const sharesDir = join(outDir, "shares");
   mkdirSync(sharesDir, { recursive: true });
   const extraKnownSecrets = readSecretsFile(fx.secretsFile);

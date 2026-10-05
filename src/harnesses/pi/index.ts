@@ -10,7 +10,7 @@ export const projectDir = (cwd: string): string => `--${cwd.replace(/^[/\\]+/, "
 /** `~/.pi/agent/sessions/--<cwd-slug>--/<timestamp>_<session-id>.jsonl`. */
 export const pi: Harness = {
   name: "pi",
-  sessionsRoot: (env, home) => env.AGENT_SHARE_PI_SESSIONS ?? env.PI_CODING_AGENT_SESSION_DIR ?? join(env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), "sessions"),
+  sessionsRoot: (env, home) => env.OVERSHARE_PI_SESSIONS ?? env.PI_CODING_AGENT_SESSION_DIR ?? join(env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), "sessions"),
   listFiles: (root, cwd) => jsonlSessionFiles(root, cwd === undefined ? undefined : projectDir(cwd)),
   sessionId: (file) => {
     const name = basename(file, ".jsonl");

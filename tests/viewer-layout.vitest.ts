@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { asciiTable, columnWidths, layoutTable, lineWidth, linesToText, releaseTables, tableModel, toGlyphs, wrapCell, type TableModel, type TableStyle } from "../viewer/src/asciitable.ts";
 import { lineDiff, preview, trimContext } from "../viewer/src/text.ts";
 
-(globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
+(globalThis as { __OVERSHARE_SOURCES__?: Record<string, string> }).__OVERSHARE_SOURCES__ = {};
 const { markdown } = await import("../viewer/src/dom.ts");
 const { plainLine } = await import("../viewer/src/transcript.ts");
 

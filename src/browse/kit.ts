@@ -217,7 +217,7 @@ export function runScreen(screen: Screen): void {
       // fall through to the hard reset
     }
     emergencyRestore();
-    if (failure !== undefined) console.error(`\nagent-share browse crashed: ${failure instanceof Error ? (failure.stack ?? failure.message) : String(failure)}`);
+    if (failure !== undefined) console.error(`\novershare browse crashed: ${failure instanceof Error ? (failure.stack ?? failure.message) : String(failure)}`);
     process.exit(code);
   };
   screen.onQuit = () => shutdown(0);

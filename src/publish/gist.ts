@@ -27,7 +27,7 @@ export class GistPublisher implements Publisher {
     const auth = await run("gh", ["auth", "status"]);
     if (auth.code !== 0) throw new Error("GitHub CLI is not logged in (run `gh auth login`), or `gh` is not installed.");
 
-    const dir = mkdtempSync(join(tmpdir(), "agent-share-"));
+    const dir = mkdtempSync(join(tmpdir(), "overshare-"));
     try {
       const file = join(dir, payload.filename);
       writeFileSync(file, payload.content, { mode: 0o600 });

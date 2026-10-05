@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { EMBEDDED_SHARE_ID } from "../src/embedded.ts";
 import { jsonForScript } from "../src/standalone.ts";
 
-(globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
+(globalThis as { __OVERSHARE_SOURCES__?: Record<string, string> }).__OVERSHARE_SOURCES__ = {};
 const { embeddedSource, formatHash, loadSource, parseHash } = await import("../viewer/src/source.ts");
 
 const put = (text: string) => {
@@ -24,7 +24,7 @@ describe("embedded source", () => {
   });
 
   it("loads the page's session, escapes undone, without fetching", async () => {
-    const session = { schema: "agentshare/2", text: "</script><!-- $&  " };
+    const session = { schema: "overshare/1", text: "</script><!-- $&  " };
     put(jsonForScript(JSON.stringify(session)));
     const realFetch = globalThis.fetch;
     globalThis.fetch = (() => {

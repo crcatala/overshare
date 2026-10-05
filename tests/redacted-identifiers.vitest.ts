@@ -20,7 +20,7 @@ import { formatReport } from "../src/report.js";
 import type { NormalizedSession, ShareMode } from "../src/schema.js";
 import { ClaudeTranscript, PiTranscript, ccUsage, fake, piUsage, randomish } from "./helpers.js";
 
-(globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
+(globalThis as { __OVERSHARE_SOURCES__?: Record<string, string> }).__OVERSHARE_SOURCES__ = {};
 const { renderTranscript } = await import("../viewer/src/transcript.ts");
 
 const machine = { homeDir: "/home/tester", username: "tester", hostname: "box" };

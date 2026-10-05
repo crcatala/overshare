@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cacheEventDetail, cacheEventLabel, formatCacheMisses, formatCacheSummary } from "../src/format.ts";
 import { SCHEMA_VERSION, type CacheEvent, type CacheSummary, type NormalizedSession, type ResponseUsage, type Step, type Turn, type Usage } from "../src/schema.ts";
 
-(globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
+(globalThis as { __OVERSHARE_SOURCES__?: Record<string, string> }).__OVERSHARE_SOURCES__ = {};
 const { renderTranscript } = await import("../viewer/src/transcript.ts");
 const { renderTokenRail } = await import("../viewer/src/tokens.ts");
 const { renderHeader } = await import("../viewer/src/header.ts");

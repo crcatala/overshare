@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { SCHEMA_VERSION, type NormalizedSession, type Step, type Turn } from "../src/schema.ts";
 
-(globalThis as { __AGENT_SHARE_SOURCES__?: Record<string, string> }).__AGENT_SHARE_SOURCES__ = {};
+(globalThis as { __OVERSHARE_SOURCES__?: Record<string, string> }).__OVERSHARE_SOURCES__ = {};
 const { buildIndex, excerpt, outputOnlyTurns, search } = await import("../viewer/src/search.ts");
 const { queryTokens } = await import("../viewer/src/filter.ts");
 const { projectSession } = await import("../src/modes.ts");

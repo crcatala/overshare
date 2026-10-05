@@ -28,7 +28,7 @@ describe("viewer build config", () => {
     expect(dev).toContain("style-src 'self' 'unsafe-inline'");
     expect(dev).toMatch(/connect-src [^;]* ws: wss:/);
     expect(deployFiles({})._headers).toContain(contentSecurityPolicy({}, { header: true }));
-    expect(deployFiles({})._redirects).toBe("/ /session/ 302\n");
+    expect(deployFiles({})._redirects).toBe("/ /s/ 302\n");
   });
 
   it.each([
@@ -65,11 +65,11 @@ describe("viewer build", () => {
 
 describe("viewer share links", () => {
   afterEach(() => {
-    delete (globalThis as Record<string, unknown>).__AGENT_SHARE_SOURCES__;
+    delete (globalThis as Record<string, unknown>).__OVERSHARE_SOURCES__;
   });
 
   it("parses configured sources, gists and local files", async () => {
-    (globalThis as Record<string, unknown>).__AGENT_SHARE_SOURCES__ = { r2: "https://shares.example.com/s/{id}.json" };
+    (globalThis as Record<string, unknown>).__OVERSHARE_SOURCES__ = { r2: "https://shares.example.com/s/{id}.json" };
     const { parseHash, formatHash } = await import("../viewer/src/source.ts");
     expect(parseHash("#r2:AbCdEfGhIjKlMnOpQrStUv&ui=brief")).toMatchObject({
       source: { kind: "configured", source: "r2", id: "AbCdEfGhIjKlMnOpQrStUv" },
@@ -86,7 +86,7 @@ describe("viewer share links", () => {
   it("writes local names and url paths so they read back whole, through a real URL", async () => {
     const { parseHash, formatHash } = await import("../viewer/src/source.ts");
     const trip = (source: Parameters<typeof formatHash>[0]["source"]) =>
-      parseHash(new URL(formatHash({ source, params: new URLSearchParams({ turn: "2" }) }), "https://v.example/session/").hash);
+      parseHash(new URL(formatHash({ source, params: new URLSearchParams({ turn: "2" }) }), "https://v.example/s/").hash);
     for (const name of ["a&b.json", "100%.json", "x#y.json", "b c.json", "a%20b.json", "ünï.json"]) {
       const back = trip({ kind: "local", name });
       expect(back.source).toEqual({ kind: "local", name });

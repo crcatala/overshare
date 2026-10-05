@@ -19,7 +19,7 @@ export function renderCompatNotice(formats: NonNullable<ReadShare["newer"]>, gap
     h(
       "div",
       {},
-      h("p", { class: "compat-title" }, "Shared with a newer agent-share"),
+      h("p", { class: "compat-title" }, "Shared with a newer overshare"),
       h(
         "p",
         {},

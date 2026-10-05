@@ -14,7 +14,7 @@
  * ignore a result that arrives anyway.
  */
 import { randomUUID } from "node:crypto";
-import type { AgentShareConfig, ShareTarget } from "../config.js";
+import type { OvershareConfig, ShareTarget } from "../config.js";
 import { createPublisher, preflightWarnings, publishPrepared } from "../publish/index.js";
 import type { Publisher } from "../publish/types.js";
 import type { KnownSourceUse } from "../redact/known-values.js";
@@ -157,7 +157,7 @@ export class StaleReviewError extends Error {
 export const destinationLabel = (target: ShareTarget): string => (target === "gist" ? "a secret (unlisted) gist" : "the public R2 bucket (unlisted id)");
 
 export interface SourceOptions {
-  config: AgentShareConfig;
+  config: OvershareConfig;
   sessions: SessionSummary[];
   /** The job filling `sessions` in, if indexing is still running. */
   index?: IndexFeed;
@@ -165,7 +165,7 @@ export interface SourceOptions {
   /** Keep this many reviewed payloads so the publish sends exactly what was reviewed. */
   keepPrepared?: number;
   /** Publisher factory, injectable for tests. */
-  publisher?: (config: AgentShareConfig, target: ShareTarget) => Publisher;
+  publisher?: (config: OvershareConfig, target: ShareTarget) => Publisher;
   /** Where view and review jobs run; worker threads unless a test says otherwise. */
   runner?: JobRunner;
 }

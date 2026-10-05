@@ -1,24 +1,25 @@
 /**
  * Viewer dev server + production build.
  *
- *   npm run dev          Vite dev server at /session/ with HMR (CSS hot-swaps; TS edits
+ *   npm run dev          Vite dev server at /s/ with HMR (CSS hot-swaps; TS edits
  *                        reload the page, which keeps the session since it lives in the
- *                        URL hash). Local shares are served at /session/local/ — the
+ *                        URL hash). Local shares are served at /s/local/ — the
  *                        fixture sessions by default (regenerated on every start),
- *                        or the files in $AGENT_SHARE_DEV_SHARES.
- *   npm run build:viewer viewer/dist/session/ (relative asset URLs, so any base path
+ *                        or the files in $OVERSHARE_DEV_SHARES.
+ *   npm run build:viewer viewer/dist/s/ (relative asset URLs, so any base path
  *                        works) plus _headers, _redirects and robots.txt in viewer/dist/,
+ *                        the example session at viewer/dist/s/examples/ (#url:examples/session.json),
  *                        and viewer/dist/standalone.html, the template `export --format html`
  *                        fills in (the same viewer with everything inlined).
  *
- * `viewer.config.json` (or $AGENT_SHARE_VIEWER_CONFIG) adds share sources; their
+ * `viewer.config.json` (or $OVERSHARE_VIEWER_CONFIG) adds share sources; their
  * origins go into the Content-Security-Policy.
  */
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import { loadConfig } from "./src/config.ts";
-import { exportFixtureShares, generateFixtures } from "./src/fixtures/index.ts";
+import { EXAMPLE_SHARE_PATH, exampleShare, exportFixtureShares, generateFixtures } from "./src/fixtures/index.ts";
 import { localShares } from "./src/serve.ts";
 import { inlineViewer } from "./src/standalone.ts";
 // @ts-expect-error — plain ESM helper without type declarations (shared with tests)
@@ -32,9 +33,9 @@ export default defineConfig(({ command }) => {
   const { sources } = loadViewerConfig() as { sources: Record<string, string> };
   return {
     root: viewerRoot,
-    base: dev ? "/session/" : "./",
+    base: dev ? "/s/" : "./",
     publicDir: false,
-    define: { __AGENT_SHARE_SOURCES__: JSON.stringify(sources) },
+    define: { __OVERSHARE_SOURCES__: JSON.stringify(sources) },
     // Listens on localhost only unless you pass `npm run dev -- --host`. Any Host header is
     // accepted (e.g. a VPS domain, Tailscale name or tunnel), which disables Vite's
     // DNS-rebinding protection. To keep that safe, Vite may only read the viewer and the
@@ -47,14 +48,14 @@ export default defineConfig(({ command }) => {
       allowedHosts: true,
       fs: { strict: true, allow: [viewerRoot, resolve(repo, "src"), resolve(repo, "node_modules/@fontsource-variable/ibm-plex-sans")] },
     },
-    build: { outDir: "dist/session", emptyOutDir: true, sourcemap: true, target: "es2022" },
+    build: { outDir: "dist/s", emptyOutDir: true, sourcemap: true, target: "es2022" },
     plugins: [cspPlugin(sources, dev), deployFilesPlugin(sources), standalonePlugin(), localSharesPlugin()],
   };
 });
 
 function cspPlugin(sources: Record<string, string>, dev: boolean): Plugin {
   return {
-    name: "agent-share:csp",
+    name: "overshare:csp",
     transformIndexHtml: (html) => html.replace("{{CSP}}", contentSecurityPolicy(sources, { dev })),
   };
 }
@@ -62,7 +63,7 @@ function cspPlugin(sources: Record<string, string>, dev: boolean): Plugin {
 function deployFilesPlugin(sources: Record<string, string>): Plugin {
   let write = true;
   return {
-    name: "agent-share:deploy-files",
+    name: "overshare:deploy-files",
     apply: "build",
     configResolved(config) {
       write = config.build.write;
@@ -70,9 +71,15 @@ function deployFilesPlugin(sources: Record<string, string>): Plugin {
     closeBundle() {
       // In-memory builds (tests) must not touch viewer/dist.
       if (!write) return;
+      // The viewer used to build into dist/session/. A copy left by an earlier build would be deployed with the
+      // rest of dist/, outside every header rule (no CSP, no frame-ancestors), so remove it.
+      rmSync(join(viewerRoot, "dist", "session"), { recursive: true, force: true });
       for (const [name, content] of Object.entries(deployFiles(sources) as Record<string, string>)) {
         writeFileSync(join(viewerRoot, "dist", name), content);
       }
+      const example = join(viewerRoot, "dist", "s", EXAMPLE_SHARE_PATH);
+      mkdirSync(dirname(example), { recursive: true });
+      writeFileSync(example, exampleShare().json);
     },
   };
 }
@@ -82,7 +89,7 @@ function standalonePlugin(): Plugin {
   let write = true;
   let outDir = "";
   return {
-    name: "agent-share:standalone",
+    name: "overshare:standalone",
     apply: "build",
     configResolved(config) {
       write = config.build.write;
@@ -105,24 +112,29 @@ function standalonePlugin(): Plugin {
   };
 }
 
-/** Serve share JSON at /session/local/ during development, like `agent-share serve`. */
+/** Serve share JSON at /s/local/ during development, like `overshare serve`. */
 function localSharesPlugin(): Plugin {
   return {
-    name: "agent-share:local-shares",
+    name: "overshare:local-shares",
     apply: "serve",
     configureServer(server) {
       const files = devShareFiles((msg) => server.config.logger.info(msg));
       const local = localShares(files);
+      let example: string | undefined;
       server.middlewares.use((req, res, next) => {
         const path = (req.url ?? "/").split("?")[0]!;
-        if (path === "/" || path === "/session") {
-          res.writeHead(302, { Location: "/session/" }).end();
+        if (path === "/" || path === "/s") {
+          res.writeHead(302, { Location: "/s/" }).end();
           return;
         }
-        if (!path.startsWith("/session/local/")) return next();
+        if (path === `/s/${EXAMPLE_SHARE_PATH}`) {
+          example ??= exampleShare().json;
+          return void res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }).end(example);
+        }
+        if (!path.startsWith("/s/local/")) return next();
         let name: string;
         try {
-          name = decodeURIComponent(path.slice("/session/local/".length));
+          name = decodeURIComponent(path.slice("/s/local/".length));
         } catch {
           return void res.writeHead(400).end("bad request");
         }
@@ -130,18 +142,18 @@ function localSharesPlugin(): Plugin {
         if (!body) return void res.writeHead(404).end("not found");
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }).end(body);
       });
-      server.config.logger.info(`  agent-share: ${files.length} local shares at /session/ (picker) — ${files.length ? "e.g. #local:" + files[0]!.split("/").at(-1) : "none"}`);
+      server.config.logger.info(`  overshare: ${files.length} local shares at /s/ (picker) — ${files.length ? "e.g. #local:" + files[0]!.split("/").at(-1) : "none"}`);
     },
   };
 }
 
 function devShareFiles(log: (msg: string) => void): string[] {
-  const fromEnv = process.env.AGENT_SHARE_DEV_SHARES?.split(/[,\s]+/).filter(Boolean);
+  const fromEnv = process.env.OVERSHARE_DEV_SHARES?.split(/[,\s]+/).filter(Boolean);
   if (fromEnv?.length) return fromEnv.map((f) => resolve(f));
   const outDir = join(repo, "fixtures-out");
   const sharesDir = join(outDir, "shares");
   // Generated from code and deterministic, so regenerate every time rather than keep shares that may predate a schema change.
-  log("  agent-share: generating fixture sessions in fixtures-out/ …");
+  log("  overshare: generating fixture sessions in fixtures-out/ …");
   exportFixtureShares(generateFixtures({ outDir }), outDir, loadConfig());
   return readdirSync(sharesDir)
     .filter((f) => f.endsWith(".json"))

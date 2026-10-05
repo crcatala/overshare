@@ -109,8 +109,8 @@ export function defaultsState(current: ViewSettings, saved: Partial<ViewSettings
 
 // ---------- storage ----------
 // Both keys hold a `&ui=` value, so they read back through the same forgiving parser.
-const SAVED_KEY = "agent-share-default-view";
-const TAB_KEY = "agent-share-view";
+const SAVED_KEY = "overshare-default-view";
+const TAB_KEY = "overshare-view";
 
 function read(store: () => Storage, key: string): string | null {
   try {

@@ -237,7 +237,7 @@ describe("publish dialog", () => {
   });
 
   it("cannot continue when publishing is not configured, and says why", async () => {
-    const d = drive({ preflight: () => ({ error: "R2 credentials missing: set AGENT_SHARE_R2_ACCESS_KEY_ID", warnings: [] }) });
+    const d = drive({ preflight: () => ({ error: "R2 credentials missing: set OVERSHARE_R2_ACCESS_KEY_ID", warnings: [] }) });
     await d.press("p");
     expect(d.text()).toContain("cannot publish");
     expect(d.text()).toContain("R2 credentials missing");
@@ -297,7 +297,7 @@ describe("PublishFlow", () => {
 
 describe("publish target (ass-ihnf)", () => {
   /** gist ready, r2 not set up: what a user who never configured R2 sees. */
-  const r2Missing = (target: ShareTarget) => (target === "r2" ? { error: 'target "r2" needs an "r2" section in the agent-share config (bucket, publicUrl, accountId)', warnings: [] } : { warnings: [] });
+  const r2Missing = (target: ShareTarget) => (target === "r2" ? { error: 'target "r2" needs an "r2" section in the overshare config (bucket, publicUrl, accountId)', warnings: [] } : { warnings: [] });
 
   it("names the target in the dialog, preselected to the configured default", async () => {
     const gist = drive();

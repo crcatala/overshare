@@ -16,11 +16,6 @@
 import type { HarnessName } from "./harnesses/meta.js";
 
 export const SCHEMA_VERSION = "overshare/1" as const;
-/**
- * The same formats under the project's earlier name (agent-share), by the overshare version each one is:
- * links published before the rename carry them. viewer/src/compat.ts reads them as that version.
- */
-export const LEGACY_SCHEMA_VERSIONS: Readonly<Record<string, number>> = { "agentshare/2": 1 };
 
 export type ShareMode = "full" | "brief" | "minimal" | "prompts";
 export const SHARE_MODES: readonly ShareMode[] = ["full", "brief", "minimal", "prompts"];
@@ -29,10 +24,6 @@ export type { HarnessName };
 
 /** Local-only pi extension entry; its payload is never copied into a share. */
 export const PI_INPUT_PROVENANCE_TYPE = "overshare:authored-input";
-/** What the extension wrote before the rename; pi sessions recorded then still carry it. */
-export const LEGACY_PI_INPUT_PROVENANCE_TYPES: readonly string[] = ["agent-share:authored-input"];
-export const isPiInputProvenanceType = (type: unknown): boolean =>
-  type === PI_INPUT_PROVENANCE_TYPE || LEGACY_PI_INPUT_PROVENANCE_TYPES.includes(type as string);
 
 export interface Usage {
   /** Uncached prompt tokens. */

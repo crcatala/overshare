@@ -14,7 +14,7 @@ export const cacheWrite1hRate = (p: ModelPrice): number => p.input * CACHE_WRITE
  * from Anthropic's published list prices. Keyed by family, without date stamps. Kept apart
  * from `pricing-data.ts` so `scripts/update-prices.mjs` cannot overwrite it.
  */
-const LEGACY_PRICES: Record<string, ModelPrice> = {
+const SUPPLEMENTAL_PRICES: Record<string, ModelPrice> = {
   "claude-3-haiku": { input: 0.25, output: 1.25, cacheRead: 0.03, cacheWrite: 0.3 },
   "claude-3-5-haiku": { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 },
   "claude-3-5-sonnet": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
@@ -34,7 +34,7 @@ export function findPrice(model: string | undefined): ModelPrice | undefined {
   const id = /claude-[a-z0-9.-]+/.exec(model.toLowerCase())?.[0]?.replace(/-v\d+$/, "");
   if (!id) return undefined;
   const family = id.replace(/-(\d{8}|latest)$/, "").replace(/-0$/, "");
-  return ANTHROPIC_PRICES[id] ?? ANTHROPIC_PRICES[family] ?? LEGACY_PRICES[family];
+  return ANTHROPIC_PRICES[id] ?? ANTHROPIC_PRICES[family] ?? SUPPLEMENTAL_PRICES[family];
 }
 
 /**

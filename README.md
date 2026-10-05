@@ -438,7 +438,7 @@ server):
 | `…&turn=3` | open at prompt 3 |
 
 Shares outlive the viewer that wrote them, and the viewer is always the latest build, so it reads
-shares by the format version in them (`"schema": "overshare/N"`; `agentshare/2`, the name before the rename, reads as `overshare/1`):
+shares by the format version in them (`"schema": "overshare/N"`):
 
 - **Same version**: shown as is.
 - **Newer version** (shared with a newer overshare): shown best effort under a notice that names both

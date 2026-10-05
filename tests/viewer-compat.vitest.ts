@@ -20,8 +20,7 @@ const { availableModes, projectSession, promptsUnavailableReason } = await impor
 const { VARIANTS } = await import("../viewer/src/variants.ts");
 
 const SHARES = join(import.meta.dirname, "fixtures", "shares");
-// One directory per format, named after it: overshare-1/ holds overshare/1 shares, agentshare-2/ the same
-// format from before the rename.
+// One directory per format, named after it: overshare-1/ holds overshare/1 shares.
 const formats = readdirSync(SHARES, { withFileTypes: true })
   .filter((d) => d.isDirectory())
   .map((d) => ({ dir: d.name, schema: d.name.replace(/-(\d+)$/, "/$1") }))
@@ -44,12 +43,6 @@ const sample = () => parsed(frozen(current).find((f) => f.schema === SCHEMA_VERS
 describe("reading a share by its format version", () => {
   it("reads the current version as is, without a notice", async () => {
     const read = await readShare(sample());
-    expect(read.newer).toBeUndefined();
-    expect(read.session.schema).toBe(SCHEMA_VERSION);
-  });
-
-  it("reads a share published before the rename (agentshare/2) as the current version, without a notice", async () => {
-    const read = await readShare({ ...sample(), schema: "agentshare/2" });
     expect(read.newer).toBeUndefined();
     expect(read.session.schema).toBe(SCHEMA_VERSION);
   });
@@ -77,8 +70,8 @@ describe("reading a share by its format version", () => {
       2: async () => ({ default: (s: Record<string, unknown>) => (seen.push(`from ${s.schema}`), { ...s, mode: s.mode }) }),
       8: async () => (load(), { default: (s: Record<string, unknown>) => s }),
     };
-    const read = await readShare({ ...sample(), schema: "agentshare/2" }, migrations);
-    expect(seen).toEqual(["from agentshare/2", "from overshare/2"]);
+    const read = await readShare({ ...sample(), schema: "overshare/1" }, migrations);
+    expect(seen).toEqual(["from overshare/1", "from overshare/2"]);
     expect(read.session.schema).toBe("overshare/3");
     expect(read.session.title).toBe("was renamed");
     expect(read.newer).toBeUndefined();
@@ -91,7 +84,7 @@ describe("reading a share by its format version", () => {
     ["no schema", { turns: [] }],
     ["another kind of schema", { schema: "somebody-else/1", turns: [] }],
     ["a non-numeric version", { schema: "overshare/next", turns: [] }],
-    ["a pre-rename version that never was overshare", { schema: "agentshare/1", turns: [] }],
+    ["the pre-rename name", { schema: "agentshare/2", turns: [] }],
   ])("refuses %s", async (_name, data) => {
     await expect(readShare(data)).rejects.toThrow("isn't an overshare session");
   });
@@ -120,8 +113,7 @@ describe("reading a share by its format version", () => {
   it("parses versions strictly", () => {
     expect(schemaVersion("overshare/1")).toBe(1);
     expect(schemaVersion("overshare/12")).toBe(12);
-    expect(schemaVersion("agentshare/2")).toBe(1);
-    for (const bad of ["overshare/", "overshare/2.1", "overshare/-1", "xovershare/1", "overshare/1 ", "agentshare/1", "agentshare/3", "toString", 2, undefined]) expect(schemaVersion(bad)).toBeUndefined();
+    for (const bad of ["overshare/", "overshare/2.1", "overshare/-1", "xovershare/1", "overshare/1 ", "agentshare/2", "toString", 2, undefined]) expect(schemaVersion(bad)).toBeUndefined();
   });
 });
 

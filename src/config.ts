@@ -32,7 +32,7 @@ export type ShareTarget = "gist" | "r2";
 export const SHARE_TARGETS: readonly ShareTarget[] = ["gist", "r2"];
 
 export const DEFAULT_CONFIG: OvershareConfig = {
-  viewerUrl: "https://overshare.link/session/",
+  viewerUrl: "https://overshare.link/s/",
   target: "gist",
   maxToolChars: 20_000,
   redact: { emails: true, username: true, hostname: false, denylist: [], allowlist: [], knownSources: DEFAULT_KNOWN_SOURCES },

@@ -34,10 +34,10 @@ describe("R2Publisher", () => {
     const s3 = await mockS3();
     try {
       const config: R2Config = { bucket: "shares", prefix: "s/", publicUrl: "https://shares.example.com/", endpoint: s3.endpoint };
-      const publisher = new R2Publisher({ config, credentials, viewerUrl: "https://viewer.example.com/session/" });
+      const publisher = new R2Publisher({ config, credentials, viewerUrl: "https://viewer.example.com/s/" });
       const result = await publisher.publish({ filename: "session.json", content: '{"schema":"overshare/1"}', description: "d" });
       expect(result.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
-      expect(result.viewerUrl).toBe(`https://viewer.example.com/session/#r2:${result.id}`);
+      expect(result.viewerUrl).toBe(`https://viewer.example.com/s/#r2:${result.id}`);
       expect(result.url).toBe(`https://shares.example.com/s/${result.id}.json`);
       const put = s3.requests[0]!;
       expect(put.method).toBe("PUT");
@@ -87,8 +87,8 @@ describe("createPublisher", () => {
 
 describe("parseShareRef", () => {
   it.each([
-    ["https://overshare.link/session/#r2:AbCdEfGhIjKlMnOpQrStUv", { target: "r2", id: "AbCdEfGhIjKlMnOpQrStUv" }],
-    ["https://overshare.link/session/#crcatala-vps/5260b8cf9b1baae31a40717ac1ab5f08&view=minimal", { target: "gist", id: "5260b8cf9b1baae31a40717ac1ab5f08" }],
+    ["https://overshare.link/s/#r2:AbCdEfGhIjKlMnOpQrStUv", { target: "r2", id: "AbCdEfGhIjKlMnOpQrStUv" }],
+    ["https://overshare.link/s/#crcatala-vps/5260b8cf9b1baae31a40717ac1ab5f08&view=minimal", { target: "gist", id: "5260b8cf9b1baae31a40717ac1ab5f08" }],
     ["https://gist.github.com/crcatala-vps/5260b8cf9b1baae31a40717ac1ab5f08", { target: "gist", id: "5260b8cf9b1baae31a40717ac1ab5f08" }],
     ["5260b8cf9b1baae31a40717ac1ab5f08", { target: "gist", id: "5260b8cf9b1baae31a40717ac1ab5f08" }],
     ["r2:AbCdEfGhIjKlMnOpQrStUv", { target: "r2", id: "AbCdEfGhIjKlMnOpQrStUv" }],
@@ -117,7 +117,7 @@ describe("parseShareRef", () => {
   it.each([
     ["a commit URL ending in hex", "https://github.com/acme/repo/commit/8309559a1b2c3d4e5f60718293a4b5c6d7e8f901"],
     ["a bare 40-hex commit sha", "8309559a1b2c3d4e5f60718293a4b5c6d7e8f901"],
-    ["a local viewer link", "http://localhost:3000/session/#local:x.json"],
+    ["a local viewer link", "http://localhost:3000/s/#local:x.json"],
     ["a bare non-gist id without an r2 fallback", "AbCdEfGhIjKlMnOpQrStUv"],
   ])("refuses %s (delete is destructive)", (_name, input) => {
     expect(() => parseShareRef(input, "gist")).toThrow();

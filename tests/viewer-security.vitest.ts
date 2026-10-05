@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const { markdown, provenanceLine, sanitizeHtml } = await import("../viewer/src/dom.ts");
 const { loadSource, sameOriginUrl } = await import("../viewer/src/source.ts");
 
-const BASE = "https://agent.example.com/session/";
+const BASE = "https://agent.example.com/s/";
 
 describe("markdown sanitizer", () => {
   it("strips viewer classes so a reply can't draw a fake prompt or tool call", () => {
@@ -86,13 +86,13 @@ describe("markdown sanitizer", () => {
   it("drops secondary remote sources but keeps the element and any valid src", () => {
     const out = sanitizeHtml(
       '<img src="data:image/png;base64,AAAA" srcset="https://t.test/2x.png 2x">' +
-        '<video src="/session/demo.mp4" poster="https://t.test/p.png"></video>' +
+        '<video src="/s/demo.mp4" poster="https://t.test/p.png"></video>' +
         '<table background="https://t.test/bg.png"><tbody><tr><td>x</td></tr></tbody></table>',
     );
     expect(out).not.toContain("t.test");
     expect(out).not.toContain("not loaded");
     expect(out).toContain('<img src="data:image/png;base64,AAAA">');
-    expect(out).toContain('<video src="/session/demo.mp4"></video>');
+    expect(out).toContain('<video src="/s/demo.mp4"></video>');
   });
 
   it.each([
@@ -139,11 +139,11 @@ describe("markdown sanitizer", () => {
 
   it("keeps data: and same-origin images, and leaves links alone", () => {
     const out = sanitizeHtml(
-      '<img src="data:image/png;base64,AAAA"><img src="/session/logo.png"><img src="./x.png"><a href="https://t.test/page">page</a>' +
+      '<img src="data:image/png;base64,AAAA"><img src="/s/logo.png"><img src="./x.png"><a href="https://t.test/page">page</a>' +
         '<svg><a href="https://t.test/svg-link"><text>t</text></a><image href="data:image/png;base64,AAAA"></image></svg>',
     );
     expect(out).toContain('src="data:image/png;base64,AAAA"');
-    expect(out).toContain('src="/session/logo.png"');
+    expect(out).toContain('src="/s/logo.png"');
     expect(out).toContain('src="./x.png"');
     expect(out).toContain('href="https://t.test/page"');
     expect(out).toContain('href="https://t.test/svg-link"');

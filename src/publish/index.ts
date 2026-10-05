@@ -96,7 +96,7 @@ const GIST_ID = "[0-9a-f]{20,40}";
 /**
  * Identify a share from anything `publish` prints, parsed strictly because `delete` is
  * destructive:
- *   viewer links   …/session/#r2:<id>, …/session/#<owner>/<gistId>, …#gist:<gistId>
+ *   viewer links   …/s/#r2:<id>, …/s/#<owner>/<gistId>, …#gist:<gistId>
  *   gist URLs      https://gist.github.com/[<owner>/]<id>, https://gist.githubusercontent.com/<owner>/<id>/raw/…
  *   R2 data URLs   <r2.publicUrl>/<r2.prefix><id>.json
  *   bare           r2:<id>, gist:<gistId>, a 20/32-hex gist id, or <id> when `fallback` is r2

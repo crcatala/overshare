@@ -54,7 +54,7 @@ export function deployFiles(sources) {
       `  Content-Security-Policy: ${contentSecurityPolicy(sources, { header: true })}`,
       "",
     ].join("\n"),
-    _redirects: "/ /session/ 302\n",
+    _redirects: "/ /s/ 302\n",
     "robots.txt": "User-agent: *\nDisallow: /\n",
   };
 }

@@ -211,13 +211,13 @@ describe("settings menu", () => {
 describe("share menu", () => {
   // index.html has the toast's live region from the start.
   beforeEach(() => document.body.append(Object.assign(document.createElement("div"), { id: "toast" })));
-  const BASE = "https://view.example/session/?x=1#old";
+  const BASE = "https://view.example/s/?x=1#old";
   const source = { kind: "raw-gist" as const, owner: "someone", id: "0123456789abcdef0123" };
 
   it("builds links from the source, never the address bar", () => {
-    expect(shareLink(source, {}, BASE)).toBe("https://view.example/session/?x=1#someone/0123456789abcdef0123");
-    expect(shareLink(source, { ui: "log.brief.dark.L.toc-all" }, BASE)).toBe("https://view.example/session/?x=1#someone/0123456789abcdef0123&ui=log.brief.dark.L.toc-all");
-    expect(shareLink(source, { turn: "4" }, BASE)).toBe("https://view.example/session/?x=1#someone/0123456789abcdef0123&turn=4");
+    expect(shareLink(source, {}, BASE)).toBe("https://view.example/s/?x=1#someone/0123456789abcdef0123");
+    expect(shareLink(source, { ui: "log.brief.dark.L.toc-all" }, BASE)).toBe("https://view.example/s/?x=1#someone/0123456789abcdef0123&ui=log.brief.dark.L.toc-all");
+    expect(shareLink(source, { turn: "4" }, BASE)).toBe("https://view.example/s/?x=1#someone/0123456789abcdef0123&turn=4");
   });
 
   function open(turn?: { ordinal: number; label: string }, src: Parameters<typeof shareLink>[0] = source) {

@@ -200,7 +200,7 @@ function showError(message: string): void {
       { class: "status error" },
       h("h1", {}, "Can't show this session"),
       h("p", {}, message),
-      h("p", { class: "muted" }, "Links look like …/session/#owner/gistId (or #local:name when served locally)."),
+      h("p", { class: "muted" }, "Links look like …/s/#owner/gistId (or #local:name when served locally)."),
     ),
   );
 }
@@ -265,7 +265,7 @@ function render(opts: { keepPlace?: boolean; turn?: number } = {}): void {
   const view = currentView();
   const sharedMode = shared.mode;
   const session = view === sharedMode ? shared : projectSession(shared, view);
-  document.title = `${session.title ?? "Agent session"} · Agent Session`;
+  document.title = `${session.title ?? "Agent session"} · overshare`;
 
   const share: ShareOptions = {
     source: state.source!,
@@ -461,7 +461,7 @@ async function showLocalPicker(): Promise<boolean> {
   if (!shares) return false;
   teardown.abort();
   teardown = new AbortController();
-  document.title = "Local sessions · Agent Session";
+  document.title = "Local sessions · overshare";
   app.replaceChildren(renderPicker(shares, { settings: settingsMenu, toggleTheme }));
   document.addEventListener(
     "keydown",

@@ -92,14 +92,14 @@ describe("cli", { timeout: 30_000 }, () => {
   });
 
   it("delete refuses to run without confirmation when there is no TTY", () => {
-    const r = cli(["delete", "https://overshare.link/session/#octo/5260b8cf9b1baae31a40717ac1ab5f08"], { PATH: "/nonexistent" });
+    const r = cli(["delete", "https://overshare.link/s/#octo/5260b8cf9b1baae31a40717ac1ab5f08"], { PATH: "/nonexistent" });
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("Refusing to delete without confirmation");
   });
 
   describe("delete updates shares.json", () => {
     const GIST = "5260b8cf9b1baae31a40717ac1ab5f08";
-    const viewer = `https://overshare.link/session/#octo/${GIST}`;
+    const viewer = `https://overshare.link/s/#octo/${GIST}`;
     const record = (url: string, target: "gist" | "r2") => ({ url, mode: "brief", target, sharedAt: "2026-01-01T00:00:00Z" });
 
     /** A fake `gh` that succeeds (or fails) and logs its arguments. */
@@ -115,9 +115,9 @@ describe("cli", { timeout: 30_000 }, () => {
       return path;
     }
     const seed = () => ({
-      "pi:s1": [record(viewer, "gist"), record("https://overshare.link/session/#r2:AbCdEfGhIjKlMnOpQrStUv", "r2")],
+      "pi:s1": [record(viewer, "gist"), record("https://overshare.link/s/#r2:AbCdEfGhIjKlMnOpQrStUv", "r2")],
       "claude-code:s2": [record(viewer, "gist")],
-      "pi:s3": [record(`https://overshare.link/session/#octo/0123456789abcdef0123456789abcdef`, "gist")],
+      "pi:s3": [record(`https://overshare.link/s/#octo/0123456789abcdef0123456789abcdef`, "gist")],
     });
 
     it("removes only the deleted share's records, whichever form was given", () => {

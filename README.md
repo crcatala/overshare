@@ -31,7 +31,7 @@ overshare list                                  # recent sessions (both harnesse
 overshare report --current                      # what would be shared/redacted (writes nothing)
 overshare export <id> --mode full -o out.json   # redacted share JSON, locally
 overshare publish --current --mode brief        # review → confirm → secret gist → link
-overshare serve out.json                        # local viewer: …/session/#local:out.json
+overshare serve out.json                        # local viewer: …/s/#local:out.json
 overshare demo                                  # fake sessions in the local viewer, nothing uploaded
 ```
 
@@ -323,7 +323,7 @@ included a full `env` dump with a dozen API keys and an age secret key.
 
 ```json
 {
-  "viewerUrl": "https://overshare.link/session/",
+  "viewerUrl": "https://overshare.link/s/",
   "target": "gist",
   "r2": {
     "accountId": "<cloudflare-account-id>",
@@ -360,7 +360,7 @@ renders what you share.
 ```
 overshare publish ───upload───► gist  or  public R2 bucket   (your credentials, from your machine)
                                         ▲
-viewer (static, any host) ──fetch───────┘  …/session/#owner/gistId  or  …/session/#r2:<id>
+viewer (static, any host) ──fetch───────┘  …/s/#owner/gistId  or  …/s/#r2:<id>
 ```
 
 ## Storage targets
@@ -571,13 +571,13 @@ the build at a different file.)
 **Build output** (`npm run build:viewer`, via Vite → `viewer/dist/`): `session/` (the
 viewer, with relative asset URLs so any base path works), `_headers` (CSP with
 `frame-ancestors 'none'`, `noindex`, `no-referrer`, `nosniff`), `_redirects`
-(`/` → `/session/`) and `robots.txt`. Any static host works; Cloudflare reads
+(`/` → `/s/`) and `robots.txt`. Any static host works; Cloudflare reads
 `_headers`/`_redirects` natively.
 
 ### Developing the viewer
 
 ```bash
-npm run dev     # Vite dev server → http://localhost:3000/session/
+npm run dev     # Vite dev server → http://localhost:3000/s/
 ```
 
 - **Variants:** `viewer/src/styles/<variant>.css` (scoped by `html[data-variant]`) over
@@ -586,7 +586,7 @@ npm run dev     # Vite dev server → http://localhost:3000/session/
   `OVERSHARE_DEV_SHARES="/tmp/big/shares/claude-code-full.json" npm run dev`.
 - **HMR:** CSS edits hot-swap in place; TypeScript edits reload the page (the viewer is
   framework-free), which keeps the open session because it lives in the URL hash.
-- **Data:** the fixture sessions are served at `/session/local/` (generated into
+- **Data:** the fixture sessions are served at `/s/local/` (generated into
   `fixtures-out/` on first run), so the picker lists them immediately. Point it at other
   exports with `OVERSHARE_DEV_SHARES="a.json b.json" npm run dev`.
 - **CSP:** dev only allows inline styles and the HMR WebSocket; builds keep the strict
@@ -606,12 +606,12 @@ npm run dev     # Vite dev server → http://localhost:3000/session/
 ```bash
 npx wrangler login          # once
 npm run deploy              # builds the viewer and deploys it
-# → https://overshare-viewer.<your-subdomain>.workers.dev/session/
+# → https://overshare-viewer.<your-subdomain>.workers.dev/s/
 ```
 
 Custom domains (e.g. `agent.example.com`) are attached to the Worker in the Cloudflare
 dashboard; nothing in this repo assumes a domain. Set the CLI's `viewerUrl` to wherever
-you deployed (`https://…/session/`).
+you deployed (`https://…/s/`).
 
 ## Integrations
 
@@ -671,7 +671,7 @@ every mode, and serves them (nothing is uploaded):
 
 ```bash
 npm run demo          # or: overshare demo [--seed 2] [--turns 30] [--port 3000]
-# All sessions: http://localhost:3000/session/   ← picker listing every local share
+# All sessions: http://localhost:3000/s/   ← picker listing every local share
 ```
 
 Opening the viewer without a share in the link shows that picker whenever it is served

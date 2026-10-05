@@ -1,12 +1,12 @@
 /**
  * Viewer dev server + production build.
  *
- *   npm run dev          Vite dev server at /session/ with HMR (CSS hot-swaps; TS edits
+ *   npm run dev          Vite dev server at /s/ with HMR (CSS hot-swaps; TS edits
  *                        reload the page, which keeps the session since it lives in the
- *                        URL hash). Local shares are served at /session/local/ — the
+ *                        URL hash). Local shares are served at /s/local/ — the
  *                        fixture sessions by default (regenerated on every start),
  *                        or the files in $OVERSHARE_DEV_SHARES.
- *   npm run build:viewer viewer/dist/session/ (relative asset URLs, so any base path
+ *   npm run build:viewer viewer/dist/s/ (relative asset URLs, so any base path
  *                        works) plus _headers, _redirects and robots.txt in viewer/dist/.
  *
  * `viewer.config.json` (or $OVERSHARE_VIEWER_CONFIG) adds share sources; their
@@ -29,7 +29,7 @@ export default defineConfig(({ command }) => {
   const { sources } = loadViewerConfig() as { sources: Record<string, string> };
   return {
     root: viewerRoot,
-    base: dev ? "/session/" : "./",
+    base: dev ? "/s/" : "./",
     publicDir: false,
     define: { __OVERSHARE_SOURCES__: JSON.stringify(sources) },
     // Listens on localhost only unless you pass `npm run dev -- --host`. Any Host header is
@@ -44,7 +44,7 @@ export default defineConfig(({ command }) => {
       allowedHosts: true,
       fs: { strict: true, allow: [viewerRoot, resolve(repo, "src"), resolve(repo, "node_modules/@fontsource-variable/ibm-plex-sans")] },
     },
-    build: { outDir: "dist/session", emptyOutDir: true, sourcemap: true, target: "es2022" },
+    build: { outDir: "dist/s", emptyOutDir: true, sourcemap: true, target: "es2022" },
     plugins: [cspPlugin(sources, dev), deployFilesPlugin(sources), localSharesPlugin()],
   };
 });
@@ -74,7 +74,7 @@ function deployFilesPlugin(sources: Record<string, string>): Plugin {
   };
 }
 
-/** Serve share JSON at /session/local/ during development, like `overshare serve`. */
+/** Serve share JSON at /s/local/ during development, like `overshare serve`. */
 function localSharesPlugin(): Plugin {
   return {
     name: "overshare:local-shares",
@@ -84,14 +84,14 @@ function localSharesPlugin(): Plugin {
       const local = localShares(files);
       server.middlewares.use((req, res, next) => {
         const path = (req.url ?? "/").split("?")[0]!;
-        if (path === "/" || path === "/session") {
-          res.writeHead(302, { Location: "/session/" }).end();
+        if (path === "/" || path === "/s") {
+          res.writeHead(302, { Location: "/s/" }).end();
           return;
         }
-        if (!path.startsWith("/session/local/")) return next();
+        if (!path.startsWith("/s/local/")) return next();
         let name: string;
         try {
-          name = decodeURIComponent(path.slice("/session/local/".length));
+          name = decodeURIComponent(path.slice("/s/local/".length));
         } catch {
           return void res.writeHead(400).end("bad request");
         }
@@ -99,7 +99,7 @@ function localSharesPlugin(): Plugin {
         if (!body) return void res.writeHead(404).end("not found");
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }).end(body);
       });
-      server.config.logger.info(`  overshare: ${files.length} local shares at /session/ (picker) — ${files.length ? "e.g. #local:" + files[0]!.split("/").at(-1) : "none"}`);
+      server.config.logger.info(`  overshare: ${files.length} local shares at /s/ (picker) — ${files.length ? "e.g. #local:" + files[0]!.split("/").at(-1) : "none"}`);
     },
   };
 }

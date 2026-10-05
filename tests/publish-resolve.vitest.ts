@@ -16,7 +16,7 @@ describe("GistPublisher", () => {
       if (args[0] === "api") return { code: 0, stdout: "octocat\n", stderr: "" };
       return { code: 0, stdout: "", stderr: "" };
     };
-    const result = await new GistPublisher({ viewerUrl: "https://overshare.link/session/", run }).publish({
+    const result = await new GistPublisher({ viewerUrl: "https://overshare.link/s/", run }).publish({
       filename: "session.json",
       content: "{}",
       description: "overshare: test",
@@ -25,7 +25,7 @@ describe("GistPublisher", () => {
       publisher: "gist",
       id: "abc123def4567890abcd",
       url: "https://gist.github.com/abc123def4567890abcd",
-      viewerUrl: "https://overshare.link/session/#octocat/abc123def4567890abcd",
+      viewerUrl: "https://overshare.link/s/#octocat/abc123def4567890abcd",
       rawUrl: "https://gist.githubusercontent.com/octocat/abc123def4567890abcd/raw/session.json",
     });
     const create = calls.find((c) => c[1] === "gist")!;
@@ -101,7 +101,7 @@ describe("startViewerServer", () => {
     try {
       const { server, port, url } = await startViewerServer({ port: taken, host: "127.0.0.1" });
       expect(port).toBeGreaterThan(taken);
-      expect(url).toBe(`http://127.0.0.1:${port}/session/`);
+      expect(url).toBe(`http://127.0.0.1:${port}/s/`);
       server.close();
       await expect(startViewerServer({ port: taken, host: "127.0.0.1", strictPort: true })).rejects.toThrow(/already in use/);
     } finally {
@@ -116,14 +116,14 @@ describe("serve bind address", () => {
     const local = await startViewerServer({ port: 0 });
     try {
       expect(local.server.address()).toMatchObject({ address: "127.0.0.1" });
-      expect(local.url).toBe(`http://127.0.0.1:${local.port}/session/`);
+      expect(local.url).toBe(`http://127.0.0.1:${local.port}/s/`);
     } finally {
       local.server.close();
     }
     const all = await startViewerServer({ port: 0, host: "0.0.0.0" });
     try {
       expect(all.server.address()).toMatchObject({ address: "0.0.0.0" });
-      expect(all.url).toBe(`http://localhost:${all.port}/session/`);
+      expect(all.url).toBe(`http://localhost:${all.port}/s/`);
     } finally {
       all.server.close();
     }
@@ -187,8 +187,8 @@ describe("loadConfig", () => {
     const { loadConfig } = await import("../src/config.js");
     const file = join(mkdtempSync(join(tmpdir(), "as-cfg-")), "config.json");
     expect(loadConfig({ OVERSHARE_CONFIG: file }).viewerUrlSource).toBe("default");
-    writeFileSync(file, JSON.stringify({ viewerUrl: "https://mine.example.com/session/" }));
-    expect(loadConfig({ OVERSHARE_CONFIG: file })).toMatchObject({ viewerUrl: "https://mine.example.com/session/", viewerUrlSource: "config" });
+    writeFileSync(file, JSON.stringify({ viewerUrl: "https://mine.example.com/s/" }));
+    expect(loadConfig({ OVERSHARE_CONFIG: file })).toMatchObject({ viewerUrl: "https://mine.example.com/s/", viewerUrlSource: "config" });
     expect(loadConfig({ OVERSHARE_CONFIG: file, OVERSHARE_VIEWER_URL: "https://env.example.com/" }).viewerUrlSource).toBe("env");
   });
 });

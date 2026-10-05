@@ -21,17 +21,23 @@ test "$("$bin/overshare" --version)" = "$expected"
 test "$("$bin/ovs" --version)" = "$expected"
 "$bin/overshare" --help >/dev/null
 
-# The viewer build, single-file template and agent integrations ship with the CLI;
-# source maps and the landing page do not.
+# The viewer build, single-file template and agent integrations ship with the CLI.
 for f in viewer/dist/s/index.html viewer/dist/standalone.html viewer/dist/s/examples/session.json \
   integrations/claude-code/share-session/SKILL.md integrations/pi/overshare.ts LICENSE README.md; do
   test -f "$pkg/$f" || { echo "missing from package: $f" >&2; exit 1; }
 done
-if find "$pkg" -name '*.map' | grep -q .; then
-  echo 'source maps should not be in the package' >&2
+# Nothing else ships: every compiled file has a source file, and only the viewer build's own
+# files are under viewer/dist (no source maps, no landing page).
+stray=$(cd "$pkg" && find . -type f -not -path './node_modules/*' | sed 's#^\./##' | grep -vxE \
+  'package\.json|README\.md|LICENSE|dist/.+\.js|integrations/claude-code/share-session/SKILL\.md|integrations/pi/overshare\.ts|viewer/dist/standalone\.html|viewer/dist/s/index\.html|viewer/dist/s/examples/session\.json|viewer/dist/s/assets/[A-Za-z0-9_-]+\.(js|css|woff2)' || true)
+for f in $(cd "$pkg" && find dist -type f); do
+  src="src/${f#dist/}"
+  test -f "${src%.js}.ts" || stray+=$'\n'"$f (no source file)"
+done
+if [[ -n "${stray//[$'\n']/}" ]]; then
+  echo "unexpected files in package:$stray" >&2
   exit 1
 fi
-test ! -e "$pkg/viewer/dist/index.html" || { echo 'landing page should not be in the package' >&2; exit 1; }
 
 # End to end from the installed copy: fake sessions → report → single-file HTML export.
 fx="$tmpdir/fixtures"

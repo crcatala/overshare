@@ -605,8 +605,10 @@ npm run dev     # Vite dev server → http://localhost:3000/s/
 
 ```bash
 npx wrangler login          # once
-npm run deploy              # builds the viewer and deploys it
-# → https://overshare-viewer.<your-subdomain>.workers.dev/s/
+npm run deploy              # builds the viewer and the landing page, and deploys both
+# → https://overshare-viewer.<your-subdomain>.workers.dev/   (landing page)
+#   https://overshare-viewer.<your-subdomain>.workers.dev/s/ (viewer)
+npm run preview:cf          # the same build, served locally by wrangler with the real headers
 ```
 
 Custom domains (e.g. `agent.example.com`) are attached to the Worker in the Cloudflare
@@ -620,6 +622,22 @@ the real pipeline in `full` mode with its planted fake secrets, so it shows real
 `[REDACTED:…]` replacements (`&turn=3` jumps to the redacted `env` output) and readers can
 step down to every other mode. A fixed home, username and the default config make it the
 same whoever builds it.
+
+### The landing page
+
+`site/` is the page at `/` (overshare.link's home page): static HTML, one stylesheet and one
+small script, built by `vite.site.config.ts` into `viewer/dist/` next to the viewer
+(`npm run build:site`, after `build:viewer`; `npm run dev:site` serves it on :3001 with
+reload). Its "see an example" links open the example session above in the viewer.
+
+With the landing page in the build, the deploy files change: `/` is served instead of
+redirected to `/s/`, only `/s/*` carries `noindex` (and `robots.txt` disallows only `/s/`),
+and each path gets its own Content-Security-Policy. The page's is same-origin only: no inline
+code, no remote fonts (Mona Sans and the viewer's JetBrains Mono are self-hosted). The npm
+package ships the viewer build alone, without the landing page.
+
+Deploying your own viewer without it: drop `npm run build:site` from the `deploy` script
+(or delete `site/`), and `/` redirects to the viewer again.
 
 ## Integrations
 

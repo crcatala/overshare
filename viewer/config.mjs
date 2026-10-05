@@ -43,18 +43,59 @@ export function contentSecurityPolicy(sources, { header = false, dev = false } =
   ].join("; ");
 }
 
-/** Cloudflare (Workers assets / Pages) deploy files written next to the viewer build. */
-export function deployFiles(sources) {
+/**
+ * CSP for the landing page (site/). It renders only its own content, so everything is
+ * same-origin: no inline code, no remote fonts or images. `dev` loosens it like the viewer's.
+ */
+export function siteContentSecurityPolicy({ header = false, dev = false } = {}) {
+  return [
+    "default-src 'none'",
+    "script-src 'self'",
+    dev ? "style-src 'self' 'unsafe-inline'" : "style-src 'self'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    `connect-src 'self'${dev ? " ws: wss:" : ""}`,
+    "base-uri 'none'",
+    "form-action 'none'",
+    ...(header ? ["frame-ancestors 'none'"] : []),
+  ].join("; ");
+}
+
+/**
+ * Cloudflare (Workers assets / Pages) deploy files written next to the viewer build.
+ *
+ * Without the landing page, `/` redirects to the viewer and nothing is indexed. With it
+ * (`site: true`, written by the site build), `/` is the landing page and only the viewer
+ * under /s/ stays out of search engines. Header rules never overlap: Cloudflare joins the
+ * values of every rule that matches a path, and two joined CSPs are both enforced.
+ */
+export function deployFiles(sources, { site = false } = {}) {
+  const viewer = [
+    "  X-Robots-Tag: noindex, nofollow",
+    "  Referrer-Policy: no-referrer",
+    "  X-Content-Type-Options: nosniff",
+    `  Content-Security-Policy: ${contentSecurityPolicy(sources, { header: true })}`,
+  ];
+  if (!site) {
+    return {
+      _headers: ["/*", ...viewer, ""].join("\n"),
+      _redirects: "/ /s/ 302\n",
+      "robots.txt": "User-agent: *\nDisallow: /\n",
+    };
+  }
   return {
     _headers: [
-      "/*",
-      "  X-Robots-Tag: noindex, nofollow",
+      "/s/*",
+      ...viewer,
+      "/",
       "  Referrer-Policy: no-referrer",
       "  X-Content-Type-Options: nosniff",
-      `  Content-Security-Policy: ${contentSecurityPolicy(sources, { header: true })}`,
+      `  Content-Security-Policy: ${siteContentSecurityPolicy({ header: true })}`,
+      "/assets/*",
+      "  X-Content-Type-Options: nosniff",
       "",
     ].join("\n"),
-    _redirects: "/ /s/ 302\n",
-    "robots.txt": "User-agent: *\nDisallow: /\n",
+    _redirects: "",
+    "robots.txt": "User-agent: *\nDisallow: /s/\n",
   };
 }

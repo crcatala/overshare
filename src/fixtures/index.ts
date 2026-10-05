@@ -5,7 +5,7 @@ import { DEFAULT_CONFIG, type OvershareConfig } from "../config.js";
 import { prepareShare, type PreparedShare } from "../pipeline.js";
 import { readSecretsFile } from "../redact/known-values.js";
 import { projectDirName } from "../resolve.js";
-import { SHARE_MODES } from "../schema.js";
+import { SHARE_MODES, type ShareMode } from "../schema.js";
 import { emitClaudeCode } from "./claude-code.js";
 import { emitPi } from "./pi.js";
 import { Rng } from "./random.js";
@@ -91,16 +91,16 @@ export interface ExportedShare {
 export const EXAMPLE_SHARE_PATH = "examples/session.json";
 
 /**
- * The example session linked from the landing page: the Claude Code fixture, redacted in full mode (so readers can
- * step down to every other mode) with its planted fake secrets as known values, so the share shows real
+ * The example session linked from the landing page: the Claude Code fixture, redacted in full mode by default (so
+ * readers can step down to every other mode) with its planted fake secrets as known values, so the share shows real
  * `[REDACTED:…]` replacements. A fixed home, username and the default config keep it the same on every machine.
  */
-export function exampleShare(opts: { now?: Date } = {}): PreparedShare {
+export function exampleShare(opts: { now?: Date; mode?: ShareMode } = {}): PreparedShare {
   const dir = mkdtempSync(join(tmpdir(), "overshare-example-"));
   try {
     const fx = generateFixtures({ outDir: dir, home: "/home/dana", username: "dana" });
     const share = prepareShare(readFileSync(fx.claudeFile, "utf8"), {
-      mode: "full",
+      mode: opts.mode ?? "full",
       config: DEFAULT_CONFIG,
       harness: "claude-code",
       knownSecrets: [],

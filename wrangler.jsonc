@@ -1,7 +1,7 @@
-// Static-assets-only Worker: serves the viewer (viewer/dist) with no Worker code,
-// no backend and no bindings. `npm run deploy` publishes it to
+// Static-assets-only Worker: serves viewer/dist (the landing page at /, the viewer at
+// /s/) with no Worker code, no backend and no bindings. `npm run deploy` publishes it to
 // https://<name>.<your-subdomain>.workers.dev; point a custom domain at it in the
-// Cloudflare dashboard if you want one (e.g. agent.example.com → /s/).
+// Cloudflare dashboard if you want one (e.g. overshare.link).
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "overshare-viewer",

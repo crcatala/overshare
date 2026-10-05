@@ -2,8 +2,7 @@
 
 One directory per format, named after it (`overshare-1/` holds `overshare/1` shares), holding real shares
 written in that format: the same fake sessions the `overshare fixtures` command generates, redacted and
-exported by the code of that day. `agentshare-2/` is the same format as `overshare/1`, written under the
-project's earlier name (agent-share) before the rename; the viewer reads it as `overshare/1`.
+exported by the code of that day.
 `tests/viewer-compat.vitest.ts` opens every one in the viewer, in every view and variant, so a
 format the viewer says it opens can't quietly stop working.
 

@@ -253,7 +253,7 @@ describe.skipIf(process.platform === "win32")("private state files", () => {
     expect(mode(join(path, ".."))).toBe(0o700);
   });
 
-  it("the index cache is written 0600, and a world-readable file from an older version is replaced", () => {
+  it("the index cache is written 0600, and an existing world-readable file is replaced", () => {
     const dir = mkdtempSync(join(tmpdir(), "idx-mode-"));
     const claude = join(dir, "claude");
     mkdirSync(join(claude, "-home-x"), { recursive: true });

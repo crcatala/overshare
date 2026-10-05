@@ -8,20 +8,18 @@
  *     optional fields, new step kinds) mostly work; the renderer shows what it can't read as a placeholder.
  *   - older: upgraded step by step through MIGRATIONS, each one a pure function from one version's JSON to
  *     the next's. A version with no path to the current one is refused with a message saying so.
- * A format named under the project's earlier name (`agentshare/2`) is read as the overshare version it is
- * (`LEGACY_SCHEMA_VERSIONS`).
  *
  * Migrations load on demand (a dynamic import, so its own chunk): a current share never fetches one.
  */
-import { LEGACY_SCHEMA_VERSIONS, SCHEMA_VERSION, type NormalizedSession } from "../../src/schema.ts";
+import { SCHEMA_VERSION, type NormalizedSession } from "../../src/schema.ts";
 
 /** A migration takes a share of version N (it may mutate it; it was just parsed) and returns it as version N+1. */
 export type Migration = (share: Record<string, unknown>) => Record<string, unknown>;
 export type Migrations = Record<number, () => Promise<{ default: Migration }>>;
 
 /**
- * Migrations by the version they upgrade *from*. Empty: overshare/1 (the same format as agentshare/2, its
- * name before the rename) is the oldest format this viewer opens. When the format changes incompatibly:
+ * Migrations by the version they upgrade *from*. Empty: overshare/1 is the oldest format this viewer opens.
+ * When the format changes incompatibly:
  *   1. bump SCHEMA_VERSION,
  *   2. add `1: () => import("./migrations/v1-to-v2.ts")` here, exporting `default` that returns the v2 shape,
  *   3. freeze a v2 share in tests/fixtures/shares/ (the tests fail until you do).
@@ -30,9 +28,8 @@ export const MIGRATIONS: Migrations = {};
 
 const SCHEMA = /^overshare\/(\d+)$/;
 
-/** `overshare/1` → 1, and a pre-rename format as the version it is (`agentshare/2` → 1); undefined for anything else. */
+/** `overshare/1` → 1; undefined for anything else. */
 export function schemaVersion(schema: unknown): number | undefined {
-  if (typeof schema === "string" && Object.hasOwn(LEGACY_SCHEMA_VERSIONS, schema)) return LEGACY_SCHEMA_VERSIONS[schema];
   const m = typeof schema === "string" ? SCHEMA.exec(schema) : null;
   return m ? Number(m[1]) : undefined;
 }
@@ -57,8 +54,6 @@ export async function readShare(data: unknown, migrations: Migrations = MIGRATIO
     if (!load) throw new Error(`This session was shared in an older format (${doc.schema}) that this viewer can no longer open.`);
     doc = { ...(await load()).default(doc), schema: `overshare/${v + 1}` };
   }
-  // A pre-rename name for the current version reads as the current one.
-  if (!newer) doc = { ...doc, schema: SCHEMA_VERSION };
   if (!Array.isArray(doc.turns)) throw new Error("This session has no turns to show.");
   return { session: { ...doc, turns: tidyTurns(doc.turns) } as unknown as NormalizedSession, ...(newer ? { newer } : {}) };
 }

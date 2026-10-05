@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { detectHarness } from "../src/harnesses/index.js";
 import { parsePi } from "../src/harnesses/pi/parse.js";
 import { projectSession } from "../src/modes.js";
-import { LEGACY_PI_INPUT_PROVENANCE_TYPES, PI_INPUT_PROVENANCE_TYPE } from "../src/schema.js";
+import { PI_INPUT_PROVENANCE_TYPE } from "../src/schema.js";
 import { computeStats } from "../src/stats.js";
 import { PiTranscript, piUsage } from "./helpers.js";
 
@@ -141,14 +141,18 @@ describe("pi authored-input provenance", () => {
     expect(prompts.turns[0]!.user).toMatchObject({ text: "/review src/invoices", authored: true });
   });
 
-  it("still verifies input recorded under the pre-rename marker (agent-share)", () => {
+  it("does not verify input recorded under the pre-rename marker (agent-share)", () => {
     const t = new PiTranscript();
     const timestamp = 1_700_000_000_000;
-    t.entry("custom", { ...provenance("expanded private instructions", "/review src/invoices", timestamp), customType: LEGACY_PI_INPUT_PROVENANCE_TYPES[0] });
+    t.entry("custom", { ...provenance("expanded private instructions", "/review src/invoices", timestamp), customType: "agent-share:authored-input" });
     t.entry("message", { message: { role: "user", content: [{ type: "text", text: "expanded private instructions" }], timestamp } });
-    const { session, dropped } = parsePi(t.toJsonl());
-    expect(session.turns[0]!.user).toMatchObject({ text: "/review src/invoices", authored: true });
-    expect(dropped).not.toHaveProperty(`custom:${LEGACY_PI_INPUT_PROVENANCE_TYPES[0]}`);
+    const { session } = parsePi(t.toJsonl());
+    // Unverified, like any pi session recorded without the extension: the stored (expanded) text stands as the
+    // prompt, so prompts mode refuses it and the other modes show it for review.
+    expect(session.turns[0]!.user).toMatchObject({ text: "expanded private instructions", authored: false });
+    expect(session.turns[0]!.user?.expanded).toBeUndefined();
+    expect(() => projectSession({ ...session, mode: "full" }, "prompts")).toThrow(/no verified pre-expansion input/);
+    expect(projectSession({ ...session, mode: "full" }, "brief").turns[0]!.user?.text).toBe("expanded private instructions");
   });
 
   it("keeps unchanged verified input and strips image-only expansions", () => {

@@ -32,7 +32,8 @@ the build at a different file.)
 ### Build output
 
 `npm run build:viewer` (Vite) writes `viewer/dist/`: `s/` (the viewer, with relative asset URLs so
-any base path works), `standalone.html` (the template for [single-file HTML exports](sharing.md#single-file-html)), `_headers` (CSP with
+any base path works, and `s/font-licenses.txt` for its bundled fonts), `standalone.html` (the template for
+[single-file HTML exports](sharing.md#single-file-html)), `_headers` (CSP with
 `frame-ancestors 'none'`, `noindex`, `no-referrer`, `nosniff`), `_redirects`
 (`/` → `/s/`) and `robots.txt`. Any static host works; Cloudflare reads
 `_headers`/`_redirects` natively.
@@ -73,7 +74,8 @@ reload). Its "see an example" links open the example session above in the viewer
 With the landing page in the build, the deploy files change: `/` is served instead of
 redirected to `/s/`, only `/s/*` carries `noindex` (and `robots.txt` disallows only `/s/`),
 and each path gets its own Content-Security-Policy. The page's is same-origin only: no inline
-code, no remote fonts (Bricolage Grotesque and the viewer's JetBrains Mono are self-hosted). The npm
+code, no remote fonts (Bricolage Grotesque and the viewer's JetBrains Mono are self-hosted, with their OFL
+licenses in `font-licenses.txt`). The npm
 package ships the viewer build alone, without the landing page.
 
 Deploying your own viewer without it: drop `npm run build:site` from the `deploy` script

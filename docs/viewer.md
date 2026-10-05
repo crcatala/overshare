@@ -199,7 +199,9 @@ visually hidden, for screen readers. Inline code, emphasis and links are kept.
 The viewer bundles its fonts (no font CDN): a subset of JetBrains Mono that
 includes box-drawing, block and geometric characters — the stock web subsets leave box
 drawing out, and text tables only line up when every character comes from one font —
-and IBM Plex Sans for the `hybrid` prose. The CSP allows `font-src 'self'`.
+and IBM Plex Sans for the `hybrid` prose. The CSP allows `font-src 'self'`. Both are under the SIL Open
+Font License 1.1; the build writes their licenses to `s/font-licenses.txt` and into every single-file HTML export
+(`viewer/font-licenses.mjs`).
 
 ## Running it locally
 

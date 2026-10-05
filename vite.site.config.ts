@@ -7,7 +7,8 @@
  *   npm run build:site   viewer/dist/index.html and viewer/dist/assets/, next to the viewer
  *                        in viewer/dist/s/. Run it after build:viewer: it rewrites _headers,
  *                        _redirects and robots.txt for a deployment with a landing page
- *                        (`/` is the page, only /s/ stays out of search engines).
+ *                        (`/` is the page, only /s/ stays out of search engines), and
+ *                        viewer/dist/font-licenses.txt for the page's bundled fonts.
  *
  * The viewer build alone (what the npm package ships) never includes the landing page.
  */
@@ -16,6 +17,8 @@ import { join, resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 // @ts-expect-error — plain ESM helper without type declarations (shared with tests)
 import { deployFiles, loadViewerConfig, siteContentSecurityPolicy } from "./viewer/config.mjs";
+// @ts-expect-error — plain ESM helper without type declarations (shared with the viewer build)
+import { FONT_LICENSES_FILE, fontLicenses, SITE_FONTS } from "./viewer/font-licenses.mjs";
 
 const repo = import.meta.dirname;
 const siteRoot = resolve(repo, "site");
@@ -57,6 +60,7 @@ function sitePlugin(dev: boolean): Plugin {
       for (const [name, content] of Object.entries(deployFiles(sources, { site: true }) as Record<string, string>)) {
         writeFileSync(join(dist, name), content);
       }
+      writeFileSync(join(dist, FONT_LICENSES_FILE), fontLicenses(SITE_FONTS));
     },
   };
 }

@@ -1,6 +1,6 @@
 ---
 id: ass-ques
-status: in_progress
+status: closed
 deps: []
 links: [ass-r9yd]
 created: 2026-10-04T17:36:14Z
@@ -56,3 +56,7 @@ Added a reminder printed after every HTML export (even with -q): review the repo
 **2026-10-04T18:45:02Z**
 
 Review follow-ups: (fixed) export now tightens an existing output file to 0600 before writing; writeFileSync's mode only applies to new files, so a 0644 file kept its mode (pre-existing for JSON too). Added CLI tests for that and for the blocked-share HTML refusal. (deferred, known constraint) The Vite plugin throws if the viewer build ever has a second script chunk. compat.ts documents migrations as dynamic imports, so adding the first one would fail the hosted viewer build, not just the standalone one. Cheap mitigation: catch in the plugin, warn, delete a stale standalone.html. Proper fix: a separate standalone build with inlineDynamicImports so old shares can still be migrated inside the file. Do one of these before adding a migration.
+
+**2026-10-05T16:20:16Z**
+
+Step 1 shipped: `overshare export -o session.html` / `--format html` (538529a, 8ca056f), documented in docs/sharing.md. Save-as-HTML from browse is ass-r9yd; the other step 2 ideas (size policy, font subsetting, publishing HTML to R2) are untracked until wanted.

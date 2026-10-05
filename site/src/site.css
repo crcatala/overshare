@@ -108,7 +108,10 @@ h1 .as { color: var(--cream); text-shadow: .035em .035em 0 var(--ink); }
 .sticker text { font: 800 19.5px var(--disp); letter-spacing: .1em; fill: var(--ink); }
 .sticker .spin { transform-origin: 100px 100px; animation: spin 26s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .sticker .spin { animation: none; } .ticker .track { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .sticker .spin, .ticker .track { animation: none; }
+  .receipt, .stage, .ticket, .shot, .rd { transition: none; }
+}
 
 /* ticker */
 .ticker { background: var(--ink); color: var(--cream); overflow: hidden; transform: rotate(-1.4deg); margin: -34px -20px 0; position: relative; z-index: 5; border-block: 3px solid var(--mustard); }

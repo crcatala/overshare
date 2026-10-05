@@ -8,9 +8,9 @@ static viewer. Transcripts are normalized into one harness-agnostic format
 then uploaded as a public-by-link file (a secret GitHub gist or a public R2 bucket).
 
 ```
-adapters/            pipeline                                   publish/            viewer/ (static)
- claude-code.ts ─┐   parse → stats → project(mode) → redact     gist                #owner/gistId
- pi.ts          ─┴─► NormalizedSession ─────────► re-scan ────► public R2 ─────────► #r2:<id>
+harnesses/           pipeline                                   publish/            viewer/ (static)
+ claude-code/   ─┐   parse → stats → project(mode) → redact     gist                #owner/gistId
+ pi/            ─┴─► NormalizedSession ─────────► re-scan ────► public R2 ─────────► #r2:<id>
 ```
 
 Everything is static: the CLI redacts and uploads a public share file, and the viewer
@@ -30,6 +30,7 @@ overshare browse                                # interactive: find an old sessi
 overshare list                                  # recent sessions (both harnesses)
 overshare report --current                      # what would be shared/redacted (writes nothing)
 overshare export <id> --mode full -o out.json   # redacted share JSON, locally
+overshare export <id> --mode brief -o out.html  # the same, as one self-contained HTML page (see "Single-file HTML")
 overshare publish --current --mode brief        # review → confirm → secret gist → link
 overshare serve out.json                        # local viewer: …/s/#local:out.json
 overshare demo                                  # fake sessions in the local viewer, nothing uploaded
@@ -363,6 +364,31 @@ overshare publish ───upload───► gist  or  public R2 bucket   (your
 viewer (static, any host) ──fetch───────┘  …/s/#owner/gistId  or  …/s/#r2:<id>
 ```
 
+## Single-file HTML
+
+`overshare export <id> -o session.html` (or `--format html`) writes the viewer and one redacted session as a
+single page: JS, CSS and fonts inline, the session embedded as JSON, nothing fetched. It opens from disk, an email
+attachment or any static host, with no viewer deployment, gist or bucket. It goes through the same pipeline as
+every other export (modes, redaction, re-scan); unlike a JSON export, an HTML one is not written if the re-scan blocks the share.
+
+It is a different tradeoff from a link, not a replacement:
+
+- **Frozen viewer.** The file carries the viewer that wrote it, so later viewer fixes don't reach it (a hosted
+  viewer link always gets the latest).
+- **No revocation.** A gist or bucket object can be deleted; a copy of a file can't. Treat it like any file that
+  holds a transcript: review the report first (`export` prints a reminder, even with `-q`). Unlike `publish` and
+  `browse`, `export` has no confirm step.
+- **Size.** About 0.9 MB of viewer (mostly fonts) plus the session; `full` mode shares of long sessions can be many MB.
+- **Links.** The share menu's links point at the file's own address (`#&turn=3`), so they work wherever the file is
+  hosted, and only on your machine if it isn't.
+- **Hosting.** Gists serve files as plain text, so they can't show it; a bucket needs `content-type: text/html`.
+  `publish` doesn't produce it yet.
+
+Security: the page's Content-Security-Policy allows exactly its own script and style by hash, fonts and images only as
+`data:`, and no connections (`connect-src 'none'`). It comes from a `<meta>` tag, which is all a file on disk can have;
+send the same policy as a header when hosting it. Markdown sanitising and remote-content blocking are the hosted
+viewer's, unchanged.
+
 ## Storage targets
 
 **Gist (default).** `publish` creates a *secret* gist (`gh gist create` without
@@ -407,8 +433,23 @@ server):
 | `#<source>:<id>` | a source from `viewer.config.json`, e.g. `#r2:<id>` |
 | `#local:<name>` | file served by `overshare serve` |
 | `#url:<path>` | same-origin path, e.g. `#url:examples/session.json` (the example session below) |
+| *(none)* | in a single-file HTML export, the session embedded in the page |
 | `…&ui=log.brief.dark.L.toc-all` | open with these view settings (see *View settings*) |
 | `…&turn=3` | open at prompt 3 |
+
+Shares outlive the viewer that wrote them, and the viewer is always the latest build, so it reads
+shares by the format version in them (`"schema": "overshare/N"`; `agentshare/2`, the name before the rename, reads as `overshare/1`):
+
+- **Same version**: shown as is.
+- **Newer version** (shared with a newer overshare): shown best effort under a notice that names both
+  formats, counts the parts it couldn't show and links to the first. Anything the viewer doesn't
+  recognise, like a new kind of step, appears as a labelled placeholder instead of breaking the page;
+  a turn that can't be read at all is replaced by a placeholder too.
+- **Older version**: upgraded in the browser by small migrations (`viewer/src/compat.ts`), loaded only
+  when a share needs one. A version with no migration says it can no longer be opened.
+
+Adding optional fields never needs a new version. `src/schema.ts` says what does, and the shares frozen
+in `tests/fixtures/shares/` keep every supported version rendering.
 
 Transcripts are untrusted: anyone can make a gist and send a link to your viewer. The
 header says where the share was loaded from (for gists, the owner as GitHub reports it)
@@ -662,15 +703,36 @@ Child transcripts are not included.
 
 ## Adding a harness
 
-1. Write `src/adapters/<name>.ts` that turns the native transcript into a
-   `NormalizedSession` (use `TurnBuilder` from `adapters/shared.ts`: `startTurn`,
-   `addStep`, `addToolCall`/`attachToolResult`, `setResponseUsage`).
-2. Register it in `src/adapters/index.ts` (`detect` + `parse`) and add the name to
-   `HarnessName` in `src/schema.ts`.
-3. For `--current`/id lookup, teach `src/resolve.ts` its session directory layout.
+Everything that is specific to one harness lives in `src/harnesses/<name>/`; the rest of the
+code asks the registry (`src/harnesses/index.ts`) and never switches on a harness name.
 
-Everything downstream (stats, modes, redaction, publish, viewer) works on the normalized
-format unchanged.
+```
+src/harnesses/
+  meta.ts          plain data per harness: label, tag, colour, search aliases, a few viewer flags
+                   (browser-safe: the viewer imports it). `HarnessName` is derived from it.
+  index.ts         HARNESSES: Record<HarnessName, Harness>, plus detect / parse helpers
+  types.ts         the `Harness` descriptor: what a harness folder has to provide
+  shared.ts        TurnBuilder, describeTool, ... for writing an adapter
+  summary-kit.ts   Collector, for the browser's one-pass index
+  claude-code/     parse.ts, usage.ts, summarize.ts, subagent-files.ts, index.ts (the descriptor)
+  pi/              parse.ts, summarize.ts, index.ts
+```
+
+1. Add an entry for it in `src/harnesses/meta.ts`. `npm run typecheck` now fails in
+   `index.ts`, because `HARNESSES` has no descriptor for the new name.
+2. Make `src/harnesses/<name>/` and write its descriptor (`index.ts`, see `pi/index.ts` for
+   the short one): where its sessions live (`sessionsRoot`, `listFiles`, `sessionId`), how to
+   recognise a transcript (`detect`), `parse` (native transcript → `NormalizedSession`, with
+   `TurnBuilder`) and `summarize` (feed lines to a `Collector`). Optional members cover what
+   only some harnesses have: `currentSession` (a session id in the environment),
+   `subagents` (transcripts in files beside the session), `credentialFiles` (its login files,
+   so a leaked value is redacted).
+3. Register it in `HARNESSES`.
+
+That is all: `list`, `browse` (filter, dialog, tag, preview), `--harness`, `harness:<alias>`
+searches, `--current`, the viewer's label and the "supported formats" error all read the
+registry and meta. Also worth adding: a fake-session generator in `src/fixtures/` (see
+`pi.ts`) and tests. Share files keep `harness.name`, so a new name is not a schema change.
 
 ## Development
 

@@ -3,7 +3,7 @@ import { copyFileSync, mkdtempSync, readdirSync, readFileSync, statSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseClaudeCode } from "../src/adapters/claude-code.js";
+import { parseClaudeCode } from "../src/harnesses/claude-code/parse.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { prepareShare } from "../src/pipeline.js";
 import { listSessions } from "../src/resolve.js";

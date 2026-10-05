@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSession } from "../src/adapters/index.js";
+import { parseSession } from "../src/harnesses/index.js";
 import { highlight } from "../src/browse/highlight.js";
 import { viewFromSession } from "../src/browse/job.js";
 import { plainText } from "../src/browse/kit.js";

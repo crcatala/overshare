@@ -9,7 +9,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { defaultRoots, listSessions, type SessionRef, type SessionRoots } from "../resolve.js";
-import type { HarnessName } from "../schema.js";
+import { HARNESS_NAMES, type HarnessName } from "../harnesses/meta.js";
 import { PRIVATE_DIR_MODE, PRIVATE_FILE_MODE } from "./private-files.js";
 import { summarizeFile, type SessionSummary } from "./summary.js";
 
@@ -66,7 +66,7 @@ export interface IndexOptions {
 export function listRefs(opts: IndexOptions = {}) {
   const roots = opts.roots ?? defaultRoots();
   // Each harness's list is sorted on its own; merge them so the newest sessions are also the first to be read.
-  return (opts.harnesses ?? (["claude-code", "pi"] as const)).flatMap((h) => listSessions(h, roots)).sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return (opts.harnesses ?? HARNESS_NAMES).flatMap((h) => listSessions(h, roots)).sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
 /** Cache hits, plus the files that still have to be read. Shared by the blocking and the incremental index. */
@@ -78,7 +78,8 @@ function plan(opts: IndexOptions) {
   const stale: SessionRef[] = [];
   for (const ref of refs) {
     const hit = cached[ref.path];
-    if (hit && hit.mtimeMs === ref.mtimeMs && hit.size === ref.size) next[ref.path] = hit;
+    // A cache entry from another build (a harness since removed or renamed) is read again, not trusted.
+    if (hit && hit.harness === ref.harness && hit.mtimeMs === ref.mtimeMs && hit.size === ref.size) next[ref.path] = hit;
     else stale.push(ref);
   }
   return { path, cached, refs, next, stale };

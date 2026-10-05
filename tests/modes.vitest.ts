@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseClaudeCode } from "../src/adapters/claude-code.js";
+import { parseClaudeCode } from "../src/harnesses/claude-code/parse.js";
 import { availableModes, capToolText, projectSession } from "../src/modes.js";
 import { ClaudeTranscript, ccUsage } from "./helpers.js";
 

@@ -3,6 +3,7 @@
  * the turn in view, reading progress and the controls, in one short line.
  */
 import { formatDuration, formatTokens } from "../../src/format.ts";
+import { harnessLabel } from "../../src/harnesses/meta.ts";
 import { availableModes } from "../../src/modes.ts";
 import { SHARE_MODES, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
 import { h, provenanceLine, withTooltip } from "./dom.ts";
@@ -14,7 +15,6 @@ import { subagentsHeaderNode } from "./subagents.ts";
 import type { TurnInfo } from "./transcript.ts";
 import { INHERITED_WHY, OTHER_BRANCHES_WHY, cacheMissesNode, costNode, excludedNode, tokensNode } from "./usageinfo.ts";
 
-export const HARNESS_LABEL: Record<string, string> = { "claude-code": "Claude Code", pi: "pi" };
 
 export interface Controls {
   /** The mode the session was published in; the views available are it and the ones below. */
@@ -73,7 +73,7 @@ function facts(cls: string, rows: [string, string | Node | undefined][]): HTMLEl
 
 export function renderHeader(s: NormalizedSession, provenance: Provenance | undefined, c: Controls): HTMLElement {
   const st = s.stats;
-  const harness = `${HARNESS_LABEL[s.harness.name] ?? s.harness.name}${s.harness.version ? ` ${s.harness.version}` : ""}`;
+  const harness = `${harnessLabel(s.harness.name)}${s.harness.version ? ` ${s.harness.version}` : ""}`;
   const project = s.project?.name ? `${s.project.name}${s.project.branch ? ` @ ${s.project.branch}` : ""}` : undefined;
   const red = s.redaction;
   let redacted: HTMLElement | string = "none";

@@ -7,18 +7,20 @@ import "./styles/hybrid.css";
 import "./styles/log.css";
 import { plural } from "../../src/format.ts";
 import { projectSession, promptsUnavailableReason } from "../../src/modes.ts";
-import { isSupportedSchema, type NormalizedSession, type ShareMode } from "../../src/schema.ts";
+import type { NormalizedSession, ShareMode } from "../../src/schema.ts";
 import { beacon } from "./beacon.ts";
 import { clearHits, pulseHits, refreshHits, showHits } from "./findhits.ts";
 import { relayoutTables, releaseTables, setTableStyle } from "./asciitable.ts";
 import { h, hideTooltip, toast } from "./dom.ts";
 import { attribution } from "./attribution.ts";
+import { readShare, type ReadShare } from "./compat.ts";
 import { renderHeader, renderMinibar, type Controls } from "./header.ts";
 import { closeMenus } from "./menu.ts";
+import { renderCompatNotice } from "./notice.ts";
 import { closeHoverCard } from "./popover.ts";
 import type { SettingsOptions } from "./settings.ts";
 import type { ShareOptions } from "./share.ts";
-import { formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
+import { embeddedSource, formatHash, loadSource, parseHash, type HashState, type Provenance } from "./source.ts";
 import { stepPrompt, typing, variantKeyStep, wheelMovesPage } from "./nav.ts";
 import { fetchLocalShares, renderPicker } from "./picker.ts";
 import { buildIndex } from "./search.ts";
@@ -32,8 +34,15 @@ const app = document.getElementById("app") as HTMLElement;
 const root = document.documentElement;
 
 let shared: NormalizedSession | undefined;
+/** Set when this share is from a newer format than the viewer reads, so it may not show completely (see compat.ts). */
+let newer: ReadShare["newer"];
 let provenance: Provenance | undefined;
-let state: HashState = parseHash(location.hash);
+/** The hash, plus the page's own session when it is a single-file export and the hash names no other. */
+const readHash = (hash: string): HashState => {
+  const parsed = parseHash(hash);
+  return parsed.source ? parsed : { ...parsed, source: embeddedSource() };
+};
+let state: HashState = readHash(location.hash);
 /** Listeners and observers of the current render, dropped on the next one. */
 let teardown = new AbortController();
 
@@ -277,6 +286,8 @@ function render(opts: { keepPlace?: boolean; turn?: number } = {}): void {
   };
   const controls: Controls = { sharedMode, promptsUnavailable: promptsUnavailableReason(shared), view, setView, toggleTheme, toggleRail, settings: settingsMenu, share, local: state.source?.kind === "local" };
   const { el: transcript, turns } = renderTranscript(session, { inlineThinking: variant.inlineThinking });
+  /** What the transcript couldn't draw (a newer format's steps, or ones that failed): the notice counts and links them. */
+  const gaps = Array.from(transcript.querySelectorAll<HTMLElement>(".k-unsupported"));
 
   const jump = (id: string, smooth = true) => {
     const target = document.getElementById(id);
@@ -315,7 +326,7 @@ function render(opts: { keepPlace?: boolean; turn?: number } = {}): void {
   const minibar = renderMinibar(session, turns, controls);
 
   const end = h("footer", { class: "end" }, h("span", {}, `end of session · ${plural(turns.filter((t) => t.ordinal).length, "prompt")}`), attribution());
-  const page = h("div", { class: "page" }, header, transcript, end);
+  const page = h("div", { class: "page" }, header, newer ? renderCompatNotice(newer, { count: gaps.length, goToFirst: () => jump(gaps[0]!.id) }) : null, transcript, end);
   app.replaceChildren(minibar.el, page, ...rail("left", "Contents", "≡", toc.el), ...rail("right", "Tokens", "∑", tokens.el));
   updateDock();
 
@@ -480,6 +491,7 @@ async function main(): Promise<void> {
   const turn = openAt;
   openAt = undefined;
   shared = undefined;
+  newer = undefined;
   provenance = undefined;
   activeTurn = undefined;
   navCursor = undefined;
@@ -491,11 +503,12 @@ async function main(): Promise<void> {
   }
   try {
     const loaded = await loadSource(state.source);
-    const data = loaded.data as NormalizedSession;
-    if (!data || !isSupportedSchema(data.schema)) throw new Error(`Unsupported share format (${(data as { schema?: string })?.schema ?? "unknown"}).`);
+    const read = await readShare(loaded.data);
+    const data = read.session;
     const reason = data.mode === "prompts" ? promptsUnavailableReason(data) : undefined;
     if (reason) throw new Error(reason);
     shared = data;
+    newer = read.newer;
     provenance = loaded.provenance;
     render({ turn });
   } catch (err) {
@@ -505,7 +518,7 @@ async function main(): Promise<void> {
 
 window.addEventListener("hashchange", () => {
   const previous = state.source;
-  state = parseHash(location.hash);
+  state = readHash(location.hash);
   const { ui, turn } = takeLinkParams();
   update(ui);
   applyTheme();

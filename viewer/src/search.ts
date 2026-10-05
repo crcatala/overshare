@@ -76,6 +76,8 @@ function stepFields(step: Step, cwd: string | undefined): (Field | undefined)[] 
       return [field(step.tool, [step.agents.join(", "), step.description].filter(Boolean).join("\n")), field(`${step.tool} output`, step.result?.text, "output")];
     case "event":
       return [field(step.event.replace("_", " "), [step.text, step.detail].filter(Boolean).join("\n"))];
+    default:
+      return []; // a kind from a newer format: drawn as a placeholder, so nothing to find in it
   }
 }
 
@@ -99,9 +101,15 @@ export function buildIndex(session: NormalizedSession): SearchDoc[] {
   const docs: SearchDoc[] = [];
   for (const turn of session.turns) {
     if (!turn.user && !turn.steps.length) continue;
-    const add = (d: SearchDoc | undefined) => d && docs.push(d);
-    add(doc(turn.index, promptId(turn.index), promptFields(turn)));
-    turn.steps.forEach((step, i) => add(doc(turn.index, stepId(turn.index, i), stepFields(step, cwd))));
+    // An entry whose data isn't what its kind promises is drawn as a placeholder (transcript.ts), so it has nothing to find; the rest stay searchable.
+    const add = (make: () => SearchDoc | undefined) => {
+      try {
+        const d = make();
+        if (d) docs.push(d);
+      } catch {}
+    };
+    add(() => doc(turn.index, promptId(turn.index), promptFields(turn)));
+    turn.steps.forEach((step, i) => add(() => doc(turn.index, stepId(turn.index, i), stepFields(step, cwd))));
   }
   return docs;
 }

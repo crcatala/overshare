@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { harnesses } from "../harnesses/index.js";
 import { safeLabel } from "./labels.js";
 import { SENSITIVE_KEY, isLiteralSecretValue, looksLikeSecret } from "./patterns.js";
 import { SecretValue } from "./secret-value.js";
@@ -33,7 +34,7 @@ export type KnownSourceSettings = Record<KnownSourceId, boolean>;
 
 export const DEFAULT_KNOWN_SOURCES: KnownSourceSettings = { env: true, projectEnv: true, credentialFiles: false, ghToken: false };
 
-/** Short names for reports. `credentialFiles` covers pi/Claude/Codex auth JSON, `gh hosts.yml`, `~/.npmrc` and `~/.netrc`. */
+/** Short names for reports. `credentialFiles` covers each harness's auth JSON (plus Codex's), `gh hosts.yml`, `~/.npmrc` and `~/.netrc`. */
 export const KNOWN_SOURCE_LABELS: Record<KnownSourceId | "secrets-file" | "provided", string> = {
   env: "env",
   projectEnv: "project .env",
@@ -106,8 +107,8 @@ export function collectKnownSecrets(sources: KnownValueSources = {}): CollectedK
   if (enabled.credentialFiles) {
     const add = adder("credentialFiles");
     const jsonFiles = sources.jsonCredentialFiles ?? [
-      join(env.PI_CODING_AGENT_DIR ?? join(home, ".pi", "agent"), "auth.json"),
-      join(env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"), ".credentials.json"),
+      ...harnesses().flatMap((h) => h.credentialFiles?.(env, home) ?? []),
+      // Not a harness we read, but a login a session on this machine may well have printed.
       join(home, ".codex", "auth.json"),
     ];
     for (const file of jsonFiles) {

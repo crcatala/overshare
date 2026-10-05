@@ -7,7 +7,7 @@ import { exampleShare, exportFixtureShares, generateFixtures } from "../src/fixt
 import { prepareShare } from "../src/pipeline.js";
 import { readSecretsFile } from "../src/redact/known-values.js";
 import { listSessions } from "../src/resolve.js";
-import { isSupportedSchema, SHARE_MODES } from "../src/schema.js";
+import { SCHEMA_VERSION, SHARE_MODES } from "../src/schema.js";
 
 const home = "/home/fixture-user";
 const machine = { homeDir: home, username: "fixture-user" };
@@ -145,7 +145,7 @@ describe("example share (the landing page's demo session)", () => {
   const planted = generateFixtures({ outDir: mkdtempSync(join(tmpdir(), "as-fx-")), home: "/home/dana", username: "dana" }).secrets;
 
   it("is a full Claude Code share the viewer opens, so readers can step down to every other mode", () => {
-    expect(isSupportedSchema(share.schema)).toBe(true);
+    expect(share.schema).toBe(SCHEMA_VERSION);
     expect(share.mode).toBe("full");
     expect(share.harness.name).toBe("claude-code");
     expect(report.blocked).toBe(false);

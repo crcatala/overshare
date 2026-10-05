@@ -21,6 +21,7 @@ import { sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import { branchLabel, plural, shortModel } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
+import { HARNESS_META } from "../harnesses/meta.js";
 import { cut, fit, frame, isKey, isPlain, isShift, padLines, pagingKey, st, w, wrap } from "./kit.js";
 import { markLine, splitWords, unstyled } from "./mark.js";
 import { SAVE_FAILED_MESSAGE, type MarkerStyle, type SettingsStore } from "./settings.js";
@@ -476,7 +477,7 @@ export class SessionViewer {
     const s = this.session;
     const v = this.view;
     const lines = [`${st.bold("overshare")}  ${st.dim("›")}  ${st.bold(cut(s.title ?? "(untitled)", width - 20))}`];
-    lines.push(cut(st.dim([s.harness === "pi" ? "pi" : "Claude Code", s.project, branchLabel(s), s.models.map(shortModel).join(", ")].filter(Boolean).join(" · ")), width));
+    lines.push(cut(st.dim([HARNESS_META[s.harness].label, s.project, branchLabel(s), s.models.map(shortModel).join(", ")].filter(Boolean).join(" · ")), width));
     if (!v) return lines;
     const d = v.stats;
     lines.push(

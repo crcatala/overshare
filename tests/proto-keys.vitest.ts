@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import type { SubagentFileInput } from "../src/adapters/shared.js";
+import type { SubagentFileInput } from "../src/harnesses/shared.js";
 import { prepareShare } from "../src/pipeline.js";
 import { safeKeys } from "../src/redact/labels.js";
 import { Redactor } from "../src/redact/index.js";

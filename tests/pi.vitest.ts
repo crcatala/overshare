@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { detectHarness } from "../src/adapters/index.js";
-import { parsePi } from "../src/adapters/pi.js";
+import { detectHarness } from "../src/harnesses/index.js";
+import { parsePi } from "../src/harnesses/pi/parse.js";
 import { projectSession } from "../src/modes.js";
 import { LEGACY_PI_INPUT_PROVENANCE_TYPES, PI_INPUT_PROVENANCE_TYPE } from "../src/schema.js";
 import { computeStats } from "../src/stats.js";

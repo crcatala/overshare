@@ -3,12 +3,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { parseClaudeCode } from "../src/adapters/claude-code.ts";
+import { parseClaudeCode } from "../src/harnesses/claude-code/parse.ts";
 import { COST_UNDERCOUNT_NOTE, describeCost } from "../src/format.ts";
 import { projectSession } from "../src/modes.ts";
 import { SCHEMA_VERSION, SHARE_MODES, type NormalizedSession, type ShareMode, type Step, type SubagentStep, type SubagentTotals, type Turn, type Usage } from "../src/schema.ts";
 import { computeStats } from "../src/stats.ts";
-import { loadSubagentFiles } from "../src/subagent-files.ts";
+import { loadSubagentFiles } from "../src/harnesses/claude-code/subagent-files.ts";
 import { SUBAGENT_FIXTURES_DIR, fixtureSessionIds } from "./subagent-fixtures.ts";
 
 (globalThis as { __OVERSHARE_SOURCES__?: Record<string, string> }).__OVERSHARE_SOURCES__ = {};

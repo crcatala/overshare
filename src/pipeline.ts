@@ -1,6 +1,6 @@
 import { hostname as osHostname, homedir, userInfo } from "node:os";
-import { parseSession } from "./adapters/index.js";
-import type { DropCounts, SubagentFileInput } from "./adapters/shared.js";
+import { parseSession } from "./harnesses/index.js";
+import type { DropCounts, SubagentFileInput } from "./harnesses/shared.js";
 import type { OvershareConfig } from "./config.js";
 import { capRedacted } from "./cap.js";
 import { capToolText, projectSession } from "./modes.js";
@@ -18,7 +18,7 @@ export interface PrepareOptions {
   config: OvershareConfig;
   harness?: HarnessName;
   leafId?: string;
-  /** Subagent transcripts of the session (Claude Code); see `loadSubagentFiles`. */
+  /** Subagent transcripts of the session (for a harness that keeps them in files); see `loadSubagentFiles`. */
   subagentFiles?: SubagentFileInput[];
   /** Override machine context (tests). */
   machine?: { homeDir?: string; username?: string; hostname?: string };

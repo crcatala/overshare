@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parseSession } from "../src/adapters/index.js";
+import { parseSession } from "../src/harnesses/index.js";
 import { PublishFlow } from "../src/browse/flow.js";
 import { viewFromSession } from "../src/browse/job.js";
 import type { JobRequest } from "../src/browse/job.js";
@@ -16,7 +16,7 @@ import type { Publisher, PublishPayload } from "../src/publish/types.js";
 import { buildIndex } from "../src/sessions/index.js";
 import { loadShares, sharesFor } from "../src/sessions/shares.js";
 import { prepareShare } from "../src/pipeline.js";
-import { loadSubagentFiles } from "../src/subagent-files.js";
+import { loadSubagentFiles } from "../src/harnesses/claude-code/subagent-files.js";
 import { ccUsage, ClaudeTranscript, fake, PiTranscript } from "./helpers.js";
 import { SUBAGENT_FIXTURES_ROOT } from "./subagent-fixtures.js";
 

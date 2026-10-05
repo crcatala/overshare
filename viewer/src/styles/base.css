@@ -29,6 +29,8 @@
   --err: light-dark(#b3261e, #f07a70);
   --err-bg: light-dark(#fbeceb, #341c1a);
   --warn: light-dark(#94620b, #e2b451);
+  --warn-bg: light-dark(#fbf1dc, #2b2210);
+  --warn-line: light-dark(#d9a441, #8a6a24);
   --link: var(--accent);
   --heading: var(--ink);
   --code: var(--ink);
@@ -170,6 +172,50 @@ button.theme::before {
 .status.error h1 {
   font-size: 1.2em;
   color: var(--err);
+}
+/* The share is from a newer format than this viewer reads, so it may not show completely. */
+.compat-notice {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-line);
+  border-radius: 6px;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+.compat-notice svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  color: var(--warn);
+}
+.compat-notice p {
+  margin: 0;
+}
+.compat-notice .compat-title {
+  font-weight: 600;
+  color: var(--warn);
+}
+.compat-notice .compat-go {
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--warn);
+  font-size: var(--fs-sm);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.compat-notice code {
+  font-family: inherit;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
 }
 .end {
   margin-top: 40px;
@@ -681,6 +727,28 @@ pre.diff > span {
 }
 .k-event.is-error .tline {
   color: var(--err);
+}
+/* A step this viewer can't draw (see unsupported() in transcript.ts); the notice above the transcript counts these. */
+.k-unsupported .body {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 12px;
+  border: 1px dashed var(--warn-line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn-bg) 55%, transparent);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+.k-unsupported svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--warn);
+}
+.k-unsupported .tname {
+  font-weight: 600;
+  color: var(--ink);
 }
 .sub-desc {
   color: var(--ink-2);

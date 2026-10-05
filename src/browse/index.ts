@@ -1,5 +1,6 @@
 import type { OvershareConfig } from "../config.js";
-import type { HarnessName } from "../schema.js";
+import { HARNESS_META, HARNESS_NAMES, type HarnessName } from "../harnesses/meta.js";
+import { defaultRoots } from "../resolve.js";
 import { IndexJob } from "../sessions/index.js";
 import { BrowserApp } from "./app.js";
 import { runScreen } from "./kit.js";
@@ -24,7 +25,8 @@ export function runBrowse(opts: BrowseOptions): void {
   const job = new IndexJob();
   if (job.sessions.length === 0) {
     job.stop();
-    throw new Error("no sessions found (looked in the Claude Code and pi session directories; see OVERSHARE_CLAUDE_PROJECTS / OVERSHARE_PI_SESSIONS)");
+    const roots = defaultRoots();
+    throw new Error(`no sessions found (looked in ${HARNESS_NAMES.map((n) => `${HARNESS_META[n].label}: ${roots[n]}`).join("; ")})`);
   }
   // Whatever ends the process (quit, ctrl-c, a crash), keep what has been read.
   process.on("exit", () => job.stop());

@@ -9,7 +9,7 @@
  * original: their messages can quote the transcript (a JSON syntax error includes a snippet of the file).
  */
 import { readFileSync } from "node:fs";
-import { parseSession, UnrecognizedFormatError } from "../adapters/index.js";
+import { loadSubagentFiles, parseSession, UnrecognizedFormatError } from "../harnesses/index.js";
 import type { OvershareConfig } from "../config.js";
 import { formatDuration, formatSessionCost, formatTokens, plural } from "../format.js";
 import { PromptsUnavailableError } from "../modes.js";
@@ -20,7 +20,6 @@ import type { PublishInput } from "../publish/index.js";
 import { stripControls } from "../sanitize.js";
 import { totalTokens, type HarnessName, type NormalizedSession, type ShareMode } from "../schema.js";
 import { computeStats } from "../stats.js";
-import { loadSubagentFiles } from "../subagent-files.js";
 import type { SessionView, ShareReview, ViewBlock, ViewItem } from "./source.js";
 
 // ── view ───────────────────────────────────────────────────────────────────────────────
@@ -237,7 +236,7 @@ const publishSession = (p: PreparedShare): PublishSession => ({
 export function executeJob(req: JobRequest): JobResult {
   const raw = readFileSync(req.path, "utf8");
   // Claude Code keeps subagent transcripts beside the session; the CLI reads them too, so the browser must.
-  const subagentFiles = req.harness === "claude-code" ? loadSubagentFiles(req.path) : undefined;
+  const subagentFiles = loadSubagentFiles(req.harness, req.path);
   if (req.kind === "view") return { kind: "view", view: viewFromSession(parseSession(raw, req.harness, { subagentFiles }).session) };
   const prepared = prepareShare(raw, { mode: req.mode, config: req.config, harness: req.harness, subagentFiles });
   return { kind: "review", review: summarizeShare(prepared), payload: new TextEncoder().encode(prepared.json), session: publishSession(prepared) };

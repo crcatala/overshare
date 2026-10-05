@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -52,6 +52,64 @@ describe("cli", { timeout: 30_000 }, () => {
     const json = readFileSync(out, "utf8");
     expect(JSON.parse(json).schema).toBe("overshare/1");
     expect(json).not.toContain(secret);
+  });
+
+  it("export --format html writes one self-contained page with the redacted session in it", () => {
+    const secret = fake.github();
+    const dir = mkdtempSync(join(tmpdir(), "as-html-"));
+    const out = join(dir, "share.html");
+    const r = cli(["export", sessionFile(secret), "--mode", "full", "-o", out, "-q"]);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("viewer +");
+    // Shown even with -q, and only for HTML.
+    expect(r.stderr).toContain("cannot be revoked");
+    const page = readFileSync(out, "utf8");
+    expect(page.startsWith("<!doctype html>")).toBe(true);
+    expect(page).toContain(`id="overshare-session"`);
+    expect(page).toContain("overshare/1");
+    expect(page).not.toContain(secret);
+    expect(page).not.toMatch(/<script[^>]*\ssrc=|<link\b/);
+    expect(statSync(out).mode & 0o777).toBe(0o600);
+
+    // The extension picks the format; --format wins.
+    const asJson = join(dir, "forced.html");
+    expect(cli(["export", sessionFile(), "--mode", "full", "--format", "json", "-o", asJson, "-q"]).status).toBe(0);
+    expect(JSON.parse(readFileSync(asJson, "utf8")).schema).toBe("overshare/1");
+    expect(cli(["export", sessionFile(), "--mode", "full", "-o", join(dir, "plain.json"), "-q"]).stderr).not.toContain("cannot be revoked");
+    const noExt = join(dir, "forced");
+    expect(cli(["export", sessionFile(), "--mode", "full", "--format", "html", "-o", noExt, "-q"]).status).toBe(0);
+    expect(readFileSync(noExt, "utf8")).toContain("<!doctype html>");
+  });
+
+  it("export tightens an existing output file to 0600 (the mode only applies to a new file)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "as-perm-"));
+    for (const name of ["share.json", "share.html"]) {
+      const out = join(dir, name);
+      writeFileSync(out, "old", { mode: 0o644 });
+      chmodSync(out, 0o644); // umask may have narrowed it
+      expect(cli(["export", sessionFile(), "--mode", "full", "-o", out, "-q"]).status).toBe(0);
+      expect(statSync(out).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it("export refuses to write an HTML file when the re-scan blocks the share, but still writes JSON for inspection", () => {
+    // A session id skips content redaction, so a known secret there is caught only by the re-scan (see pipeline.vitest.ts).
+    const secret = fake.envValue();
+    const dir = mkdtempSync(join(tmpdir(), "as-blocked-"));
+    const session = join(dir, "s.jsonl");
+    writeFileSync(session, new ClaudeTranscript(secret).user("hi").toJsonl());
+    const secrets = join(dir, "secrets.env");
+    writeFileSync(secrets, `LEAKED=${secret}\n`);
+
+    const html = join(dir, "out.html");
+    const refused = cli(["export", session, "--mode", "brief", "--secrets-file", secrets, "-o", html, "-q"]);
+    expect(refused.status).toBe(3);
+    expect(refused.stderr).toContain("Refusing to write an HTML file");
+    expect(existsSync(html)).toBe(false);
+
+    const json = join(dir, "out.json");
+    expect(cli(["export", session, "--mode", "brief", "--secrets-file", secrets, "-o", json, "-q"]).status).toBe(0);
+    expect(existsSync(json)).toBe(true);
   });
 
   it("exports prompts-only content and accepts prompts in CLI help/report", () => {

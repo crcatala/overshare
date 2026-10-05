@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** What the transcript and token rail render for the session data they're given. */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isSupportedSchema, SCHEMA_VERSION, type NormalizedSession, type ShareMode, type Step, type Turn, type Usage } from "../src/schema.ts";
+import { SCHEMA_VERSION, type NormalizedSession, type ShareMode, type Step, type Turn, type Usage } from "../src/schema.ts";
 
 (globalThis as { __OVERSHARE_SOURCES__?: Record<string, string> }).__OVERSHARE_SOURCES__ = {};
 const { renderTranscript } = await import("../viewer/src/transcript.ts");
@@ -529,13 +529,5 @@ describe("cost and usage scope", () => {
     col.dispatchEvent(new PointerEvent("pointerenter", { clientX: 5, clientY: 5 }));
     expect(document.querySelector(".tooltip")?.textContent).toContain("compaction");
     document.body.replaceChildren();
-  });
-});
-
-describe("share format", () => {
-  it("opens the current format and links published before the rename, and nothing else", () => {
-    expect(isSupportedSchema(SCHEMA_VERSION)).toBe(true);
-    expect(isSupportedSchema("agentshare/2")).toBe(true);
-    for (const other of ["agentshare/1", "overshare/2", undefined, 2]) expect(isSupportedSchema(other)).toBe(false);
   });
 });

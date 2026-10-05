@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError, Option } from "commander";
@@ -13,9 +13,10 @@ import { SECRET_CATEGORIES } from "./redact/index.js";
 import { readSecretsFile } from "./redact/known-values.js";
 import { formatReport } from "./report.js";
 import { stripControls } from "./sanitize.js";
+import { embedShare, readStandaloneTemplate } from "./standalone.js";
 import { defaultRoots, listSessions, resolveSession, type SessionRef } from "./resolve.js";
+import { HARNESS_NAMES, loadSubagentFiles } from "./harnesses/index.js";
 import { SHARE_MODES, type HarnessName, type ShareMode } from "./schema.js";
-import { loadSubagentFiles } from "./subagent-files.js";
 import { DEFAULT_HOST, startViewerServer } from "./serve.js";
 import { TOOL_VERSION } from "./version.js";
 
@@ -30,6 +31,25 @@ interface SessionOptions {
   secretsFile?: string[];
 }
 
+const EXPORT_FORMATS = ["json", "html"] as const;
+type ExportFormat = (typeof EXPORT_FORMATS)[number];
+
+/**
+ * Write a file only its owner can read. `writeFileSync`'s `mode` applies only when the file is created, so an
+ * existing file (an earlier export, a 0644 file made by something else) is tightened first, before the new
+ * content goes in.
+ */
+function writePrivate(path: string, content: string): void {
+  if (existsSync(path)) chmodSync(path, 0o600);
+  writeFileSync(path, content, { mode: 0o600 });
+}
+
+const HTML_EXPORT_NOTE = `
+Before you send this file:
+  - Review the redaction report first (\`overshare report\` with the same options shows it). Redaction is best effort.
+  - It cannot be revoked: a copy of a file can't be deleted the way a gist or bucket object can.
+  - It carries the viewer it was made with, so later viewer fixes won't reach it.`;
+
 const parseMode = (value: string): ShareMode => {
   if (!(SHARE_MODES as readonly string[]).includes(value)) throw new InvalidArgumentError(`expected one of ${SHARE_MODES.join(", ")}`);
   return value as ShareMode;
@@ -39,7 +59,7 @@ function withSessionOptions(cmd: Command, defaultMode: ShareMode): Command {
   return cmd
     .argument("[session]", "session file path, session id, or id prefix")
     .option("-c, --current", "use the current session (Claude Code: $CLAUDE_CODE_SESSION_ID; else newest for this directory)")
-    .addOption(new Option("--harness <name>", "restrict to one harness").choices(["claude-code", "pi"]))
+    .addOption(new Option("--harness <name>", "restrict to one harness").choices(HARNESS_NAMES))
     .option("--leaf <entryId>", "export the branch ending at this entry (tree-shaped sessions)")
     .option("-m, --mode <mode>", `share mode: ${SHARE_MODES.join(" | ")}`, parseMode, defaultMode)
     .option("--secrets-file <file...>", "extra values to redact: KEY=VALUE lines or one value per line");
@@ -50,7 +70,7 @@ function prepare(arg: string | undefined, opts: SessionOptions): { ref: SessionR
   const config = loadConfig();
   const raw = readFileSync(ref.path, "utf8");
   const extraKnownSecrets = (opts.secretsFile ?? []).flatMap((f) => readSecretsFile(f, (msg) => console.error(`warning: ${msg}`)));
-  const subagentFiles = ref.harness === "claude-code" ? loadSubagentFiles(ref.path) : undefined;
+  const subagentFiles = loadSubagentFiles(ref.harness, ref.path);
   const prepared = prepareShare(raw, { mode: opts.mode, config, harness: ref.harness, leafId: opts.leaf, subagentFiles, extraKnownSecrets });
   return { ref, prepared };
 }
@@ -82,11 +102,11 @@ sources were read. Use --secrets-file for values you know are sensitive. See REA
 program
   .command("list")
   .description("list recent sessions")
-  .addOption(new Option("--harness <name>", "only one harness").choices(["claude-code", "pi"]))
+  .addOption(new Option("--harness <name>", "only one harness").choices(HARNESS_NAMES))
   .option("-n, --limit <n>", "number of sessions", (v) => Number.parseInt(v, 10), 15)
   .action((opts: { harness?: HarnessName; limit: number }) => {
     const roots = defaultRoots();
-    const harnesses: HarnessName[] = opts.harness ? [opts.harness] : ["claude-code", "pi"];
+    const harnesses: HarnessName[] = opts.harness ? [opts.harness] : HARNESS_NAMES;
     const refs = harnesses.flatMap((h) => listSessions(h, roots)).sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, opts.limit);
     for (const r of refs) {
       const when = new Date(r.mtimeMs).toISOString().replace("T", " ").slice(0, 16);
@@ -98,7 +118,7 @@ program
 program
   .command("browse")
   .description("browse, search and share local sessions interactively (press ? for keys)")
-  .addOption(new Option("--harness <name>", "start filtered to one harness").choices(["claude-code", "pi"]))
+  .addOption(new Option("--harness <name>", "start filtered to one harness").choices(HARNESS_NAMES))
   .option("-q, --query <text>", "start with this search (e.g. 'harness:pi since:7d refactor')")
   .action(async (opts: { harness?: HarnessName; query?: string }) => {
     // Loaded on demand: the TUI stack is not needed by any other command.
@@ -118,14 +138,27 @@ withSessionOptions(program.command("report"), "brief")
   });
 
 withSessionOptions(program.command("export"), "full")
-  .description("write the redacted, normalized share JSON locally")
+  .description("write the redacted, normalized share locally, as JSON or as one self-contained HTML file")
   .requiredOption("-o, --output <file>", "output file")
+  .addOption(new Option("--format <format>", "json, or html (the viewer and the session in one file that opens offline); default: html for an output ending in .html, else json").choices(EXPORT_FORMATS))
   .option("-q, --quiet", "do not print the report")
-  .action((arg: string | undefined, opts: SessionOptions & { output: string; quiet?: boolean }) => {
+  .action((arg: string | undefined, opts: SessionOptions & { output: string; format?: ExportFormat; quiet?: boolean }) => {
+    const format = opts.format ?? (/\.html?$/i.test(opts.output) ? "html" : "json");
+    // Fail on a missing viewer build before doing any work.
+    const template = format === "html" ? readStandaloneTemplate() : undefined;
     const { ref, prepared } = prepare(arg, opts);
     if (!opts.quiet) console.error(formatReport(prepared.report, { color: !!process.stderr.isTTY && !process.env.NO_COLOR, transcriptPath: ref.path }));
-    writeFileSync(opts.output, prepared.json, { mode: 0o600 });
-    console.error(`\nWrote ${opts.output} (${formatBytes(prepared.report.bytes)})`);
+    // A blocked share (the final re-scan found unredacted secrets) is still written as JSON, for inspection; a page someone might open and pass on is not.
+    if (template && prepared.report.blocked) {
+      console.error("\nRefusing to write an HTML file: the final re-scan found unredacted secrets (use --format json to inspect the payload).");
+      process.exitCode = EXIT.blocked;
+      return;
+    }
+    const content = template ? embedShare(template, prepared.json) : prepared.json;
+    writePrivate(opts.output, content);
+    console.error(`\nWrote ${opts.output} (${formatBytes(Buffer.byteLength(content))}${template ? `: viewer + ${formatBytes(prepared.report.bytes)} session` : ""})`);
+    // Shown even with --quiet: the file is what gets forwarded, and unlike a link it cannot be taken back.
+    if (template) console.error(HTML_EXPORT_NOTE);
   });
 
 const parseTarget = (value: string): ShareTarget => {

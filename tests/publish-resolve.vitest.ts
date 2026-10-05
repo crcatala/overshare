@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { GistPublisher } from "../src/publish/gist.js";
 import type { CommandRunner } from "../src/publish/types.js";
-import { projectDirName, resolveSession, type SessionRoots } from "../src/resolve.js";
+import { projectDir as claudeProjectDir } from "../src/harnesses/claude-code/index.js";
+import { projectDir as piProjectDir } from "../src/harnesses/pi/index.js";
+import { resolveSession, type SessionRoots } from "../src/resolve.js";
 import { ClaudeTranscript, PiTranscript } from "./helpers.js";
 
 describe("GistPublisher", () => {
@@ -57,14 +59,14 @@ describe("resolveSession", () => {
   }
 
   it("maps a cwd to each harness's directory naming", () => {
-    expect(projectDirName("claude-code", "/home/u/.herdr/x")).toBe("-home-u--herdr-x");
-    expect(projectDirName("pi", "/home/u/.herdr/x")).toBe("--home-u-.herdr-x--");
+    expect(claudeProjectDir("/home/u/.herdr/x")).toBe("-home-u--herdr-x");
+    expect(piProjectDir("/home/u/.herdr/x")).toBe("--home-u-.herdr-x--");
   });
 
   it("finds the current Claude Code session from CLAUDE_CODE_SESSION_ID", () => {
     const r = roots();
     const cwd = "/work/demo";
-    const dir = join(r["claude-code"], projectDirName("claude-code", cwd));
+    const dir = join(r["claude-code"], claudeProjectDir(cwd));
     mkdirSync(dir, { recursive: true });
     const id = "aaaaaaaa-1111-2222-3333-444444444444";
     writeFileSync(join(dir, `${id}.jsonl`), new ClaudeTranscript(id).user("x").toJsonl());
@@ -76,7 +78,7 @@ describe("resolveSession", () => {
   it("falls back to the newest session for the cwd, and resolves id prefixes", () => {
     const r = roots();
     const cwd = "/work/demo";
-    const dir = join(r.pi, projectDirName("pi", cwd));
+    const dir = join(r.pi, piProjectDir(cwd));
     mkdirSync(dir, { recursive: true });
     const older = join(dir, "2026-01-01T00-00-00-000Z_01a0old0-0000-7000-8000-000000000000.jsonl");
     const newer = join(dir, "2026-01-02T00-00-00-000Z_01a0new0-0000-7000-8000-000000000000.jsonl");

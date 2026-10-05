@@ -6,9 +6,11 @@
  * contents rail shows.
  */
 import { formatCost, formatDuration, formatTokens, plural } from "../../src/format.ts";
+import { metaOf } from "../../src/harnesses/meta.ts";
 import { contextTokens, type EventStep, type NormalizedSession, type ResponseUsage, type Step, type SubagentStep, type ThinkingStep, type ToolGroupStep, type ToolResult, type ToolStep, type Turn } from "../../src/schema.ts";
 import { commandName, groupCalls, groupShell, isExecTool, type CallCount } from "./commands.ts";
 import { h, markdown } from "./dom.ts";
+import { warnIcon } from "./el.ts";
 import { stepTokens, turnSubagents, turnSubagentsLine, type TurnSubagents } from "./subagents.ts";
 import { firstLine, lineDiff, preview, splitLines, trimContext, type DiffLine } from "./text.ts";
 import { cacheEventOf } from "./usageinfo.ts";
@@ -375,6 +377,28 @@ function renderStep(step: Step, id: string, ctx: Ctx): HTMLElement {
       return renderSubagent(step, id);
     case "event":
       return renderEvent(step, id);
+    default:
+      return unsupported(id, (step as { kind?: unknown }).kind, (step as { timestamp?: string }).timestamp);
+  }
+}
+
+/**
+ * A step this viewer can't draw: a kind from a newer format, or one whose data isn't what its kind promises.
+ * It stands as a placeholder so one step never costs the reader the rest of the session.
+ */
+function unsupported(id: string, kind: unknown, iso: string | undefined, broken = false): HTMLElement {
+  const name = typeof kind === "string" && kind ? kind : "unknown";
+  const el = entry("unsupported", id, "?", iso, warnIcon(), h("span", { class: "tname" }, name), h("span", { class: "tmeta" }, broken ? "couldn't be shown" : "not supported by this viewer"));
+  el.dataset.kind = name;
+  return el;
+}
+
+/** renderStep, with a placeholder for a step that throws. */
+function renderStepSafe(step: Step, id: string, ctx: Ctx): HTMLElement {
+  try {
+    return renderStep(step, id, ctx);
+  } catch {
+    return unsupported(id, step?.kind, step?.timestamp, true);
   }
 }
 
@@ -576,20 +600,18 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
   const ctx: Ctx = { ...opts, cwd: session.project?.cwd, byTurn: responsesByTurn(session) };
   const turns: TurnInfo[] = [];
   let ordinal = 0;
-  const sections = session.turns
-    .filter((t) => t.user || t.steps.length || (session.mode === "prompts" && (t.activity?.toolCalls || ctx.byTurn.has(t.index))))
-    .map((turn) => {
+  const build = (turn: Turn): HTMLElement => {
       const n = turn.user ? ++ordinal : 0;
       const id = `turn-${turn.index}`;
       // Only Claude Code's usage is read from the subagents' own transcripts; pi's chip is best effort and covers some launches only, so it is not summed.
-      const subagents = session.harness.name === "claude-code" ? turnSubagents(turn) : undefined;
+      const subagents = metaOf(session.harness.name)?.sumsSubagentUsage ? turnSubagents(turn) : undefined;
       const stepIds = turn.steps.map((_, i) => stepId(turn.index, i));
       const section = h(
         "section",
         { class: `turn${turn.user ? "" : " turn-start"}`, id, "data-turn": String(turn.index), "data-n": String(n) },
         h("div", { class: "turn-head", "aria-hidden": "true" }, h("span", { class: "turn-n" }, n ? String(n) : "·"), turn.timestamp ? h("time", {}, clock(turn.timestamp)) : null),
         renderPrompt(turn, promptId(turn.index)),
-        ...(session.mode === "prompts" ? [activitySummary(turn, ctx.byTurn.get(turn.index))] : turn.steps.map((s, i) => renderStep(s, stepIds[i]!, ctx))),
+        ...(session.mode === "prompts" ? [activitySummary(turn, ctx.byTurn.get(turn.index))] : turn.steps.map((s, i) => renderStepSafe(s, stepIds[i]!, ctx))),
         session.mode === "prompts" ? null : turnFoot(ctx.byTurn.get(turn.index), subagents),
       );
       const o = outline(turn, stepIds);
@@ -612,6 +634,25 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
         responseSteps: session.mode === "prompts" ? new Map() : responseSteps(turn, stepIds),
       });
       return section;
+  };
+  // The last resort for a turn the passes above can't make sense of: a placeholder keeps the rest of the session readable.
+  const failed = (turn: Turn): HTMLElement => {
+    const n = turn.user ? ordinal : 0;
+    const id = `turn-${turn.index}`;
+    const section = h("section", { class: "turn", id, "data-turn": String(turn.index), "data-n": String(n) }, unsupported(stepId(turn.index, 0), "turn", undefined, true));
+    turns.push({ index: turn.index, ordinal: n, id, el: section, label: n ? `Prompt ${n}` : "Session start", tools: 0, errors: 0, items: [], calls: [], responses: [], responseSteps: new Map() });
+    return section;
+  };
+  const sections = session.turns
+    .filter((t) => t.user || t.steps.length || (session.mode === "prompts" && (t.activity?.toolCalls || ctx.byTurn.has(t.index))))
+    .map((turn) => {
+      const before = turns.length;
+      try {
+        return build(turn);
+      } catch {
+        turns.length = before;
+        return failed(turn);
+      }
     });
   return { el: h("div", { class: "transcript" }, ...sections), turns };
 }

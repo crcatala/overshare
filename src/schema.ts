@@ -4,18 +4,28 @@
  * Adapters convert each harness's native transcript into this shape; redaction,
  * mode projection, publishing and the viewer only ever see this shape. This file
  * is shared with the browser viewer, so it must stay free of Node imports.
+ *
+ * Evolving it: shares outlive the code that wrote them, and the viewer is always the latest.
+ *   - Adding an optional field, or a new step kind, is compatible: don't bump the version. Older viewers
+ *     skip what they don't know (an unknown step kind shows as a placeholder), so a new field must be
+ *     optional and a viewer must read it only if present.
+ *   - Removing, renaming or changing the meaning of a field is breaking: bump SCHEMA_VERSION and add a
+ *     migration from the old version in viewer/src/compat.ts. tests/fixtures/shares/README.md has the steps.
  */
 
+import type { HarnessName } from "./harnesses/meta.js";
+
 export const SCHEMA_VERSION = "overshare/1" as const;
-/** The same format under the project's earlier name (agent-share); links published before the rename carry it. */
-export const LEGACY_SCHEMA_VERSIONS: readonly string[] = ["agentshare/2"];
-export const isSupportedSchema = (schema: unknown): boolean =>
-  schema === SCHEMA_VERSION || LEGACY_SCHEMA_VERSIONS.includes(schema as string);
+/**
+ * The same formats under the project's earlier name (agent-share), by the overshare version each one is:
+ * links published before the rename carry them. viewer/src/compat.ts reads them as that version.
+ */
+export const LEGACY_SCHEMA_VERSIONS: Readonly<Record<string, number>> = { "agentshare/2": 1 };
 
 export type ShareMode = "full" | "brief" | "minimal" | "prompts";
 export const SHARE_MODES: readonly ShareMode[] = ["full", "brief", "minimal", "prompts"];
 
-export type HarnessName = "claude-code" | "pi";
+export type { HarnessName };
 
 /** Local-only pi extension entry; its payload is never copied into a share. */
 export const PI_INPUT_PROVENANCE_TYPE = "overshare:authored-input";

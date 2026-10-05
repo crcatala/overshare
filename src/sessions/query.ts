@@ -7,7 +7,7 @@
  * Remaining words must ALL appear (case-insensitive, any order) in title / project / branch / models / prompts.
  * A word ranks higher when it hits the title or project.
  */
-import type { HarnessName } from "../schema.js";
+import { HARNESS_META, HARNESS_NAMES, type HarnessName } from "../harnesses/meta.js";
 import type { SharesFile } from "./shares.js";
 import { sharesFor } from "./shares.js";
 import type { SessionSummary } from "./summary.js";
@@ -27,7 +27,8 @@ export interface SessionFilter {
   words: string[];
 }
 
-const HARNESS_ALIASES: Record<string, HarnessName> = { claude: "claude-code", "claude-code": "claude-code", cc: "claude-code", pi: "pi" };
+/** `harness:<word>`: a harness's name or any of its aliases. */
+const HARNESS_ALIASES = new Map<string, HarnessName>(HARNESS_NAMES.flatMap((n) => [n, ...HARNESS_META[n].aliases].map((w): [string, HarnessName] => [w, n])));
 
 const UNITS: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
 
@@ -49,7 +50,7 @@ export function parseQuery(input: string, now = Date.now()): SessionFilter {
     }
     const key = m[1]!.toLowerCase();
     const value = m[2].toLowerCase();
-    if (key === "harness") f.harness = HARNESS_ALIASES[value];
+    if (key === "harness") f.harness = HARNESS_ALIASES.get(value);
     else if (key === "project" || key === "repo") f.project = value;
     else if (key === "branch") f.branch = value;
     else if (key === "model") f.model = value;

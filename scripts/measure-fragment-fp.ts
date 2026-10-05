@@ -13,7 +13,8 @@ import { collectKnownSecrets, knownSecret, readSecretsFile, type KnownSecret } f
 import type { FragmentPolicy } from "../src/redact/secret-value.js";
 import { defaultRoots, listSessions } from "../src/resolve.js";
 import { SHARE_MODES } from "../src/schema.js";
-import { loadSubagentFiles } from "../src/subagent-files.js";
+import { HARNESS_NAMES } from "../src/harnesses/index.js";
+import { loadSubagentFiles } from "../src/harnesses/claude-code/subagent-files.js";
 
 const POLICIES: FragmentPolicy[] = [];
 for (const minValueLength of [16, 24])
@@ -142,7 +143,7 @@ let realFailed = 0;
 let realSecretsMax = 0;
 if (realIdx >= 0) {
   const limit = Number(process.argv[realIdx + 1] ?? 100);
-  const refs = ["claude-code", "pi"].flatMap((h) => listSessions(h as "claude-code" | "pi", defaultRoots())).sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, limit);
+  const refs = HARNESS_NAMES.flatMap((h) => listSessions(h, defaultRoots())).sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, limit);
   for (const ref of refs) {
     try {
       const raw = readFileSync(ref.path, "utf8");

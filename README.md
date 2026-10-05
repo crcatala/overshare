@@ -10,7 +10,7 @@ overshare turns a [Claude Code](https://claude.com/claude-code) or [pi](https://
 session into an unlisted link that anyone can read in a clean web viewer. Secrets, paths and emails
 are redacted **on your machine**, the exact payload is scanned again, and only then is it uploaded.
 
-![A shared session in the overshare viewer](site/assets/viewer-light.webp)
+<p align="center"><img src="docs/assets/demo.svg" width="100%" alt="overshare publishing a coding-agent session from the terminal: secrets are redacted on your machine, the file is re-scanned, and the link opens in the viewer, where readers can switch share modes" /></p>
 
 - **Redacted locally, checked twice.** Known values from your environment and `.env` files, about 1,100
   secret patterns, home paths and emails are scrubbed before upload. If the final re-scan still finds

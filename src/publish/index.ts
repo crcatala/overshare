@@ -60,7 +60,6 @@ export async function publishPrepared(
 ): Promise<{ result: PublishResult; warnings: string[] }> {
   const s = prepared.session;
   const result = await publisher.publish({
-    filename: "session.json",
     content: prepared.json,
     description: `overshare: ${s.title ?? s.source.sessionId} (${s.harness.name}, ${s.mode}, ${formatTokens(totalTokens(s.stats.tokens))} tokens)`,
   });

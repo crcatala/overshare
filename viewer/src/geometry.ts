@@ -19,11 +19,11 @@ export interface Rect {
   bottom: number;
 }
 
-export const inRect = (p: Point, r: Rect): boolean => p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
+const inRect = (p: Point, r: Rect): boolean => p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
 
-export const inflate = (r: Rect, d: number): Rect => ({ left: r.left - d, top: r.top - d, right: r.right + d, bottom: r.bottom + d });
+const inflate = (r: Rect, d: number): Rect => ({ left: r.left - d, top: r.top - d, right: r.right + d, bottom: r.bottom + d });
 
-export const corners = (r: Rect): Point[] => [
+const corners = (r: Rect): Point[] => [
   { x: r.left, y: r.top },
   { x: r.right, y: r.top },
   { x: r.right, y: r.bottom },

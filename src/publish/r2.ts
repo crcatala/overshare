@@ -58,7 +58,6 @@ function endpoint(config: R2Config): string {
 }
 
 export class R2Publisher implements Publisher {
-  readonly name = "r2";
   private readonly client: AwsClient;
 
   constructor(
@@ -90,7 +89,7 @@ export class R2Publisher implements Publisher {
     });
     if (!res.ok) throw new Error(`R2 upload failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
     const publicUrl = r2PublicUrl(this.opts.config, id);
-    return { publisher: this.name, id, url: publicUrl, rawUrl: publicUrl, viewerUrl: `${this.opts.viewerUrl}#${R2_SOURCE}:${id}` };
+    return { id, url: publicUrl, rawUrl: publicUrl, viewerUrl: `${this.opts.viewerUrl}#${R2_SOURCE}:${id}` };
   }
 
   async delete(id: string): Promise<void> {

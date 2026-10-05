@@ -1,8 +1,6 @@
 /** Small display helpers for the session browser. */
-import { formatDuration, plural } from "../format.js";
+import { formatDuration } from "../format.js";
 import type { SessionSummary } from "../sessions/summary.js";
-
-export { plural };
 
 /** "5h ago", "yesterday", "Jul 14". */
 export function ago(ms: number, now = Date.now()): string {

@@ -16,10 +16,10 @@
  *            settings that persist: indent replies under their prompt, tool calls one level deeper, and whether rows are
  *            marked with an icon (❯) or the kind's name ([User])
  */
-import { formatBytes } from "../format.js";
+import { formatBytes, plural } from "../format.js";
 import { latestShare, sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
-import { branchLabel, plural, shortModel } from "./display.js";
+import { branchLabel, shortModel } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { HARNESS_META } from "../harnesses/meta.js";
 import { cut, elide, fit, frame, isKey, isPlain, isShift, padLines, pagingKey, st, w, wrap } from "./kit.js";

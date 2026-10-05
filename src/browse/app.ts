@@ -14,7 +14,7 @@
  *   publish   p → mode (t: target, gist or R2) → review → confirm; yes uploads exactly what was reviewed
  */
 import { SHARE_TARGETS } from "../config.js";
-import { formatBytes } from "../format.js";
+import { formatBytes, plural } from "../format.js";
 import { stripControls } from "../sanitize.js";
 import { formatKnownSources } from "../report.js";
 import { HARNESS_META, HARNESS_NAMES, type HarnessName } from "../harnesses/meta.js";
@@ -22,7 +22,7 @@ import { SHARE_MODES } from "../schema.js";
 import { facet, parseQuery, searchSessions } from "../sessions/query.js";
 import { latestShare, sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
-import { ago, branchLabel, DATE_FORMATS, dateFormat, dayBucket, durationMs, plural, sessionDuration, shortModel, toolSummary, type DateFormatId } from "./display.js";
+import { ago, branchLabel, DATE_FORMATS, dateFormat, dayBucket, durationMs, sessionDuration, shortModel, toolSummary, type DateFormatId } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { copyToClipboard, MODE_HINT, PublishFlow } from "./flow.js";
 import { box, columns, composite, cut, elide, fit, hr, isKey, isPlain, isShift, padLines, pagingKey, Screen, st, w, wrap, type PageMove } from "./kit.js";

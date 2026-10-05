@@ -33,11 +33,10 @@ afterEach(() => {
 function recordingPublisher(): Publisher & { payloads: PublishPayload[] } {
   const payloads: PublishPayload[] = [];
   return {
-    name: "fake",
     payloads,
     async publish(p) {
       payloads.push(p);
-      return { publisher: "fake", id: "abc123", url: "https://gist.example/abc123", viewerUrl: "https://viewer.example/#abc123" };
+      return { id: "abc123", url: "https://gist.example/abc123", viewerUrl: "https://viewer.example/#abc123" };
     },
     async delete() {},
   };
@@ -394,7 +393,6 @@ describe("publishPrepared", () => {
     const { result, warnings } = await publishPrepared(publisher, DEFAULT_CONFIG, "gist", prepared);
     expect(result.viewerUrl).toBe("https://viewer.example/#abc123");
     expect(warnings).toEqual([]);
-    expect(publisher.payloads[0]!.filename).toBe("session.json");
     expect(loadShares()["claude-code:sess-1"]![0]).toMatchObject({ url: "https://viewer.example/#abc123", mode: "minimal" });
   });
 });
@@ -444,11 +442,10 @@ describe("publish target (ass-ihnf)", () => {
     const make = (name: string): Publisher & { payloads: PublishPayload[] } => {
       const payloads: PublishPayload[] = [];
       return {
-        name,
         payloads,
         async publish(p) {
           payloads.push(p);
-          return { publisher: name, id: `${name}-id`, url: `https://${name}.example/id`, viewerUrl: `https://viewer.example/#${name}` };
+          return { id: `${name}-id`, url: `https://${name}.example/id`, viewerUrl: `https://viewer.example/#${name}` };
         },
         async delete() {},
       };

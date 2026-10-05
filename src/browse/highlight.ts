@@ -33,9 +33,6 @@ export function languageOf(lang: string | undefined): string | undefined {
   return lang ? LANGUAGE[lang.toLowerCase().replace(/^\./, "")] : undefined;
 }
 
-/** The family for a file path, from its extension. */
-export const languageOfPath = (path: string | undefined): string | undefined => languageOf(/\.([A-Za-z0-9]+)$/.exec(path ?? "")?.[1]);
-
 const KEYWORDS = new Set(
   (
     "abstract as async await break case catch class const continue declare def default defer delete do elif else enum except export extends extern false " +

@@ -12,14 +12,15 @@ export const defaultRunner: CommandRunner = (command, args) =>
     });
   });
 
+/** The name of the file inside the gist; the viewer loads `session.json`. */
+const FILENAME = "session.json";
+
 /**
  * Publishes to a *secret* GitHub gist via the `gh` CLI. Secret gists are unlisted,
  * not private: anyone with the link can read them, and GitHub keeps revisions, so a
  * leaked value can only be removed by deleting the gist (and rotating the secret).
  */
 export class GistPublisher implements Publisher {
-  readonly name = "gist";
-
   constructor(private readonly opts: { viewerUrl: string; run?: CommandRunner }) {}
 
   async publish(payload: PublishPayload): Promise<PublishResult> {
@@ -29,7 +30,7 @@ export class GistPublisher implements Publisher {
 
     const dir = mkdtempSync(join(tmpdir(), "overshare-"));
     try {
-      const file = join(dir, payload.filename);
+      const file = join(dir, FILENAME);
       writeFileSync(file, payload.content, { mode: 0o600 });
       // No --public flag: gists are created secret (unlisted) by default.
       const created = await run("gh", ["gist", "create", "--desc", payload.description, file]);
@@ -41,11 +42,10 @@ export class GistPublisher implements Publisher {
       const owner = ownerResult.code === 0 ? ownerResult.stdout.trim() : "";
       const hash = owner ? `${owner}/${id}` : id;
       return {
-        publisher: this.name,
         id,
         url,
         viewerUrl: `${this.opts.viewerUrl}#${hash}`,
-        ...(owner ? { rawUrl: `https://gist.githubusercontent.com/${owner}/${id}/raw/${payload.filename}` } : {}),
+        ...(owner ? { rawUrl: `https://gist.githubusercontent.com/${owner}/${id}/raw/${FILENAME}` } : {}),
       };
     } finally {
       rmSync(dir, { recursive: true, force: true });

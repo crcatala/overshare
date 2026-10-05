@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { accessWarnings, createPublisher, parseShareRef, preflightWarnings } from "../src/publish/index.js";
+import { GistPublisher } from "../src/publish/gist.js";
 import { R2Publisher, checkPublicAccess, r2SourceTemplate, type R2Config } from "../src/publish/r2.js";
 
 interface Captured {
@@ -35,7 +36,7 @@ describe("R2Publisher", () => {
     try {
       const config: R2Config = { bucket: "shares", prefix: "s/", publicUrl: "https://shares.example.com/", endpoint: s3.endpoint };
       const publisher = new R2Publisher({ config, credentials, viewerUrl: "https://viewer.example.com/s/" });
-      const result = await publisher.publish({ filename: "session.json", content: '{"schema":"overshare/1"}', description: "d" });
+      const result = await publisher.publish({ content: '{"schema":"overshare/1"}', description: "d" });
       expect(result.id).toMatch(/^[A-Za-z0-9_-]{22}$/);
       expect(result.viewerUrl).toBe(`https://viewer.example.com/s/#r2:${result.id}`);
       expect(result.url).toBe(`https://shares.example.com/s/${result.id}.json`);
@@ -57,7 +58,7 @@ describe("R2Publisher", () => {
     const s3 = await mockS3(403);
     try {
       const publisher = new R2Publisher({ config: { bucket: "b", publicUrl: "https://x", endpoint: s3.endpoint }, credentials, viewerUrl: "v" });
-      await expect(publisher.publish({ filename: "session.json", content: "{}", description: "d" })).rejects.toThrow(/R2 upload failed \(403\)/);
+      await expect(publisher.publish({ content: "{}", description: "d" })).rejects.toThrow(/R2 upload failed \(403\)/);
     } finally {
       s3.close();
     }
@@ -80,8 +81,8 @@ describe("createPublisher", () => {
     expect(() => createPublisher(DEFAULT_CONFIG, "r2", {})).toThrow(/"r2" section/);
     const config = { ...DEFAULT_CONFIG, r2: { bucket: "b", publicUrl: "https://x", accountId: "acc" } };
     expect(() => createPublisher(config, "r2", {})).toThrow(/credentials missing/);
-    expect(createPublisher(config, "r2", { OVERSHARE_R2_ACCESS_KEY_ID: "a", OVERSHARE_R2_SECRET_ACCESS_KEY: "b" }).name).toBe("r2");
-    expect(createPublisher(DEFAULT_CONFIG, "gist", {}).name).toBe("gist");
+    expect(createPublisher(config, "r2", { OVERSHARE_R2_ACCESS_KEY_ID: "a", OVERSHARE_R2_SECRET_ACCESS_KEY: "b" })).toBeInstanceOf(R2Publisher);
+    expect(createPublisher(DEFAULT_CONFIG, "gist", {})).toBeInstanceOf(GistPublisher);
   });
 });
 
@@ -134,7 +135,7 @@ describe("publish warnings", () => {
   });
 
   it("reports missing public access or CORS after an R2 upload", async () => {
-    const result = { publisher: "r2", id: "x", url: "u", viewerUrl: "v", rawUrl: "https://shares.example.com/x.json" };
+    const result = { id: "x", url: "u", viewerUrl: "v", rawUrl: "https://shares.example.com/x.json" };
     const respond = (status: number, headers: Record<string, string> = {}) => (async () => new Response("{}", { status, headers })) as typeof fetch;
     expect(await accessWarnings(r2Config, "r2", result, respond(404))).toEqual([expect.stringMatching(/returned 404/)]);
     expect(await accessWarnings(r2Config, "r2", result, respond(200))).toEqual([expect.stringMatching(/CORS policy does not allow https:\/\/overshare\.link/)]);

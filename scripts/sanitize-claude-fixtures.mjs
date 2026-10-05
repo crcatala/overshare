@@ -16,10 +16,10 @@
  *   `meta.json` as recorded (apart from path scrubbing), so usage arithmetic is unchanged.
  * - Replaces this machine's home directory, username and temp paths with neutral ones.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const KEEP_ATTACHMENTS = new Set(["date", "model", "total_tokens_reminder", "budget_usd", "queued_command"]);
 const DROP_TYPES = new Set(["file-history-snapshot"]);
@@ -147,4 +147,5 @@ function main() {
   console.log(`${ids.length} sessions, ${files} files, ${bytes} bytes → ${target}`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+// Compare real paths: argv[1] keeps symlinks (macOS /var → /private/var), import.meta.url does not.
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) main();

@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read the served shares through DNS rebinding.
 - `overshare serve` no longer serves files beside the viewer directory whose names share its
   prefix (e.g. `viewer/dist/standalone.html` via `/s/..%2fstandalone.html`).
+- A Claude Code session rewound to before a longer stretch of work no longer shares the discarded
+  branch: only the turns on the current branch are exported, in every mode. Before, when the kept
+  branch held less than half the session's messages, every entry in the file was exported. An
+  unknown or empty `--leaf` is now an error (Claude Code and pi) instead of exporting the whole file
+  or, for an empty one, the latest branch.
 
 ## [0.1.0] - 2026-10-05
 

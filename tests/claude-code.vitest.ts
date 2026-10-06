@@ -91,6 +91,45 @@ describe("claude-code adapter", () => {
     expect(session.turns.map((x) => x.user?.text)).toEqual(["first", "edited prompt"]);
   });
 
+  it("exports only the kept branch when a rewind discards the longer one (every mode)", () => {
+    const t = new ClaudeTranscript().user("first").assistant("m1", [{ type: "text", text: "a1" }], ccUsage(1, 1));
+    const fork = t.lastUuid;
+    for (let i = 1; i <= 4; i++) {
+      t.user(`SECRET-discarded-prompt-${i}`);
+      t.assistant(`d${i}`, [{ type: "tool_use", id: `tu_d${i}`, name: "Bash", input: { command: `echo ${i}` } }], ccUsage(1, 1));
+      t.toolResult(`tu_d${i}`, `SECRET-discarded-output-${i}`).assistant(`d${i}b`, [{ type: "text", text: `SECRET-discarded-reply-${i}` }], ccUsage(1, 1));
+    }
+    t.rewindTo(fork).user("kept prompt").assistant("m2", [{ type: "text", text: "kept reply" }], ccUsage(1, 1));
+    const { session, dropped } = parseClaudeCode(t.toJsonl());
+    expect(session.turns.map((x) => x.user?.text)).toEqual(["first", "kept prompt"]);
+    expect(JSON.stringify(session)).not.toContain("SECRET");
+    expect(dropped["broken-chain"]).toBeUndefined();
+    // Their spend is still reported, as not counted.
+    expect(session.stats.otherBranches?.responses).toBe(8);
+    for (const mode of ["full", "brief", "minimal", "prompts"] as const) {
+      const { json } = prepareShare(t.toJsonl(), { mode, config: DEFAULT_CONFIG });
+      expect(json, mode).not.toContain("SECRET");
+    }
+  });
+
+  it("fails on an unknown --leaf instead of exporting every entry", () => {
+    const t = new ClaudeTranscript().user("first").assistant("m1", [{ type: "text", text: "a1" }], ccUsage(1, 1));
+    expect(() => parseClaudeCode(t.toJsonl(), { leafId: "no-such-entry" })).toThrow("--leaf no-such-entry: no entry with that id in this session");
+    // An empty id (say, an unset variable in a wrapper) is not "no leaf": it would export a later point than asked for.
+    expect(() => parseClaudeCode(t.toJsonl(), { leafId: "" })).toThrow('--leaf "": no entry with that id in this session');
+  });
+
+  it("exports only the reachable tail of a chain whose parent is missing from the file, and says so", () => {
+    // Earlier history whose link to the leaf's chain is lost: never exported, since nothing tells it apart from a discarded branch.
+    const t = new ClaudeTranscript().user("SECRET-unreachable-prompt").assistant("m1", [{ type: "text", text: "SECRET-unreachable-reply" }], ccUsage(1, 1));
+    t.rewindTo("u-missing").user("after the break").assistant("m2", [{ type: "text", text: "reachable reply" }], ccUsage(1, 1));
+    const { session, dropped } = parseClaudeCode(t.toJsonl());
+    expect(session.turns.map((x) => x.user?.text)).toEqual(["after the break"]);
+    expect(JSON.stringify(session)).not.toContain("SECRET");
+    expect(dropped["broken-chain"]).toBe(1);
+    expect(session.stats.otherBranches?.responses).toBe(1);
+  });
+
   it("keeps every result of parallel tool calls even though they hang off the tool_use lines as siblings", () => {
     const t = new ClaudeTranscript().user("check three things");
     t.assistant("m1", [{ type: "text", text: "Running three checks." }], ccUsage(1, 1));

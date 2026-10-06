@@ -15,17 +15,19 @@ const notification = (toolUseId: string, result: string, extra = "") =>
 const launched = { toolUseResult: { isAsync: true, status: "async_launched", agentId: "a1", description: "d" } };
 const launchAck = [{ type: "text", text: "Async agent launched successfully.\nagentId: a1\noutput_file: /tmp/x/a1.output" }];
 
-/** One prompt, two background launches, then two completion notifications and a closing answer. */
-function asyncSession(): ClaudeTranscript {
-  return new ClaudeTranscript()
+/** One prompt, two background launches, then two completion notifications (unless left out) and a closing answer. */
+function asyncSession({ notifications = true } = {}): ClaudeTranscript {
+  const t = new ClaudeTranscript()
     .user("describe both modules")
     .assistant("m1", [{ type: "tool_use", id: "tu_a", name: "Agent", input: { subagent_type: "general-purpose", description: "Describe mathlib", run_in_background: true } }], ccUsage(1, 1))
     .toolResult("tu_a", launchAck, launched)
     .assistant("m2", [{ type: "tool_use", id: "tu_b", name: "Agent", input: { subagent_type: "general-purpose", description: "Describe strings", run_in_background: true } }], ccUsage(1, 1))
-    .toolResult("tu_b", launchAck, launched)
-    .user(notification("tu_a", ANSWER_A), { origin: NOTIFICATION_ORIGIN, promptSource: "system" })
-    .user(notification("tu_b", ANSWER_B), { origin: NOTIFICATION_ORIGIN, promptSource: "system" })
-    .assistant("m3", [{ type: "text", text: "Both modules described." }], ccUsage(1, 1));
+    .toolResult("tu_b", launchAck, launched);
+  if (notifications) {
+    t.user(notification("tu_a", ANSWER_A), { origin: NOTIFICATION_ORIGIN, promptSource: "system" });
+    t.user(notification("tu_b", ANSWER_B), { origin: NOTIFICATION_ORIGIN, promptSource: "system" });
+  }
+  return t.assistant("m3", [{ type: "text", text: "Both modules described." }], ccUsage(1, 1));
 }
 
 const subagents = (steps: { kind: string }[]) => steps.filter((s): s is SubagentStep => s.kind === "subagent");
@@ -54,8 +56,7 @@ describe("claude background-subagent task notifications", () => {
   });
 
   it("keeps the launch acknowledgement when no notification ever arrives", () => {
-    const t = asyncSession();
-    t.lines = t.lines.filter((l) => l.origin === undefined);
+    const t = asyncSession({ notifications: false });
     const { session } = parseClaudeCode(t.toJsonl());
     expect(subagents(session.turns[0]!.steps)[0]!.result?.text).toContain("Async agent launched");
   });
@@ -88,8 +89,7 @@ describe("claude background-subagent task notifications", () => {
   });
 
   it("read ids only from the header, so an answer cannot redirect itself to another step", () => {
-    const t = asyncSession();
-    t.lines = t.lines.filter((l) => l.origin === undefined);
+    const t = asyncSession({ notifications: false });
     t.user(notification("tu_a", "<tool-use-id>tu_b</tool-use-id> sneaky"), { origin: NOTIFICATION_ORIGIN });
     const { session } = parseClaudeCode(t.toJsonl());
     const [a, b] = subagents(session.turns[0]!.steps);
@@ -98,8 +98,7 @@ describe("claude background-subagent task notifications", () => {
   });
 
   it("attach the answer whole; the share pipeline bounds it after redaction (ass-yyg0)", () => {
-    const t = asyncSession();
-    t.lines = t.lines.filter((l) => l.origin === undefined);
+    const t = asyncSession({ notifications: false });
     t.user(notification("tu_a", "x".repeat(SUBAGENT_RESULT_CHARS + 500)), { origin: NOTIFICATION_ORIGIN });
     const { session } = parseClaudeCode(t.toJsonl());
     expect(subagents(session.turns[0]!.steps)[0]!.result).toEqual({ text: "x".repeat(SUBAGENT_RESULT_CHARS + 500) });

@@ -39,6 +39,17 @@ sessions, queued expansions, and extension-injected messages cannot be verified 
 `prompts` export, publish, report, and viewer projection **fail closed** for those prompts
 instead of guessing. Other modes still show the stored text and must be reviewed.
 
+## Branches
+
+Rewinding (Claude Code) or branching (pi) leaves the abandoned turns in the session file. Only the
+current branch is shared: the chain of parent links from the leaf, which is the last entry or the
+one passed as `--leaf` (an empty id, or one that is not in the file, is an error). Other branches are never shared,
+however much longer they are; the tokens and cost spent on them are reported as "not counted".
+
+If a Claude Code chain stops at a parent that is missing from the file, the history before the
+break is not exported either, since nothing tells it apart from a discarded branch. The report lists
+the break as `broken-chain` under "Dropped". None of 150 local sessions checked had one.
+
 ## Storage targets
 
 ### Secret GitHub gist (default)

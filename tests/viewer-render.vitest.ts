@@ -519,6 +519,24 @@ describe("cost and usage scope", () => {
     expect(el.querySelector(".turn-foot")!.textContent).toContain("1 inherited");
   });
 
+  it("draws a mixed turn's card from every call, like its bar, and charges only its own", () => {
+    document.body.innerHTML = '<div id="tooltip" class="tooltip" hidden></div>';
+    const s = session([turn(0, [{ kind: "text", id: "a", text: "parent then child" }])], [
+      { id: "r0", turn: 0, usage: priced(1, { output: 300 }), inherited: true },
+      { id: "r1", turn: 0, usage: priced(0.5, { output: 200 }) },
+    ]);
+    const { turns } = renderTranscript(s);
+    const rail = renderTokenRail(s, turns, () => {});
+    const col = rail.el.querySelector<HTMLElement>(".rail-sec .cols:not(.cols-out) .col")!;
+    col.dispatchEvent(new PointerEvent("pointerenter", { clientX: 5, clientY: 5 }));
+    const tip = document.querySelector<HTMLElement>(".tooltip")!;
+    const output = Array.from(tip.querySelectorAll(".cc-row"), (r) => r.textContent!).find((t) => t.startsWith("output"));
+    expect(output).toBe("output500"); // what the bar draws: both calls' output
+    expect(tip.querySelector(".cc-aside")!.textContent).toBe("$0.500");
+    expect(tip.textContent).toContain("1 call from parent (cost not counted)");
+    document.body.replaceChildren();
+  });
+
   it("names the purpose of calls the harness made itself", () => {
     const s = session([turn(0, [{ kind: "text", id: "a", text: "hi" }])], [{ id: "c", turn: 0, usage: priced(0.01), purpose: "compaction" }]);
     const { turns } = renderTranscript(s);
@@ -550,6 +568,17 @@ describe("cost and usage scope", () => {
     el.dispatchEvent(new PointerEvent("pointerenter", { clientX: 5, clientY: 5 }));
     return document.querySelector<HTMLElement>(".tooltip")!;
   };
+
+  // Regression: a share is untrusted, and a tool group without a usable list of calls used to stop the whole session loading.
+  it("still renders the rail when a tool group's response ids are not a list", () => {
+    const group = { kind: "toolGroup", id: "g", calls: [{ name: "Read", count: 1, errors: 0 }], total: 1, files: { read: [], edited: [], written: [] }, commands: [], responseIds: null } as unknown as Step;
+    const s = { ...session([turn(0, [group])], [{ id: "r0", turn: 0, usage: usage(1_000, 50) }]), mode: "brief" as const };
+    const { turns } = renderTranscript(s);
+    // The transcript shows that turn as a placeholder; the rail must still render around it.
+    const rail = renderTokenRail(s, turns, () => {}, () => {});
+    expect(() => rail.setActive(0)).not.toThrow();
+    expect(rail.el.querySelector(".rail-sec h3")!.textContent).toBe("Session");
+  });
 
   it("goes to the first step a model call produced when its bar is clicked", () => {
     const s = twoCalls();

@@ -261,7 +261,9 @@ function stepsByResponse(session: NormalizedSession): Map<string, Step[]> {
   const out = new Map<string, Step[]>();
   for (const turn of session.turns) {
     for (const s of turn.steps) {
-      for (const id of s.kind === "toolGroup" ? s.responseIds : s.responseId ? [s.responseId] : []) {
+      // A share is untrusted: a group without a usable list is skipped, not allowed to stop the rail rendering.
+      const ids = s.kind === "toolGroup" ? (Array.isArray(s.responseIds) ? s.responseIds : []) : s.responseId ? [s.responseId] : [];
+      for (const id of ids) {
         const list = out.get(id) ?? [];
         if (!list.includes(s)) list.push(s);
         out.set(id, list);
@@ -355,26 +357,33 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     const name = t.ordinal ? `Turn ${t.ordinal}` : "Start";
     const inherited = t.responses.every((r) => r.inherited);
     const cache = markOf(t.responses);
+    // The bar and its card draw every call; only the cost is limited to the turn's own calls.
+    const all = sumUsage(t.responses);
     return {
       turns: [t.index],
       name,
       context: peak.usage,
-      output: t.responses.reduce((n, r) => n + r.usage.output, 0),
+      output: all.output,
       ...(inherited ? { inherited: true } : {}),
       ...(cache ? { cache } : {}),
       jump: () => onJump(t.index),
       tip: () => {
-        // Like the turn box: a fork's turn counts only its own calls.
+        // Like the turn box: a fork's turn is charged only for its own calls.
         const own = t.responses.filter((r) => !r.inherited);
-        const u = sumUsage(own.length ? own : t.responses);
+        const cost = own.length ? sumUsage(own).cost : undefined;
+        const fromParent = t.responses.length - own.length;
         return card(
-          cardHead(name, !inherited && u.cost !== undefined ? formatCost(u.cost) : undefined, t.ordinal ? `“${t.label}”` : undefined),
-          inherited ? h("p", { class: "cc-sec cc-muted" }, "Inherited from the parent session (not counted)") : null,
+          cardHead(name, cost !== undefined ? formatCost(cost) : undefined, t.ordinal ? `“${t.label}”` : undefined),
+          inherited
+            ? h("p", { class: "cc-sec cc-muted" }, "Inherited from the parent session (not counted)")
+            : fromParent
+              ? h("p", { class: "cc-sec cc-muted" }, `${plural(fromParent, "call")} from parent (cost not counted)`)
+              : null,
           sparkBlock(t.responses.map((r) => r.usage), plural(t.responses.length, "model call")),
           contextBlock(peak.usage, t.responses.length > 1 ? "peak context" : "context"),
           outputBlock(
-            u.output,
-            u.reasoning,
+            all.output,
+            all.reasoning,
             undefined,
             t.tools ? cardRow("tool calls", String(t.tools), { note: t.errors ? `(${t.errors} failed)` : undefined, error: t.errors > 0 }) : null,
             t.subagents ? h("p", { class: "cc-muted" }, `Launched ${turnSubagentsLine(t.subagents)}, not in these figures`) : null,

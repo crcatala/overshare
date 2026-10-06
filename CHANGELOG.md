@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `overshare browse` takes a paste in its search boxes: the session list's `/` search, the viewer's
+  message search and the filter in dialogs such as Repo. A paste used to be dropped. Pasted line breaks
+  and tabs become spaces.
+
 ## [0.2.0] - 2026-10-06
 
 ### Added

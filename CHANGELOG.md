@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `overshare browse` shows a shared session's latest link in the preview and the session viewer,
   and `y` prints the whole link in the footer, so it can be copied by hand in terminals without
   OSC 52 clipboard support.
+- The token rail's charts are easier to read and navigate: hovering a bar shows a card with its
+  context split into cache read, cache write and uncached input (drawn to scale), its output and
+  cost, any cache events and, for the turn chart, the prompt, a small chart of the turn's model calls
+  and its tool calls. Model-call bars in the turn box now go to the step the call produced when
+  clicked, and their card lists what the call did (thinking, reply, tool calls).
 
 ### Security
 

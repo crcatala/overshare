@@ -6,9 +6,12 @@
  * share one scale — the session's largest prompt and largest output — so a turn's calls
  * can be compared with each other and with the rest of the session (growth and
  * compaction show). Output has its own row and scale: it is orders of magnitude smaller.
+ * Hovering a bar shows its card (chartcard.ts); clicking it goes to its turn, or for a
+ * model call, to the first step the call produced.
  */
 import { cacheEventDetail, cacheEventLabel, formatCacheSummary, formatCost, formatDuration, formatTokens, plural } from "../../src/format.ts";
-import { contextTokens, totalTokens, type CacheEvent, type CacheEventKind, type NormalizedSession, type ResponsePurpose, type ResponseUsage, type Usage } from "../../src/schema.ts";
+import { contextTokens, totalTokens, type CacheEvent, type CacheEventKind, type NormalizedSession, type ResponsePurpose, type ResponseUsage, type Step, type Usage } from "../../src/schema.ts";
+import { activityBlock, cacheCount, cacheNotes, card, CARD_CLASS, cardHead, cardHint, cardRow, contextBlock, outputBlock, SEGMENTS, sparkBlock, stepActivity } from "./chartcard.ts";
 import { groupShell, isExecTool, tallyCommands } from "./commands.ts";
 import { h, hideTooltip, withTooltip } from "./dom.ts";
 import { svg } from "./el.ts";
@@ -16,12 +19,6 @@ import { closeHoverCard, hoverCard } from "./popover.ts";
 import { SUBAGENT_HELP, subagentCostNode, turnSubagentsDuration, turnSubagentsLine, unlinkedSubagentsNode } from "./subagents.ts";
 import type { ToolCall, TurnInfo } from "./transcript.ts";
 import { CACHE_HELP, INHERITED_WHY, OTHER_BRANCHES_WHY, cacheEventOf, cacheMark, costNode, excludedNode, tokensNode } from "./usageinfo.ts";
-
-const SEGMENTS: [keyof Usage, string, string][] = [
-  ["cacheRead", "seg-cache-read", "cache read"],
-  ["cacheWrite", "seg-cache-write", "cache write"],
-  ["input", "seg-input", "uncached input"],
-];
 
 /** The cache events in a column: the most serious kind, and how many. */
 interface CacheMark {
@@ -45,11 +42,16 @@ const markOf = (list: ResponseUsage[]): CacheMark | undefined => mergeMarks(list
 interface Column {
   /** Turn indexes this column covers (several when bucketed). */
   turns: number[];
+  /** "Turn 4", "Call 3": the bar's name, and its accessible name. */
+  name: string;
   /** Cache events among its calls; a bucket keeps the marker if any member has one. */
   cache?: CacheMark;
   context: Usage;
   output: number;
-  tip: () => string[];
+  /** The card shown on hover. */
+  tip: () => HTMLElement;
+  /** Where clicking the bar goes; a bar without one is not a button. */
+  jump?: () => void;
   /** Every call in it was inherited from a parent session (drawn muted). */
   inherited?: boolean;
 }
@@ -69,8 +71,11 @@ function sumUsage(list: ResponseUsage[]): Usage {
 
 const peakOf = (list: ResponseUsage[]): ResponseUsage | undefined => list.reduce<ResponseUsage | undefined>((best, r) => (!best || contextTokens(r.usage) > contextTokens(best.usage) ? r : best), undefined);
 
-/** Merge neighbours until there are at most `max` columns (keeping each bucket's peak). */
-function bucket(cols: Column[], max: number): Column[] {
+/**
+ * Merge neighbours until there are at most `max` columns (keeping each bucket's peak).
+ * `unit` names what a column stands for ("turn", "call") in a bucket's card.
+ */
+function bucket(cols: Column[], max: number, unit: string): Column[] {
   if (cols.length <= max) return cols;
   const size = Math.ceil(cols.length / max);
   const out: Column[] = [];
@@ -78,15 +83,28 @@ function bucket(cols: Column[], max: number): Column[] {
     const group = cols.slice(i, i + size);
     const peak = group.reduce((a, b) => (contextTokens(b.context) > contextTokens(a.context) ? b : a));
     const output = group.reduce((n, c) => n + c.output, 0);
-    const turns = group.flatMap((c) => c.turns);
+    const turns = [...new Set(group.flatMap((c) => c.turns))];
     const cache = mergeMarks(group.map((c) => c.cache));
+    const first = group[0]!;
+    const name = group.length > 1 ? `${first.name} – ${group[group.length - 1]!.name}` : first.name;
+    const jump = group.find((c) => c.jump);
     out.push({
       turns,
+      name,
       context: peak.context,
       output,
       ...(cache ? { cache } : {}),
       ...(group.every((c) => c.inherited) ? { inherited: true } : {}),
-      tip: () => [`${plural(turns.length, "turn")} (${group[0]!.tip()[0]} – ${group[group.length - 1]!.tip()[0]})`, `peak context ${formatTokens(contextTokens(peak.context))} · output ${formatTokens(output)}`, ...(cache ? [`${plural(cache.count, "cache event")} in these turns`] : [])],
+      ...(jump ? { jump: jump.jump } : {}),
+      tip: () =>
+        card(
+          cardHead(name, plural(group.length, unit)),
+          sparkBlock(group.map((c) => c.context), `context per ${unit}`),
+          contextBlock(peak.context, "peak context"),
+          outputBlock(output, 0),
+          cache ? cacheCount(cache.kind, `${plural(cache.count, "cache event")} in these ${unit}s`) : null,
+          jump ? cardHint(`Click to go to ${jump.name}`) : null,
+        ),
     });
   }
   return out;
@@ -97,7 +115,7 @@ interface Scale {
   output: number;
 }
 
-function chart(cols: Column[], scale: Scale, opts: { onPick?: (c: Column) => void; label: string; ctxH?: number; outH?: number }) {
+function chart(cols: Column[], scale: Scale, opts: { label: string; ctxH?: number; outH?: number }) {
   const cells: HTMLElement[] = [];
   const ctxH = opts.ctxH ?? 48;
   const outH = opts.outH ?? 16;
@@ -107,14 +125,17 @@ function chart(cols: Column[], scale: Scale, opts: { onPick?: (c: Column) => voi
   outRow.style.height = `${outH}px`;
   // A row of markers above the bars, only when the chart has cache events (so other charts keep their height).
   const markRow = cols.some((c) => c.cache) ? h("div", { class: "marks", "aria-hidden": "true" }) : null;
+  // Cards open to the left of the rail, level with the chart, so they never cover the bars being swept.
+  const tip = (el: HTMLElement, c: Column) => withTooltip(el, c.tip, { anchor: "left", beside: () => el.closest(".rail") ?? el, className: CARD_CLASS });
   for (const c of cols) {
+    const pick = c.jump;
     if (markRow) {
-      const cell = h(opts.onPick ? "button" : "div", { class: "colmark", type: opts.onPick ? "button" : undefined, tabindex: opts.onPick ? "-1" : undefined, onclick: opts.onPick ? () => opts.onPick!(c) : undefined }, c.cache ? cacheMark(c.cache.kind) : null);
-      if (c.cache) withTooltip(cell, c.tip);
+      const cell = h(pick ? "button" : "div", { class: "colmark", type: pick ? "button" : undefined, tabindex: pick ? "-1" : undefined, onclick: pick }, c.cache ? cacheMark(c.cache.kind) : null);
+      if (c.cache) tip(cell, c);
       markRow.append(cell);
     }
     const ctx = contextTokens(c.context);
-    const col = h(opts.onPick ? "button" : "div", { class: `col${c.inherited ? " inh" : ""}`, type: opts.onPick ? "button" : undefined, onclick: opts.onPick ? () => opts.onPick!(c) : undefined, "aria-label": c.tip()[0] });
+    const col = h(pick ? "button" : "div", { class: `col${c.inherited ? " inh" : ""}`, type: pick ? "button" : undefined, onclick: pick, "aria-label": c.name });
     const total = Math.max(ctx ? 2 : 0, Math.round((Math.min(ctx, scale.context) / scale.context) * ctxH));
     for (const [key, cls] of SEGMENTS) {
       const v = c.context[key] ?? 0;
@@ -123,13 +144,14 @@ function chart(cols: Column[], scale: Scale, opts: { onPick?: (c: Column) => voi
       seg.style.height = `${Math.max(1, (v / Math.max(1, ctx)) * total)}px`;
       col.append(seg);
     }
-    withTooltip(col, c.tip);
+    tip(col, c);
     ctxRow.append(col);
-    const out = h("div", { class: `col${c.inherited ? " inh" : ""}` });
+    // The output bar goes to the same place, but stays out of the tab order (its context bar is in it).
+    const out = h("div", { class: `col${c.inherited ? " inh" : ""}${pick ? " is-pick" : ""}`, onclick: pick });
     const bar = h("div", { class: "seg seg-output" });
     bar.style.height = `${Math.max(c.output ? 2 : 0, Math.round((Math.min(c.output, scale.output) / scale.output) * outH))}px`;
     out.append(bar);
-    withTooltip(out, c.tip);
+    tip(out, c);
     outRow.append(out);
     cells.push(col, out);
   }
@@ -157,7 +179,10 @@ const CONTEXT_BY_TURN_HELP = [
   "A marker above a bar means a model call in that turn had a cache miss, an expected rebuild or a model switch (see Cache).",
   "Subagents are not drawn: each has its own context window. See Subagents.",
 ];
-const TURN_HELP = ["One bar per model call in this turn: the prompt it was sent (top) and its output (bottom).", "Every turn uses the same scale, so turns can be compared."];
+const TURN_HELP = [
+  "One bar per model call in this turn: the prompt it was sent (top) and its output (bottom). Hover a bar for what the call produced; click it to go there.",
+  "Every turn uses the same scale, so turns can be compared.",
+];
 
 function infoIcon(): SVGElement {
   return svg(
@@ -216,14 +241,36 @@ const PURPOSE_LABEL: Record<ResponsePurpose, string> = {
   background: "background call",
 };
 
-function responseTip(r: ResponseUsage, i: number, n: number): string[] {
+/** A model call's card: its prompt and output, its cache event and the steps it produced. */
+function responseCard(r: ResponseUsage, i: number, n: number, steps: Step[], cwd: string | undefined, canJump: boolean): HTMLElement {
   const u = r.usage;
-  return [
-    `Model call ${i + 1} of ${n}${r.model ? ` · ${r.model}` : ""}${r.purpose ? ` · ${PURPOSE_LABEL[r.purpose]}` : ""}${r.inherited ? " · inherited" : ""}`,
-    `context ${formatTokens(contextTokens(u))}: cache read ${formatTokens(u.cacheRead)} · write ${formatTokens(u.cacheWrite)} · uncached input ${formatTokens(u.input)}`,
-    `output ${formatTokens(u.output)}${u.reasoning ? ` (thinking ${formatTokens(u.reasoning)})` : ""}${u.cost !== undefined ? ` · ${formatCost(u.cost)}` : ""}`,
-    ...[cacheEventOf(r)].flatMap((e) => (e ? [`${cacheEventLabel(e)}: ${cacheEventDetail(e)}`] : [])),
-  ];
+  const e = cacheEventOf(r);
+  const sub = [r.model, r.purpose ? PURPOSE_LABEL[r.purpose] : undefined, r.inherited ? "inherited from the parent session" : undefined].filter(Boolean).join(" · ");
+  return card(
+    cardHead(`Model call ${i + 1} of ${n}`, u.cost !== undefined ? formatCost(u.cost) : undefined, sub || undefined),
+    contextBlock(u),
+    outputBlock(u.output, u.reasoning),
+    cacheNotes(e ? [e] : []),
+    activityBlock(stepActivity(steps, cwd), "produced"),
+    canJump ? cardHint("Click to go to it") : null,
+  );
+}
+
+/** The steps each model call produced, by call id (a group of tool calls counts for every call in it). */
+function stepsByResponse(session: NormalizedSession): Map<string, Step[]> {
+  const out = new Map<string, Step[]>();
+  for (const turn of session.turns) {
+    for (const s of turn.steps) {
+      // A share is untrusted: a group without a usable list is skipped, not allowed to stop the rail rendering.
+      const ids = s.kind === "toolGroup" ? (Array.isArray(s.responseIds) ? s.responseIds : []) : s.responseId ? [s.responseId] : [];
+      for (const id of ids) {
+        const list = out.get(id) ?? [];
+        if (!list.includes(s)) list.push(s);
+        out.set(id, list);
+      }
+    }
+  }
+  return out;
 }
 
 /** Programs listed under a shell tool in the rail; the rest are summed. */
@@ -307,34 +354,51 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
   const withResponses = turns.filter((t) => t.responses.length);
   const turnCols: Column[] = withResponses.map((t) => {
     const peak = peakOf(t.responses)!;
-    const out = t.responses.reduce((n, r) => n + r.usage.output, 0);
     const name = t.ordinal ? `Turn ${t.ordinal}` : "Start";
     const inherited = t.responses.every((r) => r.inherited);
     const cache = markOf(t.responses);
+    // The bar and its card draw every call; only the cost is limited to the turn's own calls.
+    const all = sumUsage(t.responses);
     return {
       turns: [t.index],
+      name,
       context: peak.usage,
-      output: out,
+      output: all.output,
       ...(inherited ? { inherited: true } : {}),
       ...(cache ? { cache } : {}),
+      jump: () => onJump(t.index),
       tip: () => {
-        const found = t.responses.flatMap((r) => cacheEventOf(r) ?? []);
-        return [
-          name,
-          ...(inherited ? ["inherited from the parent session"] : []),
-          `context up to ${formatTokens(contextTokens(peak.usage))} · output ${formatTokens(out)}`,
-          `${plural(t.responses.length, "model call")}${t.label ? ` · ${t.label.slice(0, 60)}` : ""}`,
-          ...found.slice(0, 3).map((e) => `${cacheEventLabel(e)}: ${cacheEventDetail(e)}`),
-          ...(found.length > 3 ? [`+${found.length - 3} more cache events`] : []),
-          ...(t.subagents ? [`launched ${turnSubagentsLine(t.subagents)} (not in the figures above)`] : []),
-        ];
+        // Like the turn box: a fork's turn is charged only for its own calls.
+        const own = t.responses.filter((r) => !r.inherited);
+        const cost = own.length ? sumUsage(own).cost : undefined;
+        const fromParent = t.responses.length - own.length;
+        return card(
+          cardHead(name, cost !== undefined ? formatCost(cost) : undefined, t.ordinal ? `“${t.label}”` : undefined),
+          inherited
+            ? h("p", { class: "cc-sec cc-muted" }, "Inherited from the parent session (not counted)")
+            : fromParent
+              ? h("p", { class: "cc-sec cc-muted" }, `${plural(fromParent, "call")} from parent (cost not counted)`)
+              : null,
+          sparkBlock(t.responses.map((r) => r.usage), plural(t.responses.length, "model call")),
+          contextBlock(peak.usage, t.responses.length > 1 ? "peak context" : "context"),
+          outputBlock(
+            all.output,
+            all.reasoning,
+            undefined,
+            t.tools ? cardRow("tool calls", String(t.tools), { note: t.errors ? `(${t.errors} failed)` : undefined, error: t.errors > 0 }) : null,
+            t.subagents ? h("p", { class: "cc-muted" }, `Launched ${turnSubagentsLine(t.subagents)}, not in these figures`) : null,
+          ),
+          cacheNotes(t.responses.flatMap((r) => cacheEventOf(r) ?? [])),
+          cardHint("Click to go to this turn"),
+        );
       },
     };
   });
   const turnScale: Scale = { context: Math.max(1, ...turnCols.map((c) => contextTokens(c.context))), output: Math.max(1, ...turnCols.map((c) => c.output)) };
   // Per-call charts share one session-wide scale, so turns can be compared.
   const callScale: Scale = { context: Math.max(1, ...session.responses.map((r) => contextTokens(r.usage))), output: Math.max(1, ...session.responses.map((r) => r.usage.output)) };
-  const sessionChart = chart(bucket(turnCols, 90), turnScale, { onPick: (c) => onJump(c.turns[0]!), label: `Context size per turn for ${plural(withResponses.length, "turn")}` });
+  const sessionChart = chart(bucket(turnCols, 90, "turn"), turnScale, { label: `Context size per turn for ${plural(withResponses.length, "turn")}` });
+  const produced = stepsByResponse(session);
 
   const turnBox = h("div", { class: "rail-turn" });
   const tools = Object.entries(st.tools).sort((a, b) => b[1] - a[1]);
@@ -545,9 +609,22 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     const peak = Math.max(...t.responses.map((r) => contextTokens(r.usage)));
     const ctxSum = contextTokens(u);
     const run = running.get(t.index);
-    const respCols: Column[] = t.responses.map((r, i) => ({ turns: [t.index], context: r.usage, output: r.usage.output, ...(r.inherited ? { inherited: true } : {}), ...(markOf([r]) ? { cache: markOf([r])! } : {}), tip: () => responseTip(r, i, n) }));
+    const respCols: Column[] = t.responses.map((r, i) => {
+      const target = onJumpTo ? t.responseSteps.get(r.id) : undefined;
+      const cache = markOf([r]);
+      return {
+        turns: [t.index],
+        name: `Call ${i + 1}`,
+        context: r.usage,
+        output: r.usage.output,
+        ...(r.inherited ? { inherited: true } : {}),
+        ...(cache ? { cache } : {}),
+        ...(target ? { jump: () => onJumpTo!(target) } : {}),
+        tip: () => responseCard(r, i, n, produced.get(r.id) ?? [], session.project?.cwd, Boolean(target)),
+      };
+    });
     const inherited = own.length === 0;
-    const respChart = chart(bucket(respCols, 60), callScale, { label: `Context per model call for ${plural(n, "call")}`, ctxH: 36, outH: 12 });
+    const respChart = chart(bucket(respCols, 60, "call"), callScale, { label: `Context per model call for ${plural(n, "call")}`, ctxH: 36, outH: 12 });
     turnBox.replaceChildren(
       helpHeading(t.ordinal ? `Turn ${t.ordinal}` : "Start", TURN_HELP, h("span", { class: "h3-meta" }, plural(n, "model call"))),
       respChart.el,

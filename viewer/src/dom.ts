@@ -232,12 +232,16 @@ export interface TooltipOptions {
   className?: string;
 }
 
-/** Attach a hover/focus tooltip with plain-text lines (the first is the title). */
-export function withTooltip(el: HTMLElement | SVGElement, lines: () => string[], opts: TooltipOptions = {}): void {
+/**
+ * Attach a hover/focus tooltip: plain-text lines (the first is the title), or a node built
+ * by the caller for richer content (the token charts' cards).
+ */
+export function withTooltip(el: HTMLElement | SVGElement, lines: () => string[] | Node, opts: TooltipOptions = {}): void {
   const show = (x: number, y: number) => {
     const tip = tooltip();
     tip.className = `tooltip${opts.className ? ` ${opts.className}` : ""}`;
-    tip.replaceChildren(...lines().map((l, i) => h("div", { class: i === 0 ? "tip-title" : "tip-line" }, l)));
+    const content = lines();
+    tip.replaceChildren(...(Array.isArray(content) ? content.map((l, i) => h("div", { class: i === 0 ? "tip-title" : "tip-line" }, l)) : [content]));
     tip.hidden = false;
     const pad = 12;
     const { width, height } = tip.getBoundingClientRect();

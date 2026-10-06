@@ -6,6 +6,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { PRIVATE_DIR_MODE, PRIVATE_FILE_MODE } from "./private-files.js";
+import { stripControls } from "../sanitize.js";
 import type { ShareTarget } from "../config.js";
 import type { HarnessName, ShareMode } from "../schema.js";
 
@@ -85,3 +86,20 @@ export function removeShares(matches: (record: ShareRecord) => boolean, path = s
 }
 
 export const sharesFor = (all: SharesFile, harness: HarnessName, id: string): ShareRecord[] => all[shareKey(harness, id)] ?? [];
+
+/**
+ * A session's newest share with a usable link, and how many records came before it. `shares.json` is ours but sits on disk
+ * where anything can edit it, so the link is untrusted text: terminal sequences, control characters and whitespace (a URL
+ * has none) are removed. The browser prints and copies this same string, so a pasted link is exactly the one on screen and
+ * cannot carry a newline into a shell.
+ */
+export function latestShare(all: SharesFile, harness: HarnessName, id: string): { record: ShareRecord; link: string; earlier: number } | undefined {
+  const records = sharesFor(all, harness, id);
+  if (!Array.isArray(records)) return undefined;
+  for (let i = records.length - 1; i >= 0; i--) {
+    const record = records[i];
+    const link = typeof record?.url === "string" ? stripControls(record.url).replace(/\s/g, "") : "";
+    if (record && link) return { record, link, earlier: i };
+  }
+  return undefined;
+}

@@ -20,12 +20,12 @@ import { formatKnownSources } from "../report.js";
 import { HARNESS_META, HARNESS_NAMES, type HarnessName } from "../harnesses/meta.js";
 import { SHARE_MODES } from "../schema.js";
 import { facet, parseQuery, searchSessions } from "../sessions/query.js";
-import { sharesFor } from "../sessions/shares.js";
+import { latestShare, sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import { ago, branchLabel, DATE_FORMATS, dateFormat, dayBucket, durationMs, plural, sessionDuration, shortModel, toolSummary, type DateFormatId } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { copyToClipboard, MODE_HINT, PublishFlow } from "./flow.js";
-import { box, columns, composite, cut, fit, hr, isKey, isPlain, isShift, padLines, pagingKey, Screen, st, w, wrap, type PageMove } from "./kit.js";
+import { box, columns, composite, cut, elide, fit, hr, isKey, isPlain, isShift, padLines, pagingKey, Screen, st, w, wrap, type PageMove } from "./kit.js";
 import { markLine, snippet } from "./mark.js";
 import { MIN_HIGHLIGHT } from "../sessions/query.js";
 import { memorySettings, SAVE_FAILED_MESSAGE, type SettingsPatch, type SettingsStore } from "./settings.js";
@@ -70,6 +70,16 @@ const SORT_KEY: Record<SortField, (s: SessionSummary) => number | string> = {
 };
 
 /** Width of the list's branch column, and the narrowest title the list keeps to make room for it. */
+/** What `y` can honestly say: OSC 52 asks the terminal to set the clipboard, and nothing reports whether it did. */
+const COPIED = "link sent to clipboard (OSC 52)";
+
+/**
+ * The footer after `y`. The whole link is the point (it is what to select by hand where the terminal ignored OSC 52), so on a
+ * narrow terminal the explanation shrinks, then goes, before the link is cut.
+ */
+function copiedNote(link: string, width: number): string {
+  return [`${COPIED}: `, "sent (OSC 52): ", ""].map((prefix) => prefix + link).find((note) => w(note) <= width) ?? cut(link, width);
+}
 const BRANCH_COL = 16;
 const MIN_TITLE = 28;
 /** Most "matched in prompts" lines the preview shows. */
@@ -87,7 +97,7 @@ export interface BrowserOptions {
   now?: () => number;
   /** Preferences (confirm-on-quit, date format, viewer layout). In memory unless the caller passes a file-backed store. */
   settings?: SettingsStore;
-  /** Where `y` in the viewer sends the selected message; the system clipboard (OSC 52) unless a test says otherwise. */
+  /** Where `y` sends a share link or the viewer's selected message; the system clipboard (OSC 52) unless a test says otherwise. */
   copy?: (text: string) => void;
 }
 
@@ -108,6 +118,8 @@ export class BrowserApp extends Screen {
   private help = false;
   private quitPrompt = false;
   private message = "";
+  /** The share link `y` just sent to the clipboard, shown whole in the footer until the next key. */
+  private copied?: string;
   private topLine = 0;
   private topProjects: string[];
   private now: () => number;
@@ -362,6 +374,7 @@ export class BrowserApp extends Screen {
   // ── input ──
   onKey(data: string): void {
     this.message = "";
+    this.copied = undefined;
     if (this.quitPrompt) return this.quitKey(data);
     if (this.dialog) return this.dialog.onKey(data);
     if (this.flow) return this.flowKey(data);
@@ -530,21 +543,22 @@ export class BrowserApp extends Screen {
       if (data === "y" || data === "Y") f.next();
       else if (data === "n" || data === "N") f.back();
     } else if (f.step === "done") {
-      if (isKey(data, "y") && f.url) {
-        copyToClipboard(f.url);
-        this.message = "link copied";
-      } else if (isKey(data, "enter")) f.next();
+      if (isKey(data, "y") && f.url) this.sendLink(f.url); else if (isKey(data, "enter")) f.next();
     } else if (f.step === "error") {
       if (isKey(data, "enter")) f.next();
     }
   }
 
   private copyLink(s: SessionSummary): void {
-    const link = sharesFor(this.source.shares, s.harness, s.id).at(-1)?.url;
-    if (link) {
-      copyToClipboard(link);
-      this.message = "link copied";
-    } else this.message = "not shared yet (p to publish)";
+    const last = latestShare(this.source.shares, s.harness, s.id);
+    if (last) this.sendLink(last.link);
+    else this.message = "not shared yet (p to publish)";
+  }
+
+  /** Copy a share link and print it in the footer: the widest line there is, to select by hand where the copy did nothing. */
+  private sendLink(link: string): void {
+    this.copyText(link);
+    this.copied = link;
   }
 
   // ── drawing ──
@@ -583,6 +597,12 @@ export class BrowserApp extends Screen {
             k("?", "help"),
             k("q", "quit"),
           ];
+    if (this.copied && !this.lastError) {
+      // Never cut into the link to make room for the keys: they come back with the next key press.
+      const note = st.yellow(copiedNote(this.copied, width));
+      const line = `${note}  ${keys.join("  ")}`;
+      return w(line) <= width ? line : note;
+    }
     const msg = this.lastError ? `${st.red(`error: ${this.lastError}`)}  ` : this.message ? `${st.yellow(this.message)}  ` : "";
     return cut(msg + keys.join("  "), width);
   }
@@ -700,8 +720,11 @@ export class BrowserApp extends Screen {
     out.push(st.dim(`${plural(s.prompts, "prompt")} · ${plural(s.calls, "model call")} · ${formatBytes(s.size)}${s.subagents ? ` · ${plural(s.subagents, "subagent")}` : ""}`));
     const tools = toolSummary(s.tools);
     if (tools) out.push(st.dim(tools));
-    const last = sharesFor(this.source.shares, s.harness, s.id).at(-1);
-    if (last) out.push(st.green(`✓ shared ${ago(Date.parse(last.sharedAt), this.now())} (${last.mode})`));
+    const last = latestShare(this.source.shares, s.harness, s.id);
+    if (last) {
+      out.push(st.green(`✓ shared ${ago(Date.parse(last.record.sharedAt), this.now())} (${last.record.mode})`) + (last.earlier ? st.dim(` · +${last.earlier} earlier`) : ""));
+      out.push(st.cyan(elide(last.link, width)));
+    }
     const found = words.length ? this.matchSnippets(s, words, width) : [];
     if (found.length) out.push("", st.cyan("matched in prompts"), ...found.map((l) => mark(`${st.dim("· ")}${cut(l, width - 2)}`)));
     out.push("", st.cyan("first prompt"), ...wrap(s.firstPrompt ?? "", width).slice(0, 4).map((l) => mark(st.dim(l))));
@@ -773,7 +796,8 @@ export class BrowserApp extends Screen {
     } else if (f.step === "busy") inner.push(st.dim("publishing…"));
     else if (f.step === "error") inner.push(st.red("✗ publishing failed:"), ...wrap(f.failure ?? "unknown error", width - 6).slice(0, 6), "", `${st.key("enter")} ${st.dim("back")}  ${st.key("esc")} ${st.dim("close")}`);
     else {
-      inner.push(st.green("✓ published"), st.cyan(f.url ?? ""));
+      // Cut in the middle like the preview; the footer prints it whole after y.
+      inner.push(st.green("✓ published"), st.cyan(elide(f.url ?? "", width - 4)));
       for (const warning of f.warnings) inner.push(...wrap(st.yellow(`warning: ${warning}`), width - 6));
       inner.push("", `${st.key("y")} ${st.dim("copy link")}  ${st.key("enter")} ${st.dim("close")}`);
     }

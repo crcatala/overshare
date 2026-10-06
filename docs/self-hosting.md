@@ -54,6 +54,23 @@ Custom domains (e.g. `agent.example.com`) are attached to the Worker in the Clou
 dashboard; nothing in this repo assumes a domain. Point the CLI at your copy by setting `viewerUrl`
 (or `OVERSHARE_VIEWER_URL`) to wherever you deployed (`https://…/s/`); see [Configuration](configuration.md).
 
+### Give the viewer an origin of its own
+
+The viewer trusts everything on its own origin (scheme, host and port), so serve it from one that
+hosts nothing but this build, e.g. a dedicated subdomain. A different path on a shared domain is not
+enough:
+
+- **Scripts:** the CSP allows `script-src 'self'`. Shares are untrusted, and that policy is what
+  stops a sanitizer bypass from running code; if anyone can put a `.js` file on the origin (user
+  uploads, another app, a bucket), it no longer would.
+- **`#url:` links** load any same-origin path as a share, labelled "on this site". A JSON file someone
+  else can place on the origin opens as if you had published it.
+- **Fetches and images** from `'self'` are allowed, and the reader's view settings sit in that
+  origin's `localStorage`, shared with anything else served there.
+
+Your R2 share bucket can sit on a sibling subdomain (`shares.example.com` next to
+`viewer.example.com`): the viewer only fetches from it, and its origin is added to `connect-src`.
+
 ## Example session
 
 The build also writes an **example session** to `s/examples/session.json`, so every deployment

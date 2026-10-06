@@ -214,3 +214,8 @@ reach them. `--host 0.0.0.0` exposes them on your network (e.g. to open the view
 another device), and `--port` picks the port. If the port is taken it tries 3001, 3002, …
 (up to 20 ports); `--strict-port` fails instead. The server hands the viewer and any share
 files you pass it — only redacted exports — to anyone who can reach the port.
+
+It answers only to requests addressed to `localhost`, an IP address or the `--host` value, so a
+web page you visit can't point its own domain at 127.0.0.1 (DNS rebinding) and read the shares.
+To open it by another name, such as a LAN or Tailscale hostname, pass `--allowed-host <name>`
+(repeatable).

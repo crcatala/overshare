@@ -81,7 +81,8 @@ const PASTE = /^\x1b\[200~([\s\S]*)\x1b\[201~$/;
  */
 export function typedText(data: string): string | undefined {
   const paste = PASTE.exec(data);
-  if (paste) return stripControls(paste[1]!.replace(/[\r\n\t]+/g, " ").trim());
+  // Trim last: an escape sequence after the trailing newline would otherwise keep the space it became.
+  if (paste) return stripControls(paste[1]!.replace(/[\r\n\t]+/g, " ")).trim();
   return !data.startsWith("\x1b") && data >= " " ? data : undefined;
 }
 

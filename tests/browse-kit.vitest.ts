@@ -88,6 +88,7 @@ describe("key helpers", () => {
     expect(typedText("\r")).toBeUndefined();
     expect(typedText("\x1b[200~fix invoice\x1b[201~")).toBe("fix invoice");
     expect(typedText("\x1b[200~two\r\nlines\tand\x1b[31mred\x07\n\x1b[201~")).toBe("two lines andred");
+    expect(typedText("\x1b[200~infra\n\x1b[0m\x1b[201~")).toBe("infra"); // a reset after the newline leaves no space
   });
 });
 

@@ -11,13 +11,13 @@
  * calls) opens a hover card listing each of them instead, to pick one from.
  */
 import { cacheEventDetail, cacheEventLabel, formatCacheSummary, formatCost, formatDuration, formatTokens, plural } from "../../src/format.ts";
-import { contextTokens, totalTokens, type CacheEvent, type CacheEventKind, type NormalizedSession, type ResponsePurpose, type ResponseUsage, type Step, type Usage } from "../../src/schema.ts";
-import { activityBlock, bucketCard, cacheCount, cacheNotes, card, CARD_CLASS, cardHead, cardHint, contextBlock, outputBlock, SEGMENTS, sparkBlock, stepActivity, type BucketEntry } from "./chartcard.ts";
+import { contextTokens, totalTokens, type CacheEvent, type CacheEventKind, type NormalizedSession, type ResponseUsage, type Step, type Usage } from "../../src/schema.ts";
+import { SEGMENTS } from "./chartcard.ts";
 import { groupShell, isExecTool, tallyCommands } from "./commands.ts";
 import { h, hideTooltip, withTooltip } from "./dom.ts";
 import { infoIcon } from "./el.ts";
 import { closeHoverCard, hoverCard } from "./popover.ts";
-import { turnCard, type TurnCardEnv } from "./turncard.ts";
+import { callCard, callRunCard, nextCalls, turnCard, type TurnCardEnv } from "./turncard.ts";
 import { SUBAGENT_HELP, subagentCostNode, turnSubagentsDuration, unlinkedSubagentsNode } from "./subagents.ts";
 import { stepId, type ToolCall, type TurnInfo } from "./transcript.ts";
 import { CACHE_HELP, INHERITED_WHY, OTHER_BRANCHES_WHY, cacheEventOf, cacheMark, costNode, excludedNode, tokensNode } from "./usageinfo.ts";
@@ -50,12 +50,12 @@ interface Column {
   cache?: CacheMark;
   context: Usage;
   output: number;
-  /** The tooltip shown on hover, for a bar without a card. */
-  tip?: () => HTMLElement;
-  /** A hover card the pointer can move into (shown instead of `tip`). */
-  card?: (close: () => void) => HTMLElement;
-  /** A model call's section in the card of a bar it is merged into. */
-  entry?: () => BucketEntry;
+  /** The hover card it opens. */
+  card: (close: () => void) => HTMLElement;
+  /** The model calls it stands for, in a turn's chart. */
+  calls?: string[];
+  /** While its card is open, light up this column of the chart (where the call's results went), tagged with what they added. */
+  next?: { col: number; tag: string };
   /** Where clicking the bar goes; a bar without one is not a button. */
   jump?: () => void;
   /** Every call in it was inherited from a parent session (drawn muted). */
@@ -89,7 +89,8 @@ function bucket(cols: Column[], max: number, merge: (group: Column[], name: stri
     const group = cols.slice(i, i + size);
     const first = group[0]!;
     if (group.length === 1) {
-      out.push(first);
+      const { next: _, ...alone } = first;
+      out.push(alone);
       continue;
     }
     const peak = group.reduce((a, b) => (contextTokens(b.context) > contextTokens(a.context) ? b : a));
@@ -110,33 +111,8 @@ function bucket(cols: Column[], max: number, merge: (group: Column[], name: stri
   return out;
 }
 
-/** The card of a bar merging a turn's model calls: an overview, then a section per call. */
-function mergedCallsCard(group: Column[], name: string): (close: () => void) => HTMLElement {
-  return (close) => {
-    const list = group.flatMap((c) => (c.entry ? [c.entry()] : []));
-    const costs = list.flatMap((e) => (e.cost !== undefined ? [e.cost] : []));
-    const peak = group.reduce((a, b) => (contextTokens(b.context) > contextTokens(a.context) ? b : a));
-    const output = group.reduce((n, c) => n + c.output, 0);
-    const cache = mergeMarks(group.map((c) => c.cache));
-    return bucketCard(
-      name,
-      "call",
-      list,
-      [
-        sparkBlock(group.map((c) => c.context), "context per call"),
-        // One line, so the list below keeps the room.
-        h("div", { class: "cc-sec cb-facts" }, [`${formatTokens(contextTokens(peak.context))} peak context`, `${formatTokens(output)} out`, ...(costs.length ? [formatCost(costs.reduce((a, b) => a + b, 0))] : [])].join(" · ")),
-        cache ? cacheCount(cache.kind, `${plural(cache.count, "cache event")} in these calls`) : null,
-      ],
-      close,
-    );
-  };
-}
-
 /** A card lists every turn (or call) of its bar, so it may be taller than other hover cards. */
 const CARD_HEIGHT = 460;
-/** Steps listed under a model call in a merged bar's card; the rest are counted. */
-const CALL_STEPS = 5;
 
 interface Scale {
   context: number;
@@ -154,19 +130,35 @@ function chart(cols: Column[], scale: Scale, opts: { label: string; ctxH?: numbe
   // A row of markers above the bars, only when the chart has cache events (so other charts keep their height).
   const markRow = cols.some((c) => c.cache) ? h("div", { class: "marks", "aria-hidden": "true" }) : null;
   // Cards open to the left of the rail, level with the chart, so they never cover the bars being swept.
-  const tip = (el: HTMLElement, c: Column) => {
-    if (!c.card) return c.tip && withTooltip(el, c.tip, { anchor: "left", beside: () => el.closest(".rail") ?? el, className: CARD_CLASS });
+  const tip = (el: HTMLElement, c: Column, i: number) => {
     const tab = el.getAttribute("tabindex");
-    hoverCard(el, { label: c.name, beside: () => el.closest(".rail") ?? el, build: c.card, maxHeight: CARD_HEIGHT });
+    hoverCard(el, { label: c.name, beside: () => el.closest(".rail") ?? el, build: c.card, maxHeight: CARD_HEIGHT, ...(c.next ? { onToggle: (open: boolean) => lightNext(i, c.next!, open) } : {}) });
     // Only the context bar is in the tab order, as without a card.
     if (tab !== null) el.setAttribute("tabindex", tab);
     else if (el.tagName !== "BUTTON") el.removeAttribute("tabindex");
   };
-  for (const c of cols) {
+  // While a call's card is open: its bar, and the bar its results went into (outlined, tagged with what they added).
+  let tag: HTMLElement | undefined;
+  const lightNext = (i: number, next: { col: number; tag: string }, open: boolean) => {
+    tag?.remove();
+    tag = undefined;
+    el.classList.toggle("has-next", open);
+    cells.forEach((cell, k) => {
+      cell.classList.toggle("is-from", open && k >> 1 === i);
+      cell.classList.toggle("is-next", open && k >> 1 === next.col);
+    });
+    const target = cells[next.col * 2];
+    if (!open || !target) return;
+    // At the top of the chart, over the bar: above it, it would run into the heading.
+    tag = h("span", { class: "col-tag", "aria-hidden": "true" }, next.tag);
+    tag.style.left = `${target.offsetLeft + target.offsetWidth / 2}px`;
+    ctxRow.append(tag);
+  };
+  for (const [i, c] of cols.entries()) {
     const pick = c.jump;
     if (markRow) {
       const cell = h(pick ? "button" : "div", { class: "colmark", type: pick ? "button" : undefined, tabindex: pick ? "-1" : undefined, onclick: pick }, c.cache ? cacheMark(c.cache.kind) : null);
-      if (c.cache) tip(cell, c);
+      if (c.cache) tip(cell, c, i);
       markRow.append(cell);
     }
     const ctx = contextTokens(c.context);
@@ -179,14 +171,14 @@ function chart(cols: Column[], scale: Scale, opts: { label: string; ctxH?: numbe
       seg.style.height = `${Math.max(1, (v / Math.max(1, ctx)) * total)}px`;
       col.append(seg);
     }
-    tip(col, c);
+    tip(col, c, i);
     ctxRow.append(col);
     // The output bar goes to the same place, but stays out of the tab order (its context bar is in it).
     const out = h("div", { class: `col${c.inherited ? " inh" : ""}${pick ? " is-pick" : ""}`, onclick: pick });
     const bar = h("div", { class: "seg seg-output" });
     bar.style.height = `${Math.max(c.output ? 2 : 0, Math.round((Math.min(c.output, scale.output) / scale.output) * outH))}px`;
     out.append(bar);
-    tip(out, c);
+    tip(out, c, i);
     outRow.append(out);
     cells.push(col, out);
   }
@@ -255,32 +247,6 @@ function legend(kinds: Set<CacheEventKind>): HTMLElement {
     h("span", { class: "legend-i" }, h("span", { class: "sw seg-output" }), "output"),
     misses ? h("span", { class: "legend-i" }, cacheMark("miss"), "cache miss") : null,
     expected ? h("span", { class: "legend-i" }, cacheMark("rebuild"), "expected rebuild") : null,
-  );
-}
-
-const PURPOSE_LABEL: Record<ResponsePurpose, string> = {
-  compaction: "compaction",
-  summary: "branch summary",
-  tool: "made by a tool",
-  "cache-warm": "cache keep-alive",
-  background: "background call",
-};
-
-/** "claude-opus-4 · compaction": the model, and why the call was made when it wasn't the conversation. */
-const callSub = (r: ResponseUsage): string => [r.model, r.purpose ? PURPOSE_LABEL[r.purpose] : undefined, r.inherited ? "inherited from the parent session" : undefined].filter(Boolean).join(" · ");
-
-/** A model call's card: its prompt and output, its cache event and the steps it produced. */
-function responseCard(r: ResponseUsage, i: number, n: number, steps: Step[], cwd: string | undefined, canJump: boolean): HTMLElement {
-  const u = r.usage;
-  const e = cacheEventOf(r);
-  const sub = callSub(r);
-  return card(
-    cardHead(`Model call ${i + 1} of ${n}`, u.cost !== undefined ? formatCost(u.cost) : undefined, sub || undefined),
-    contextBlock(u),
-    outputBlock(u.output, u.reasoning),
-    cacheNotes(e ? [e] : []),
-    activityBlock(stepActivity(steps, cwd), "produced"),
-    canJump ? cardHint("Click to go to it") : null,
   );
 }
 
@@ -632,40 +598,27 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     const peak = Math.max(...t.responses.map((r) => contextTokens(r.usage)));
     const ctxSum = contextTokens(u);
     const run = running.get(t.index);
+    const next = nextCalls(t.responses);
+    const colOf = new Map(t.responses.map((r, i) => [r.id, i]));
     const respCols: Column[] = t.responses.map((r, i) => {
       const target = onJumpTo ? t.responseSteps.get(r.id) : undefined;
       const cache = markOf([r]);
+      const into = next.get(r.id);
       return {
         turns: [t.index],
         name: `Call ${i + 1}`,
         context: r.usage,
         output: r.usage.output,
+        calls: [r.id],
         ...(r.inherited ? { inherited: true } : {}),
         ...(cache ? { cache } : {}),
         ...(target ? { jump: () => onJumpTo!(target) } : {}),
-        tip: () => responseCard(r, i, n, produced.get(r.id) ?? [], cwd, Boolean(target)),
-        entry: () => {
-          const acts = stepActivity(produced.get(r.id) ?? [], cwd);
-          const go = target ? () => onJumpTo!(target) : undefined;
-          const sub = callSub(r);
-          const e = cacheEventOf(r);
-          return {
-            name: `Call ${i + 1}`,
-            ...(sub ? { label: sub } : {}),
-            ...(!r.inherited && r.usage.cost !== undefined ? { cost: r.usage.cost } : {}),
-            context: r.usage,
-            facts: [`${formatTokens(contextTokens(r.usage))} context`, `${formatTokens(r.usage.output)} out${r.usage.reasoning ? ` (${formatTokens(r.usage.reasoning)} thinking)` : ""}`],
-            lines: acts.slice(0, CALL_STEPS).map((a) => ({ ...a, ...(go ? { go } : {}) })),
-            ...(acts.length > CALL_STEPS ? { more: `+${acts.length - CALL_STEPS} more` } : {}),
-            cacheEvents: e ? [e] : [],
-            ...(r.inherited ? { inherited: true } : {}),
-            ...(go ? { go } : {}),
-          };
-        },
+        card: (close) => callCard(t, r, env, close),
+        ...(into ? { next: { col: colOf.get(into.id)!, tag: `+${formatTokens(into.usage.cacheWrite + into.usage.input)}` } } : {}),
       };
     });
     const inherited = own.length === 0;
-    const respChart = chart(bucket(respCols, 60, mergedCallsCard), callScale, { label: `Context per model call for ${plural(n, "call")}`, ctxH: 36, outH: 12 });
+    const respChart = chart(bucket(respCols, 60, (group) => (close) => callRunCard(t, group.flatMap((c) => c.calls ?? []), env, close)), callScale, { label: `Context per model call for ${plural(n, "call")}`, ctxH: 36, outH: 12 });
     turnBox.replaceChildren(
       helpHeading(t.ordinal ? `Turn ${t.ordinal}` : "Start", TURN_HELP, h("span", { class: "h3-meta" }, plural(n, "model call"))),
       respChart.el,

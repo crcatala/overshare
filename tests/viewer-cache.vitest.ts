@@ -152,7 +152,7 @@ describe("context by turn chart markers", () => {
     cell.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     const card = document.querySelector(".hcard")!;
     expect(card.textContent).toContain("1 cache event in these turns");
-    expect(card.querySelector(".tc-turn .cc-cache")!.textContent).toContain("cache miss after 4h 31m idle");
+    expect(card.querySelector(".tc-unit .cc-cache")!.textContent).toContain("cache miss after 4h 31m idle");
     closeHoverCard();
   });
 
@@ -249,13 +249,14 @@ describe("the turn in view", () => {
     expect(el.querySelector(".rail-turn .turn-cache")).toBeNull();
   });
 
-  it("marks the call's bar in the turn's own chart and names the event in its tooltip", () => {
+  it("marks the call's bar in the turn's own chart and names the event in its card", () => {
     const { el, setActive } = rail(build([{ turn: 0, context: 5_000 }, { turn: 0, event: idleMiss }, { turn: 0, context: 5_000 }], { cache: summary() }));
     setActive(0);
     const marks = Array.from(el.querySelectorAll(".rail-turn .marks .colmark"), (m) => m.querySelector(".mark") !== null);
     expect(marks).toEqual([false, true, false]);
-    el.querySelectorAll<HTMLElement>(".rail-turn .marks .colmark")[1]!.dispatchEvent(new Event("pointerenter"));
-    expect(document.querySelector(".tooltip")!.textContent).toContain("cache miss after 4h 31m idle: 385k re-cached, ~$3.01");
+    el.querySelectorAll<HTMLElement>(".rail-turn .marks .colmark")[1]!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(document.querySelector(".hcard")!.textContent).toContain("cache miss after 4h 31m idle: 385k re-cached, ~$3.01");
+    closeHoverCard();
   });
 });
 

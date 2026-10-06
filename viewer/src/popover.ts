@@ -31,6 +31,8 @@ export interface HoverCardOptions {
   beside?: () => Element;
   /** Tallest the card may be (default 360px); its list scrolls beyond that. */
   maxHeight?: number;
+  /** Called when the card opens, and with false when it closes (e.g. to mark what it is about). */
+  onToggle?: (open: boolean) => void;
 }
 
 interface OpenCard {
@@ -110,6 +112,7 @@ function openCard(trigger: HTMLElement, opts: HoverCardOptions, pointer: Point, 
     trigger.setAttribute("aria-expanded", "false");
     if (open === self) open = undefined;
     closedAt = performance.now();
+    opts.onToggle?.(false);
   };
   const card = h("div", { class: "hcard", role: "dialog", "aria-label": opts.label }, opts.build(close));
   document.body.append(card);
@@ -187,6 +190,7 @@ function openCard(trigger: HTMLElement, opts: HoverCardOptions, pointer: Point, 
     { signal },
   );
   if (focus) card.querySelector<HTMLElement>("[data-hc-item]")?.focus();
+  opts.onToggle?.(true);
 
   const self: OpenCard = { trigger, card, close, keepOpen: cancelClose, inTransit: () => zone.inTransit };
   return self;

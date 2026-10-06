@@ -8,7 +8,7 @@ const { renderTranscript } = await import("../viewer/src/transcript.ts");
 const { renderTokenRail } = await import("../viewer/src/tokens.ts");
 const { renderHeader } = await import("../viewer/src/header.ts");
 const { closeHoverCard } = await import("../viewer/src/popover.ts");
-const { setTurnView } = await import("../viewer/src/turncard.ts");
+const { setCardView } = await import("../viewer/src/turncard.ts");
 const { closeMenus } = await import("../viewer/src/menu.ts");
 const { projectSession } = await import("../src/modes.ts");
 const { VARIANTS } = await import("../viewer/src/variants.ts");
@@ -556,22 +556,26 @@ describe("cost and usage scope", () => {
     document.body.replaceChildren();
   });
 
-  it("names the purpose of calls the harness made itself", () => {
+  /** The card of the in-view turn's `i`th call bar, opened from the keyboard. */
+  const openCall = (rail: { el: HTMLElement }, i = 0) => {
+    closeHoverCard();
+    rail.el.querySelectorAll<HTMLElement>(".rail-turn .cols:not(.cols-out) .col")[i]!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    return document.querySelector<HTMLElement>(".hcard")!;
+  };
+
+  it("names the purpose of calls the harness made itself, and leaves them out of the flow", () => {
     const s = session([turn(0, [{ kind: "text", id: "a", text: "hi" }])], [{ id: "c", turn: 0, usage: priced(0.01), purpose: "compaction" }]);
     const { turns } = renderTranscript(s);
     const rail = renderTokenRail(s, turns, () => {});
     rail.setActive(0);
-    document.body.innerHTML = '<div id="tooltip" class="tooltip" hidden></div>';
-    const col = rail.el.querySelector<HTMLElement>(".rail-turn .cols:not(.cols-out) .col")!;
-    col.dispatchEvent(new PointerEvent("pointerenter", { clientX: 5, clientY: 5 }));
-    expect(document.querySelector(".tooltip")?.textContent).toContain("compaction");
+    document.body.replaceChildren(rail.el);
+    const card = openCall(rail);
+    expect(card.querySelector(".cc-sub")!.textContent).toContain("compaction");
+    expect(card.textContent).toContain("Made outside the conversation");
+    expect(card.querySelector(".tc-io")).toBeNull();
+    closeHoverCard();
     document.body.replaceChildren();
   });
-
-  const hoverTip = (el: Element) => {
-    el.dispatchEvent(new PointerEvent("pointerenter", { clientX: 5, clientY: 5 }));
-    return document.querySelector<HTMLElement>(".tooltip")!;
-  };
 
   // Regression: a share is untrusted, and a tool group without a usable list of calls used to stop the whole session loading.
   it("still renders the rail when a tool group's response ids are not a list", () => {
@@ -619,10 +623,10 @@ describe("cost and usage scope", () => {
     const { turns } = renderTranscript(s);
     const rail = renderTokenRail(s, turns, () => {}, () => {});
     rail.setActive(0);
-    rail.el.querySelector(".rail-turn .cols:not(.cols-out) .col")!.dispatchEvent(new PointerEvent("pointerenter", { clientX: 5, clientY: 5 }));
-    const tip = document.querySelector<HTMLElement>(".tooltip")!;
-    expect(tip.hidden).toBe(false);
-    expect(tip.querySelector(".cc-act")!.textContent).toBe("?couldn't be shown");
+    document.body.replaceChildren(rail.el);
+    const card = openCall(rail);
+    expect(Array.from(card.querySelectorAll(".cb-line"), (l) => l.textContent)).toEqual(["?couldn't be shown"]);
+    closeHoverCard();
     document.body.replaceChildren();
   });
 
@@ -648,22 +652,26 @@ describe("cost and usage scope", () => {
     expect(rail.el.querySelector(".rail-turn .cols:not(.cols-out) button.col")).toBeNull();
   });
 
-  it("shows a model call's split, output and what it produced in its card", () => {
-    document.body.innerHTML = '<div id="tooltip" class="tooltip" hidden></div>';
+  it("shows a model call's split, output and every step it produced, each going to its step", () => {
     const s = twoCalls();
     const { turns } = renderTranscript(s);
-    const rail = renderTokenRail(s, turns, () => {}, () => {});
+    const steps: string[] = [];
+    const rail = renderTokenRail(s, turns, () => {}, (id) => steps.push(id));
     rail.setActive(0);
-    const tip = hoverTip(rail.el.querySelectorAll(".rail-turn .cols:not(.cols-out) .col")[0]!);
-    expect(tip.classList.contains("tip-card")).toBe(true);
-    expect(tip.querySelector(".cc-title")!.textContent).toBe("Model call 1 of 2");
-    const rows = Array.from(tip.querySelectorAll(".cc-row"), (r) => Array.from(r.children, (c) => c.textContent).slice(1).join("|"));
+    document.body.replaceChildren(rail.el);
+    let card = openCall(rail);
+    expect(card.querySelector(".cc-title")!.textContent).toBe("Model call 1 of 2");
+    const rows = Array.from(card.querySelectorAll(".cc-row"), (r) => Array.from(r.children, (c) => c.textContent).slice(1).join("|"));
     expect(rows).toEqual(["cache read|3.0k|75%", "cache write|800|20%", "uncached input|200|5%", "output (10 thinking)|40|"]);
-    const acts = Array.from(tip.querySelectorAll(".cc-act"), (a) => [a.querySelector(".cc-act-what")!.textContent, a.querySelector(".cc-act-text")!.textContent, a.classList.contains("is-error")]);
+    const acts = Array.from(card.querySelectorAll(".cb-line"), (a) => [a.querySelector(".cb-what")!.textContent, a.querySelector(".hc-text")!.textContent, a.classList.contains("is-error")]);
     expect(acts).toEqual([["thinking", "Check the tests first", false], ["Bash", "npm test", true]]);
-    expect(tip.querySelector(".cc-hint")!.textContent).toBe("Click to go to it");
+    expect(card.querySelector(".cc-hint")!.textContent).toBe("Click a line to go to that step");
+    card.querySelectorAll<HTMLElement>(".cb-line")[1]!.click();
+    expect(steps).toEqual(["s-0-1"]);
     // The second call's card has only its own reply, as plain text.
-    expect(hoverTip(rail.el.querySelectorAll(".rail-turn .cols:not(.cols-out) .col")[1]!).querySelector(".cc-act-text")!.textContent).toBe("One test fails.");
+    card = openCall(rail, 1);
+    expect(card.querySelector(".cb-line .hc-text")!.textContent).toBe("One test fails.");
+    closeHoverCard();
     document.body.replaceChildren();
   });
 
@@ -694,7 +702,7 @@ describe("cost and usage scope", () => {
 describe("turn cards", () => {
   afterEach(() => {
     closeHoverCard();
-    setTurnView("ledger");
+    setCardView("ledger");
     document.body.replaceChildren();
   });
 
@@ -755,7 +763,7 @@ describe("turn cards", () => {
     expect(card.querySelector(".hc-title")!.textContent).toBe("Turn 1 – Turn 2");
     expect(card.querySelector(".hc-count")!.textContent).toBe("2 turns");
     expect(card.querySelector(".tc-overview")!.textContent).toBe("2.7k peak context · +2.9k added · 80 out");
-    const entries = Array.from(card.querySelectorAll(".tc-turn"));
+    const entries = Array.from(card.querySelectorAll(".tc-unit"));
     expect(entries.map((e) => e.querySelector(".cb-name")!.textContent)).toEqual(["Turn 1", "Turn 2"]);
     expect(entries.map((e) => e.querySelector(".cb-label")!.textContent)).toEqual(["“prompt 0”", "“prompt 1”"]);
     expect(entries[1]!.querySelector(".cb-facts")!.textContent).toBe("7 calls · 1 tool (1 failed)");
@@ -780,7 +788,7 @@ describe("turn cards", () => {
     open(rail).card.querySelectorAll<HTMLElement>(".cb-head")[1]!.click();
     expect(jumps).toEqual([1]);
     expect(document.querySelector(".hcard")).toBeNull();
-    open(rail).card.querySelectorAll<HTMLElement>(".tc-turn")[1]!.querySelectorAll<HTMLElement>(".cb-line")[2]!.click();
+    open(rail).card.querySelectorAll<HTMLElement>(".tc-unit")[1]!.querySelectorAll<HTMLElement>(".cb-line")[2]!.click();
     expect(steps).toEqual(["s-1-2"]);
     expect(document.querySelector(".hcard")).toBeNull();
   });
@@ -816,7 +824,7 @@ describe("turn cards", () => {
   });
 
   it("credits your prompt and each call with what it added to the next prompt, in the table", () => {
-    setTurnView("table");
+    setCardView("table");
     const { card } = open(mount(twoCalls()));
     // Turn 1's calls: the first sent 3.0k read + 800 written + 200 input, the second 4.0k read.
     expect(tableRows(card)).toEqual([
@@ -829,7 +837,7 @@ describe("turn cards", () => {
   });
 
   it("gives tool calls made at once one row, with each listed under it and going to its own step", () => {
-    setTurnView("table");
+    setCardView("table");
     const steps: string[] = [];
     const { card } = open(mount(batched(), () => {}, (id) => steps.push(id)));
     expect(tableRows(card)).toEqual([
@@ -845,7 +853,7 @@ describe("turn cards", () => {
   });
 
   it("draws each source's piece under the part of the turn's bar it added, and lights it up on hover", () => {
-    setTurnView("waterfall");
+    setCardView("waterfall");
     const { card } = open(mount(batched()));
     expect(card.querySelector(".tc-wf-total")!.textContent).toBe("2.0k → 8.4k+6.4k");
     const rows = Array.from(card.querySelectorAll<HTMLElement>(".tc-wf-row"));
@@ -858,7 +866,7 @@ describe("turn cards", () => {
   });
 
   it("names a wide enough source inside the bar and every source as a chip", () => {
-    setTurnView("bar");
+    setCardView("bar");
     const { card } = open(mount(batched()));
     expect(Array.from(card.querySelectorAll(".tc-lbl"), (l) => l.textContent)).toEqual(["Read ×2 +6.0k"]);
     expect(Array.from(card.querySelectorAll(".tc-chip"), (c) => c.textContent)).toEqual(["you+405", "Read ×2+6.0k", "reply→"]);
@@ -880,7 +888,7 @@ describe("turn cards", () => {
   });
 
   it("leaves calls outside the conversation out of the sources", () => {
-    setTurnView("table");
+    setCardView("table");
     const s = session(
       [turn(0, [{ kind: "text", id: "a", text: "first", responseId: "r0" }, { kind: "text", id: "b", text: "second", responseId: "r1" }])],
       [
@@ -897,7 +905,7 @@ describe("turn cards", () => {
     const { card } = open(mount(many()));
     const list = card.querySelector<HTMLElement>(".tc-list")!;
     const float = card.querySelector<HTMLElement>(".cb-float")!;
-    const [one, two] = Array.from(card.querySelectorAll<HTMLElement>(".tc-turn"));
+    const [one, two] = Array.from(card.querySelectorAll<HTMLElement>(".tc-unit"));
     // jsdom has no layout: the list shows 100px of 300, the second turn starts at 120px.
     Object.defineProperty(list, "clientHeight", { value: 100, configurable: true });
     Object.defineProperty(list, "scrollHeight", { value: 300, configurable: true });
@@ -914,13 +922,87 @@ describe("turn cards", () => {
     expect(float.classList.contains("is-hidden")).toBe(true);
   });
 
-  it("keeps the output bar out of the tab order and plain tooltips on a turn's call bars", () => {
+  it("keeps the output bars out of the tab order", () => {
     const rail = mount(many());
-    const out = rail.el.querySelector<HTMLElement>(".rail-sec .cols-out .col")!;
-    expect(out.getAttribute("aria-haspopup")).toBe("true");
-    expect(out.hasAttribute("tabindex")).toBe(false);
     rail.setActive(1);
-    expect(rail.el.querySelector(".rail-turn .col")!.hasAttribute("aria-haspopup")).toBe(false);
+    for (const out of rail.el.querySelectorAll<HTMLElement>(".cols-out .col")) {
+      expect(out.getAttribute("aria-haspopup")).toBe("true");
+      expect(out.hasAttribute("tabindex")).toBe(false);
+    }
+  });
+
+  /** The card of the in-view turn's `i`th call bar. */
+  const openCall = (rail: { el: HTMLElement }, i = 0) => {
+    closeHoverCard();
+    rail.el.querySelectorAll<HTMLElement>(".rail-turn .cols:not(.cols-out) .col")[i]!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    return document.querySelector<HTMLElement>(".hcard")!;
+  };
+
+  it("shows where a call's new tokens came from and what it added to the next prompt, on one scale", () => {
+    const steps: string[] = [];
+    const rail = mount(batched(), () => {}, (id) => steps.push(id));
+    rail.setActive(0);
+    const flow = () => Array.from(document.querySelectorAll(".tc-io > *"), (c) => c.textContent);
+    openCall(rail, 0);
+    expect(flow()).toEqual(["in", "", "+405", "from your prompt, with the previous turn's last reply", "out", "", "+6.0k", "its output and results, into call 2"]);
+    const fills = Array.from(document.querySelectorAll<HTMLElement>(".tc-io-fill"), (f) => f.style.width);
+    expect(fills).toEqual([`${(405 / 6_003) * 100}%`, "100%"]);
+    openCall(rail, 1);
+    expect(flow()).toEqual(["in", "", "+6.0k", "from Read ×2 src/a.ts · src/b.ts · call 1", "out", "", "→", "its reply goes into the next turn"]);
+    // "from" goes to the step it names.
+    document.querySelector<HTMLElement>("button.tc-io-who")!.click();
+    expect(steps).toEqual(["s-0-0"]);
+  });
+
+  it("lights up the bar a call's results went into while its card is open", () => {
+    const rail = mount(batched());
+    rail.setActive(0);
+    const chart = rail.el.querySelector<HTMLElement>(".rail-turn .chart")!;
+    const bars = () => Array.from(chart.querySelectorAll(".cols:not(.cols-out) .col"), (c) => (c.classList.contains("is-next") ? "next" : c.classList.contains("is-from") ? "from" : "-"));
+    openCall(rail, 0);
+    expect(chart.classList.contains("has-next")).toBe(true);
+    expect(bars()).toEqual(["from", "next"]);
+    expect(chart.querySelector(".col-tag")!.textContent).toBe("+6.0k");
+    closeHoverCard();
+    expect(chart.classList.contains("has-next")).toBe(false);
+    expect(chart.querySelector(".col-tag")).toBeNull();
+    // The last call's results go into the next turn: nothing to light.
+    openCall(rail, 1);
+    expect(chart.classList.contains("has-next")).toBe(false);
+  });
+
+  /** One turn of 130 calls: the turn's chart merges them three to a bar. */
+  const longTurn = () => {
+    const steps: Step[] = [];
+    const responses: NormalizedSession["responses"] = [];
+    for (let c = 0; c < 130; c++) {
+      steps.push({ kind: "tool", id: `t${c}`, name: "Read", action: "read", summary: `src/f${c}.ts`, input: { file_path: `src/f${c}.ts` }, responseId: `r${c}` });
+      responses.push({ id: `r${c}`, turn: 0, usage: { input: 1, output: 10, cacheRead: 1_000 + c * 100, cacheWrite: 100, reasoning: 0 } });
+    }
+    return session([turn(0, steps)], responses);
+  };
+
+  it("opens a merged call bar in ledger, table, waterfall or calls, sharing the view picked elsewhere", () => {
+    const rail = mount(longTurn());
+    rail.setActive(0);
+    let card = openCall(rail, 0);
+    expect(card.querySelector(".hc-title")!.textContent).toBe("Calls 1–3");
+    expect(Array.from(card.querySelectorAll(".tc-tab"), (t) => t.textContent)).toEqual(["ledger", "table", "waterfall", "calls"]);
+    expect(card.querySelectorAll(".tc-list > .tc-unit")).toHaveLength(3);
+    // The run starts the turn, so your prompt is its first source.
+    card.querySelectorAll<HTMLElement>(".tc-tab")[1]!.click();
+    expect(tableRows(card)).toEqual(["you prompt 0|1.1k|+100|+1|", "Read src/f0.ts|1.2k|+100|+1|10", "Read src/f1.ts|1.3k|+100|+1|10", "Read src/f2.ts|1.4k|+100|+1|10", "these calls|1.4k|+400|+4|30"]);
+    // A later run has no prompt row; its last call's results go into the next run's first call.
+    card = openCall(rail, 1);
+    expect(card.querySelector(".tc-tab[aria-selected=true]")!.textContent).toBe("table");
+    expect(tableRows(card).map((r) => r.split("|")[0])).toEqual(["Read src/f3.ts", "Read src/f4.ts", "Read src/f5.ts", "these calls"]);
+    card.querySelectorAll<HTMLElement>(".tc-tab")[3]!.click();
+    expect(Array.from(card.querySelectorAll(".tc-calls .cb-ctx"), (c) => c.textContent)).toEqual(["+101", "+101", "+101"]);
+    // A turn card has no calls view: it opens in ledger, and the pick still holds for call cards.
+    closeHoverCard();
+    rail.el.querySelector<HTMLElement>(".rail-sec .cols:not(.cols-out) .col")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(document.querySelector(".hcard .tc-tab[aria-selected=true]")!.textContent).toBe("ledger");
+    expect(openCall(rail, 2).querySelector(".tc-tab[aria-selected=true]")!.textContent).toBe("calls");
   });
 });
 

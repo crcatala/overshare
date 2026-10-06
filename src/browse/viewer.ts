@@ -22,7 +22,7 @@ import type { SessionSummary } from "../sessions/summary.js";
 import { branchLabel, shortModel } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { HARNESS_META } from "../harnesses/meta.js";
-import { cut, elide, fit, frame, isKey, isPlain, isShift, padLines, pagingKey, st, w, wrap } from "./kit.js";
+import { cut, elide, fit, frame, isKey, isPlain, isShift, padLines, pagingKey, st, typedText, w, wrap } from "./kit.js";
 import { markLine, splitWords, unstyled } from "./mark.js";
 import { SAVE_FAILED_MESSAGE, type MarkerStyle, type SettingsStore } from "./settings.js";
 import { renderItem } from "./render.js";
@@ -299,7 +299,10 @@ export class SessionViewer {
     else if (isKey(data, "escape")) this.clearSearch();
     else if (isKey(data, "backspace")) this.editQuery(this.query.slice(0, -1));
     else if (isKey(data, "ctrl+u")) this.editQuery("");
-    else if (!data.startsWith("\x1b") && data >= " ") this.editQuery(this.query + data);
+    else {
+      const text = typedText(data);
+      if (text) this.editQuery(this.query + text);
+    }
   }
 
   /**

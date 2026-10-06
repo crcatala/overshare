@@ -10,7 +10,7 @@
  * row of dots under it for where you are (like pi-skill-palette's), and the box is as wide for the whole list as for the
  * part that matches the filter, so typing never makes it jump.
  */
-import { box, cut, isKey, st, w } from "./kit.js";
+import { box, cut, isKey, st, typedText, w } from "./kit.js";
 
 /** Rows of the list a dialog shows at most (sections' titles count as rows). */
 export const WINDOW = 10;
@@ -114,7 +114,7 @@ export class RadioDialog {
       } else if (isKey(data, "enter") || isKey(data, "down")) this.filtering = false;
       else if (isKey(data, "backspace")) this.filter = this.filter.slice(0, -1);
       else if (isKey(data, "ctrl+u")) this.filter = "";
-      else if (!data.startsWith("\x1b") && data >= " ") this.filter += data;
+      else this.filter += typedText(data) ?? "";
       this.cursor = 0;
       return;
     }

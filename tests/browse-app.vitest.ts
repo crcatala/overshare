@@ -101,6 +101,13 @@ describe("session list", () => {
     expect(order(d.lines(), TITLES)).toEqual(["Refactor money helpers", "Auth token refresh race"]);
   });
 
+  it("takes a paste into the search box", async () => {
+    const d = drive();
+    await d.press("/", "\x1b[200~POST invoices\n\x1b[201~");
+    await d.press(KEY.enter);
+    expect(order(d.lines(), TITLES)).toEqual(["Fix invoice currency bug"]);
+  });
+
   it("starts from the initial query and harness options", () => {
     const d = drive({ query: "billing", harness: "pi" });
     expect(order(d.lines(), TITLES)).toEqual(["Refactor money helpers"]);

@@ -149,7 +149,7 @@ filter the contents, `v`/`V` cycle design variants.
 
 ## Design variants
 
-Five looks share one DOM, for picking a direction. Pick one from the
+Three looks share one DOM, for picking a direction. Pick one from the
 settings menu (the sliders icon next to the theme toggle), with `v`/`V`, or with
 `&ui=<variant>` in the link:
 
@@ -157,8 +157,6 @@ settings menu (the sliders icon next to the theme toggle), with `v`/`V`, or with
 | --- | --- |
 | `classic` (default) | After pi's session export: one text edge, prompts and tool calls as tinted blocks (different tints), a bold `$ command` over its output, thinking in dim italics; warm cli/gruvbox palette. |
 | `cli` | The agent's own terminal: `❯` prompts on a faint band, `●` tool lines with `└` output, markdown shown with its `##` markers, rounded tables, floating rail panels. |
-| `timeline` | A vertical line with a node per step; turn numbers and times in a gutter; docs-style rails; the minibar is a floating pill. |
-| `hybrid` | Proportional prose (IBM Plex Sans) for prompts and replies, mono for everything the agent did; tool activity on a quiet hairline; numbered turn rules. |
 | `log` | A TUI log: `time │ role │ text` rows, framed panes with titles set into the border, a statusline and plain ASCII tables (gruvbox). |
 
 ## View settings
@@ -199,11 +197,11 @@ visually hidden, for screen readers. Inline code, emphasis and links are kept.
 
 ## Fonts
 
-The viewer bundles its fonts (no font CDN): a subset of JetBrains Mono that
+The viewer bundles its font (no font CDN): a subset of JetBrains Mono that
 includes box-drawing, block and geometric characters — the stock web subsets leave box
-drawing out, and text tables only line up when every character comes from one font —
-and IBM Plex Sans for the `hybrid` prose. The CSP allows `font-src 'self'`. Both are under the SIL Open
-Font License 1.1; the build writes their licenses to `s/font-licenses.txt` and into every single-file HTML export
+drawing out, and text tables only line up when every character comes from one font.
+The CSP allows `font-src 'self'`. It is under the SIL Open
+Font License 1.1; the build writes its license to `s/font-licenses.txt` and into every single-file HTML export
 (`viewer/font-licenses.mjs`).
 
 ## Running it locally

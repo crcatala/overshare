@@ -1,5 +1,5 @@
 /*
- * Structure shared by every variant. Variants (cli.css, timeline.css, …) set the tokens
+ * Structure shared by every variant. Variants (cli.css, log.css, …) set the tokens
  * below under html[data-variant] and restyle the pieces; nothing here picks a look
  * beyond sensible defaults. Colors use light-dark(), so a palette is written once and
  * the theme toggle only flips color-scheme.

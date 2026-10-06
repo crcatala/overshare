@@ -23,7 +23,9 @@ import {
  * - Lines form a tree through `parentUuid` (rewinds fork it; compaction links via
  *   `logicalParentUuid`); we follow the branch that ends at the last entry.
  * - `attachment` lines carry injected context (CLAUDE.md, environment, credentials
- *   org, reminders) and are dropped wholesale.
+ *   org, reminders) and are dropped wholesale. The one exception is `prompt_snapshot`
+ *   (the system prompt, rewritten every turn): the one nearest the leaf on its parent
+ *   chain is kept as `systemPrompt`, which the pipeline drops unless the sharer opted in.
  */
 
 type Entry = Record<string, any>;
@@ -140,6 +142,8 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
         b.startTurn({ text: stripInjectedContext(a.prompt) }, timestamp);
         continue;
       }
+      // Read from the leaf's parent chain instead (`branchSystemPrompt`).
+      if (a.type === "prompt_snapshot") continue;
       bump(dropped, `attachment${a.type ? `:${a.type}` : ""}`);
       continue;
     }
@@ -278,6 +282,8 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   session.models = models;
   session.turns = b.turns;
   session.responses = b.responses;
+  const systemPrompt = branchSystemPrompt(entries, options.leafId);
+  if (systemPrompt?.length) session.systemPrompt = systemPrompt;
   // Nothing in Claude Code transcripts identifies history copied from another session (pi forks
   // say so in the header), so unlike pi nothing is ever marked `inherited` here.
   // Claude Code records tokens, not dollars: costs are estimated at list price.
@@ -285,6 +291,34 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   if (otherBranches) session.stats.otherBranches = otherBranches;
   if (subagentUsage) session.stats.subagentUsage = subagentUsage;
   return { session, dropped };
+}
+
+/** Claude Code's internal cache marker between the static and per-session parts carries nothing to read. */
+const PROMPT_BOUNDARY = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
+
+function systemPromptSections(parts: unknown[]): string[] {
+  return parts.filter((p): p is string => typeof p === "string" && p.trim() !== "" && p.trim() !== PROMPT_BOUNDARY).map((p) => p.trim());
+}
+
+/**
+ * The snapshot nearest the leaf on its parent chain. Read from the chain, not from `branchEntries`: when that falls back
+ * to file order, the last snapshot in the file can belong to a discarded branch. No leaf, no snapshot.
+ */
+function branchSystemPrompt(entries: Entry[], leafId?: string): string[] | undefined {
+  const withId = entries.filter((e) => typeof e.uuid === "string");
+  const byId = new Map<string, Entry>(withId.map((e) => [e.uuid, e]));
+  const seen = new Set<string>();
+  for (let cur = findLeaf(withId, byId, leafId); cur && !seen.has(cur.uuid); cur = byId.get(cur.parentUuid ?? cur.logicalParentUuid)) {
+    seen.add(cur.uuid);
+    const a = cur.type === "attachment" && !cur.isSidechain ? cur.attachment : undefined;
+    if (a?.type === "prompt_snapshot" && Array.isArray(a.systemPrompt)) return systemPromptSections(a.systemPrompt);
+  }
+  return undefined;
+}
+
+/** `leafId`'s entry, or by default the last conversation entry. */
+function findLeaf(withId: Entry[], byId: Map<string, Entry>, leafId?: string): Entry | undefined {
+  return leafId ? byId.get(leafId) : [...withId].reverse().find((e) => (CONVERSATION_TYPES.has(e.type) || e.type === "attachment") && !e.isSidechain);
 }
 
 /**
@@ -335,9 +369,7 @@ function flattenContent(content: unknown): { text: string; images: number } {
 function branchEntries(entries: Entry[], leafId?: string): Entry[] {
   const withId = entries.filter((e) => typeof e.uuid === "string");
   const byId = new Map<string, Entry>(withId.map((e) => [e.uuid, e]));
-  const leaf = leafId
-    ? byId.get(leafId)
-    : [...withId].reverse().find((e) => (CONVERSATION_TYPES.has(e.type) || e.type === "attachment") && !e.isSidechain);
+  const leaf = findLeaf(withId, byId, leafId);
   if (!leaf) return withId;
   const path: Entry[] = [];
   const seen = new Set<string>();

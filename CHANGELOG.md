@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `overshare browse` shows a shared session's latest link in the preview and the session viewer,
   and `y` prints the whole link in the footer, so it can be copied by hand in terminals without
   OSC 52 clipboard support.
+- `--include-system-prompt` (with `--mode full`) shares Claude Code's system prompt, redacted like the
+  rest and shown collapsed above the first turn. Instruction files (`CLAUDE.md`, `AGENTS.md`) are still
+  never shared; [docs/redaction.md](docs/redaction.md#injected-context) explains why.
 - The token rail's charts are easier to read and navigate: hovering a bar shows a card with its
   context split into cache read, cache write and uncached input (drawn to scale), its output and
   cost, any cache events and, for the turn chart, the prompt, a small chart of the turn's model calls

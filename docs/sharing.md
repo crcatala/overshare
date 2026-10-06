@@ -15,6 +15,11 @@ not merely hidden by the viewer.
 | `minimal` | Prompts, the final reply per turn, and per-turn tool counts. |
 | `prompts` | Only authored user prompts, followed by a compact, non-expandable activity line: tool calls/errors, unique files read/edited/written, thinking tokens and output tokens. No replies, thinking text, filenames, commands, tool inputs/results, subagent descriptions/results, event details, or expanded template/skill instructions. |
 
+Instruction files (`CLAUDE.md`, `AGENTS.md`) and other injected context are never shared, in any
+mode. In `full` mode, `--include-system-prompt` adds the harness's system prompt (Claude Code
+only); see [Injected context](redaction.md#injected-context) for what it holds and why the
+instruction files stay out.
+
 All modes keep metadata (harness, models, repo/branch, duration, tool counts, tokens,
 cost) and per-model-call token usage. The viewer's **view mode dropdown** can step *down*
 (full → brief → minimal → prompts) but never up; unavailable modes explain which detail

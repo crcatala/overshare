@@ -402,6 +402,20 @@ function renderStepSafe(step: Step, id: string, ctx: Ctx): HTMLElement {
   }
 }
 
+/** The harness's system prompt, shared on request (full mode only): one closed line above the first turn. */
+function renderSystemPrompt(sections: unknown): HTMLElement | null {
+  if (!Array.isArray(sections)) return null;
+  const parts = sections.filter((p): p is string => typeof p === "string" && p.trim() !== "");
+  if (!parts.length) return null;
+  const el = entry("event", "system-prompt", "system", undefined);
+  el.dataset.event = "system_prompt";
+  const chars = parts.reduce((n, p) => n + p.length, 0);
+  expandable(el, toolLine("system prompt", "", `${plural(parts.length, "section")} · ${formatTokens(chars)} chars`), {
+    build: () => pre(parts.join("\n\n")),
+  });
+  return h("section", { class: "session-context" }, el);
+}
+
 function renderPrompt(turn: Turn, id: string): HTMLElement | null {
   const u = turn.user;
   if (!u) return null;
@@ -654,5 +668,5 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
         return failed(turn);
       }
     });
-  return { el: h("div", { class: "transcript" }, ...sections), turns };
+  return { el: h("div", { class: "transcript" }, session.mode === "full" ? renderSystemPrompt(session.systemPrompt) : null, ...sections), turns };
 }

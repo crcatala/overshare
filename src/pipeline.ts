@@ -26,6 +26,8 @@ export interface PrepareOptions {
   knownSecrets?: KnownSecret[];
   /** Additional exact values to treat as secrets (e.g. from --secrets-file). */
   extraKnownSecrets?: KnownSecret[];
+  /** Keep the harness's system prompt (full mode only); otherwise it is dropped like every other injected context. */
+  includeSystemPrompt?: boolean;
   now?: Date;
 }
 
@@ -36,6 +38,8 @@ export interface ShareReport {
   mode: ShareMode;
   stats: SessionStats;
   dropped: DropCounts;
+  /** The system prompt went into the payload (opted in, full mode): its size after redaction. */
+  systemPrompt?: { sections: number; chars: number };
   counts: Record<string, number>;
   findings: RedactionFinding[];
   rescan: RescanIssue[];
@@ -61,6 +65,11 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
   // The adapters key these counts by entry type, subtype and custom type, all copied from the transcript, and the record is
   // published and reported in every mode while the Redactor never walks keys: each key must pass the identifier check (ass-t3hc).
   const dropped = safeKeys(droppedByEntry, "entry");
+  // Opt-in and full mode only (projection drops it in any other mode). Counted as dropped like the context it came with.
+  if (full.systemPrompt && !(opts.includeSystemPrompt && opts.mode === "full")) {
+    delete full.systemPrompt;
+    dropped["system-prompt"] = 1;
+  }
   full.stats = computeStats(full);
   // A missing title is the first line of the first prompt. It stays whole until it has been redacted and is cut
   // afterwards: cut first, a secret that straddles the cut leaves a half that no rule recognises (ass-ahh1).
@@ -130,6 +139,7 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
       mode: session.mode,
       stats: reportStats(session.stats),
       dropped,
+      ...(session.systemPrompt ? { systemPrompt: { sections: session.systemPrompt.length, chars: session.systemPrompt.reduce((n, p) => n + p.length, 0) } } : {}),
       counts,
       findings: redactor.findings,
       rescan,

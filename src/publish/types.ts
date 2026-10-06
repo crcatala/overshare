@@ -1,12 +1,9 @@
 export interface PublishPayload {
-  /** File name inside the share (the viewer loads `session.json`). */
-  filename: string;
   content: string;
   description: string;
 }
 
 export interface PublishResult {
-  publisher: string;
   id: string;
   /** Where the stored payload lives (e.g. the gist page). */
   url: string;
@@ -21,7 +18,6 @@ export interface PublishResult {
  * stores `session.json` under an unguessable id and returns a viewer URL.
  */
 export interface Publisher {
-  readonly name: string;
   publish(payload: PublishPayload): Promise<PublishResult>;
   /** Remove a previously published share by id. */
   delete(id: string): Promise<void>;

@@ -8,9 +8,10 @@
  * Reading is forgiving (a missing, corrupt or partly invalid file falls back to defaults per field) because a
  * preference must never stop the browser from opening.
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { writePrivateFile } from "../sessions/private-files.js";
 import { DATE_FORMATS, DEFAULT_DATE_FORMAT, type DateFormatId } from "./display.js";
 
 export interface BrowseSettings {
@@ -112,10 +113,7 @@ export function fileSettings(path = settingsPath()): SettingsStore {
     update(patch) {
       value = merge((!unsaved && readSettings(path)) || value, patch);
       try {
-        mkdirSync(dirname(path), { recursive: true });
-        const tmp = `${path}.${process.pid}.tmp`;
-        writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
-        renameSync(tmp, path);
+        writePrivateFile(path, `${JSON.stringify(value, null, 2)}\n`);
         unsaved = false;
         return true;
       } catch {

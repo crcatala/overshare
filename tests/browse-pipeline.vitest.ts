@@ -55,11 +55,10 @@ function indexed() {
 function recordingPublisher(): Publisher & { payloads: PublishPayload[] } {
   const payloads: PublishPayload[] = [];
   return {
-    name: "fake",
     payloads,
     async publish(p) {
       payloads.push(p);
-      return { publisher: "fake", id: "abc123", url: "https://gist.example/abc123", viewerUrl: "https://viewer.example/#abc123" };
+      return { id: "abc123", url: "https://gist.example/abc123", viewerUrl: "https://viewer.example/#abc123" };
     },
     async delete() {},
   };

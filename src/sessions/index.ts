@@ -5,12 +5,12 @@
  * in-memory. Only new or changed files are re-read, so after the first run a refresh is one `stat`
  * per file. `buildIndex` blocks until done; `IndexJob` paints from `stat` alone and fills summaries in without blocking.
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { defaultRoots, listSessions, type SessionRef, type SessionRoots } from "../resolve.js";
 import { HARNESS_NAMES, type HarnessName } from "../harnesses/meta.js";
-import { PRIVATE_DIR_MODE, PRIVATE_FILE_MODE } from "./private-files.js";
+import { writePrivateFile } from "./private-files.js";
 import { summarizeFile, type SessionSummary } from "./summary.js";
 
 export type { SessionSummary } from "./summary.js";
@@ -38,10 +38,7 @@ function load(path: string): Record<string, SessionSummary> {
 
 function save(path: string, sessions: Record<string, SessionSummary>): void {
   try {
-    mkdirSync(dirname(path), { recursive: true, mode: PRIVATE_DIR_MODE });
-    const tmp = `${path}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify({ version: INDEX_VERSION, sessions } satisfies IndexFile), { mode: PRIVATE_FILE_MODE });
-    renameSync(tmp, path);
+    writePrivateFile(path, JSON.stringify({ version: INDEX_VERSION, sessions } satisfies IndexFile));
   } catch {
     // The cache is an optimisation; an unwritable cache dir must not break browsing.
   }

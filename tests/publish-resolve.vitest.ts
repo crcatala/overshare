@@ -19,12 +19,10 @@ describe("GistPublisher", () => {
       return { code: 0, stdout: "", stderr: "" };
     };
     const result = await new GistPublisher({ viewerUrl: "https://overshare.link/s/", run }).publish({
-      filename: "session.json",
       content: "{}",
       description: "overshare: test",
     });
     expect(result).toEqual({
-      publisher: "gist",
       id: "abc123def4567890abcd",
       url: "https://gist.github.com/abc123def4567890abcd",
       viewerUrl: "https://overshare.link/s/#octocat/abc123def4567890abcd",
@@ -46,7 +44,7 @@ describe("GistPublisher", () => {
 
   it("fails clearly when gh is not authenticated", async () => {
     const run: CommandRunner = async () => ({ code: 1, stdout: "", stderr: "not logged in" });
-    await expect(new GistPublisher({ viewerUrl: "x", run }).publish({ filename: "session.json", content: "{}", description: "d" })).rejects.toThrow(
+    await expect(new GistPublisher({ viewerUrl: "x", run }).publish({ content: "{}", description: "d" })).rejects.toThrow(
       /not logged in/,
     );
   });

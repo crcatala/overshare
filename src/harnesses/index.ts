@@ -4,7 +4,7 @@ import { pi } from "./pi/index.js";
 import type { AdapterOptions, AdapterResult, SubagentFileInput } from "./shared.js";
 import type { Harness } from "./types.js";
 
-export { HARNESS_META, HARNESS_NAMES, harnessLabel, metaOf, type HarnessName } from "./meta.js";
+export { HARNESS_NAMES, type HarnessName } from "./meta.js";
 export type { AdapterOptions, AdapterResult, SubagentFileInput } from "./shared.js";
 export type { Harness } from "./types.js";
 

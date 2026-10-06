@@ -1,6 +1,6 @@
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildIndex, IndexJob } from "../src/sessions/index.js";
 import { matches, parseQuery, parseSince, searchSessions } from "../src/sessions/query.js";
@@ -226,12 +226,18 @@ describe("forgetting deleted shares", () => {
     expect(sharesFor(loadShares(path), "pi", "s1").map((r) => r.target)).toEqual(["r2"]);
   });
 
-  it("removeShares keeps the file and reports failure when the replacement cannot be written", () => {
+  // Root ignores directory permissions, so the write would succeed.
+  it.skipIf(process.getuid?.() === 0)("removeShares keeps the file and reports failure when the replacement cannot be written", () => {
     const path = fresh();
     recordShare("pi", "s1", gist(), path);
     const before = readFileSync(path, "utf8");
-    mkdirSync(`${path}.${process.pid}.tmp`); // the temp file cannot be created
-    expect(removeShares(() => true, path)).toBe(false);
+    const dir = dirname(path);
+    chmodSync(dir, 0o500); // the temp file cannot be created
+    try {
+      expect(removeShares(() => true, path)).toBe(false);
+    } finally {
+      chmodSync(dir, 0o700);
+    }
     expect(readFileSync(path, "utf8")).toBe(before);
   });
 

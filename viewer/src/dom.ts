@@ -173,24 +173,6 @@ export function provenanceLine(p: Provenance): HTMLElement {
   );
 }
 
-/** A <details> whose body is built only when first opened (keeps huge sessions light). */
-export function lazyDetails(summary: Node, build: () => Node, opts: { open?: boolean; className?: string } = {}): HTMLDetailsElement {
-  const details = h("details", { class: opts.className });
-  details.append(h("summary", {}, summary));
-  let built = false;
-  const ensure = () => {
-    if (built) return;
-    built = true;
-    details.append(build());
-  };
-  details.addEventListener("toggle", () => details.open && ensure());
-  if (opts.open) {
-    details.open = true;
-    ensure();
-  }
-  return details;
-}
-
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
 /**

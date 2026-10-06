@@ -236,6 +236,22 @@ describe("cli", { timeout: 30_000 }, () => {
     });
   });
 
+  it("publish --json prints the result with the target as `publisher`", () => {
+    const GIST = "5260b8cf9b1baae31a40717ac1ab5f08";
+    const bin = mkdtempSync(join(tmpdir(), "as-cli-bin-"));
+    writeFileSync(
+      join(bin, "gh"),
+      `#!/bin/sh\ncase "$1 $2" in\n  "gist create") echo "https://gist.github.com/octo/${GIST}" ;;\n  "api gists/${GIST}") echo octo ;;\nesac\nexit 0\n`,
+    );
+    chmodSync(join(bin, "gh"), 0o755);
+    const shares = join(mkdtempSync(join(tmpdir(), "as-cli-shares-")), "shares.json");
+    const r = cli(["publish", sessionFile(), "--yes", "--json"], { PATH: `${bin}:${process.env.PATH ?? ""}`, OVERSHARE_SHARES: shares });
+    expect(r.status, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout);
+    expect(out).toMatchObject({ publisher: "gist", id: GIST, url: `https://gist.github.com/octo/${GIST}`, warnings: [] });
+    expect(out.viewerUrl).toMatch(new RegExp(`#octo/${GIST}$`));
+  });
+
   it("publish refuses --yes when the report is not clean (and never reaches gh)", () => {
     const r = cli(["publish", sessionFile(fake.github()), "--mode", "full", "--yes"], { PATH: "/nonexistent" });
     expect(r.status).toBe(2);

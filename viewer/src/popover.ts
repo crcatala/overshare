@@ -125,8 +125,12 @@ function openCard(trigger: HTMLElement, opts: HoverCardOptions, pointer: Point, 
     () => card.getBoundingClientRect(),
     pointer,
   );
+  // Focus in the card holds it open for the keyboard, not after a click (a tab picked with the mouse).
+  let clicked = false;
+  card.addEventListener("pointerdown", () => (clicked = true), { signal });
+  card.addEventListener("keydown", () => (clicked = false), { signal, capture: true });
   const settle = (stay: boolean) => {
-    if (stay || card.contains(document.activeElement)) return cancelClose();
+    if (stay || (!clicked && card.contains(document.activeElement))) return cancelClose();
     closeTimer ??= setTimeout(close, CLOSE_DELAY);
   };
   document.addEventListener("pointermove", (e) => e.pointerType !== "touch" && settle(zone.move({ x: e.clientX, y: e.clientY })), { signal });

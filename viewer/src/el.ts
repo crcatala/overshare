@@ -43,3 +43,14 @@ export function warnIcon(): SVGElement {
     svg("circle", { cx: "12", cy: "17.1", r: "0.6" }),
   );
 }
+
+/** An "i" in a circle, for an explanation shown on hover or focus. */
+export function infoIcon(): SVGElement {
+  return svg(
+    "svg",
+    { viewBox: "0 0 16 16", width: "12", height: "12", fill: "none", stroke: "currentColor", "stroke-width": "1.4", "stroke-linecap": "round", "aria-hidden": "true" },
+    svg("circle", { cx: "8", cy: "8", r: "6.3" }),
+    svg("path", { d: "M8 7.3v3.9" }),
+    svg("circle", { cx: "8", cy: "4.9", r: "0.5", fill: "currentColor", stroke: "none" }),
+  );
+}

@@ -286,6 +286,32 @@ function entrySection(e: BucketEntry, top: number, pick: (go?: () => void) => ((
 const NEAR_END = 16;
 
 /**
+ * "↓ 4 more turns": a pill floating at the bottom of a scrolling list while there is more below
+ * it, counting the `items` (one per member) that start below the fold. Returns the update to run
+ * when the list is refilled; the pill puts itself back if the refill removed it.
+ */
+export function floatingMore(list: HTMLElement, items: () => HTMLElement[], unit: string): () => void {
+  const label = h("span", {});
+  const float = h(
+    "div",
+    { class: "cb-float is-hidden", "aria-hidden": "true" },
+    h("span", { class: "cb-pill", onclick: () => list.scrollBy?.({ top: list.clientHeight * 0.8, behavior: "smooth" }) }, "↓ ", label),
+  );
+  const update = () => {
+    if (float.parentNode !== list) list.append(float);
+    const bottom = list.scrollTop + list.clientHeight;
+    const below = items().filter((s) => s.offsetTop >= bottom).length;
+    float.classList.toggle("is-hidden", list.scrollHeight - bottom <= NEAR_END);
+    label.textContent = below ? plural(below, `more ${unit}`) : "more below";
+  };
+  list.addEventListener("scroll", update, { passive: true });
+  update();
+  // Measured once the card is placed and its height capped.
+  requestAnimationFrame(update);
+  return update;
+}
+
+/**
  * The card of a bar that merges several turns (or calls): an overview that stays put, then a
  * section per member, each with its context drawn to the bucket's scale and its model calls
  * (or what the call produced) as lines that go there. The list scrolls; while there is more
@@ -301,22 +327,7 @@ export function bucketCard(title: string, unit: string, entries: BucketEntry[], 
     });
   const sections = entries.map((e) => entrySection(e, top, pick));
   const list = h("div", { class: "hc-list cb-list" }, ...sections);
-  const label = h("span", {});
-  const float = h(
-    "div",
-    { class: "cb-float is-hidden", "aria-hidden": "true" },
-    h("span", { class: "cb-pill", onclick: () => list.scrollBy?.({ top: list.clientHeight * 0.8, behavior: "smooth" }) }, "↓ ", label),
-  );
-  list.append(float);
-  const update = () => {
-    const bottom = list.scrollTop + list.clientHeight;
-    const below = sections.filter((s) => s.offsetTop >= bottom).length;
-    float.classList.toggle("is-hidden", list.scrollHeight - bottom <= NEAR_END);
-    label.textContent = below ? plural(below, `more ${unit}`) : "more below";
-  };
-  list.addEventListener("scroll", update, { passive: true });
-  // Measured once the card is placed and its height capped.
-  requestAnimationFrame(update);
+  floatingMore(list, () => sections, unit);
   return h(
     "div",
     { class: "hc cb" },

@@ -184,6 +184,18 @@ describe("hoverCard", () => {
     expect(card()!.querySelector(".second")).not.toBeNull();
   });
 
+  it("still closes when the pointer leaves after a click put focus in the card", () => {
+    enter(trigger, 1000, 110);
+    vi.advanceTimersByTime(300);
+    const two = card()!.querySelectorAll("button")[1]!;
+    two.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    two.focus();
+    move(800, 150); // inside the card
+    move(300, 600); // far away
+    vi.advanceTimersByTime(200);
+    expect(card()).toBeNull();
+  });
+
   it("swaps to another trigger's card quickly", () => {
     const other = h("div", {});
     document.body.append(other);

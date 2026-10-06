@@ -131,8 +131,9 @@ describe("context by turn chart markers", () => {
     const r = renderTokenRail(s, turns, (t) => jumps.push(t));
     mount(r.el);
     const cell = r.el.querySelectorAll<HTMLElement>(".marks .colmark")[1]!;
-    cell.dispatchEvent(new Event("pointerenter"));
-    expect(document.querySelector(".tooltip")!.textContent).toContain("cache miss after 4h 31m idle: 385k re-cached, ~$3.01");
+    cell.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(document.querySelector(".hcard")!.textContent).toContain("cache miss after 4h 31m idle: 385k re-cached, ~$3.01");
+    closeHoverCard();
     cell.click();
     expect(jumps).toEqual([1]);
   });
@@ -151,7 +152,7 @@ describe("context by turn chart markers", () => {
     cell.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     const card = document.querySelector(".hcard")!;
     expect(card.textContent).toContain("1 cache event in these turns");
-    expect(card.querySelector(".cb-entry .cc-cache")!.textContent).toContain("cache miss after 4h 31m idle");
+    expect(card.querySelector(".tc-turn .cc-cache")!.textContent).toContain("cache miss after 4h 31m idle");
     closeHoverCard();
   });
 

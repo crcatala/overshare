@@ -31,6 +31,13 @@ describe("parseShareLink", () => {
     expect(parseShareLink(`127.0.0.1:4321/s/#octo/${ID}`)?.source).toEqual({ kind: "raw-gist", owner: "octo", id: ID });
   });
 
+  it("reads a scheme-less localhost link by its hash, not as a source named localhost", () => {
+    expect(source("localhost:3000/s/#local:a.json")).toEqual({ kind: "local", name: "a.json" });
+    expect(source(`localhost/s/#octo/${ID}`)).toEqual({ kind: "raw-gist", owner: "octo", id: ID });
+    // A configured source's id has no "/", so `<name>:<id>` is still read as one.
+    expect(source("r2:AbCdEfGhIjKlMnOp")).toEqual({ kind: "configured", source: "r2", id: "AbCdEfGhIjKlMnOp" });
+  });
+
   it("reads the part after # on its own", () => {
     expect(source(`octo/${ID}`)).toEqual({ kind: "raw-gist", owner: "octo", id: ID });
     expect(source(`#gist:${ID}`)).toEqual({ kind: "api-gist", id: ID });
@@ -38,7 +45,7 @@ describe("parseShareLink", () => {
   });
 
   it("names no share for anything else", () => {
-    for (const input of ["", "   ", "hello", "https://example.com/", "https://example.com/s/", "https://gist.github.com/octo", "https://gist.github.com/octo/not-an-id", "gist.github.com/octo"]) {
+    for (const input of ["", "   ", "hello", "https://example.com/", "https://example.com/s/", "https://gist.github.com/octo", "https://gist.github.com/octo/not-an-id", "gist.github.com/octo", "100%", "#%E0%A4%A", "https://x.example/s/#%zz"]) {
       expect(parseShareLink(input), input).toBeUndefined();
     }
   });
@@ -75,6 +82,8 @@ describe("renderWelcome", () => {
     const hint = el.querySelector(".welcome-hint")!;
     submit("");
     expect(hint.textContent).toBe("Paste a link first.");
+    submit("100%");
+    expect(hint.textContent).toMatch(/isn't a link to a share/);
     submit("https://example.com/");
     expect(open).not.toHaveBeenCalled();
     expect(hint.classList.contains("is-error")).toBe(true);

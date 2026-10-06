@@ -49,12 +49,13 @@ let teardown = new AbortController();
 // ---------- view settings (see viewsettings.ts) ----------
 /**
  * Take the view settings and prompt a link opened with, then drop them from the address
- * bar: it always shows the plain share link, and the share menu makes the others.
+ * bar: it always shows the plain share link, and the share menu makes the others. A link
+ * that names no share stays as it is, so main() can still tell a broken link from none.
  */
 function takeLinkParams(): { ui: Partial<ViewSettings>; turn?: number } {
   const ui = parseUi(state.params.get("ui"));
   const n = Number(state.params.get("turn"));
-  if (state.params.has("ui") || state.params.has("turn")) {
+  if (state.source && (state.params.has("ui") || state.params.has("turn"))) {
     state.params.delete("ui");
     state.params.delete("turn");
     history.replaceState(null, "", formatHash(state));

@@ -42,7 +42,13 @@ export function parseHash(hash: string): HashState {
   const raw = hash.replace(/^#/, "");
   const [head = "", ...rest] = raw.split("&");
   const params = new URLSearchParams(rest.join("&"));
-  const src = decodeURIComponent(head);
+  let src: string;
+  try {
+    src = decodeURIComponent(head);
+  } catch {
+    // A malformed escape (a stray %) names no share.
+    return { params };
+  }
   let source: Source | undefined;
   if (src.startsWith("local:")) source = { kind: "local", name: src.slice(6) };
   else if (src.startsWith("url:")) source = { kind: "url", path: src.slice(4) };
@@ -61,14 +67,15 @@ export function parseHash(hash: string): HashState {
 /**
  * Read a link someone pasted: a viewer link (its hash names the share, whatever site it is on),
  * a gist page or raw URL, or just the part after `#` (`owner/gistId`, `gist:<id>`, …).
- * A scheme-less `gist.github.com/…` counts too. Undefined when it names no share.
+ * A scheme-less `gist.github.com/…` or `localhost:3000/…` counts too. Undefined when it names no share.
  */
 export function parseShareLink(input: string): HashState | undefined {
   const text = input.trim();
   if (!text) return undefined;
   let url: URL | undefined;
   try {
-    url = new URL(/^[\w-]+(\.[\w-]+)+(:\d+)?\//.test(text) ? `https://${text}` : text);
+    // Without the scheme, `localhost:3000/…` would parse with `localhost:` as its scheme.
+    url = new URL(/^([\w-]+(\.[\w-]+)+|localhost)(:\d+)?\//i.test(text) ? `https://${text}` : text);
   } catch {
     // Not a URL: a bare hash.
   }

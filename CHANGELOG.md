@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   share your own. A link whose hash names no share still shows an error, and error pages
   link back to the start page.
 
+### Fixed
+
+- A viewer link with a malformed `%` escape after the `#` shows an error instead of leaving the
+  viewer stuck on "loading viewer".
+
 ## [0.2.0] - 2026-10-06
 
 ### Added

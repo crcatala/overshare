@@ -25,7 +25,7 @@ import type { SessionSummary } from "../sessions/summary.js";
 import { ago, branchLabel, DATE_FORMATS, dateFormat, dayBucket, durationMs, sessionDuration, shortModel, toolSummary, type DateFormatId } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { copyToClipboard, MODE_HINT, PublishFlow } from "./flow.js";
-import { box, columns, composite, cut, elide, fit, hr, isKey, isPlain, isShift, padLines, pagingKey, Screen, st, w, wrap, type PageMove } from "./kit.js";
+import { box, columns, composite, cut, elide, fit, hr, isKey, isPlain, isShift, padLines, pagingKey, Screen, st, typedText, w, wrap, type PageMove } from "./kit.js";
 import { markLine, snippet } from "./mark.js";
 import { MIN_HIGHLIGHT } from "../sessions/query.js";
 import { memorySettings, SAVE_FAILED_MESSAGE, type SettingsPatch, type SettingsStore } from "./settings.js";
@@ -482,8 +482,10 @@ export class BrowserApp extends Screen {
     } else if (isKey(data, "ctrl+u")) {
       this.query = "";
       this.refilterFromTop();
-    } else if (!data.startsWith("\x1b") && data >= " ") {
-      this.query += data;
+    } else {
+      const text = typedText(data);
+      if (!text) return;
+      this.query += text;
       this.refilterFromTop();
     }
   }

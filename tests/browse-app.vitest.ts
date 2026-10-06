@@ -50,6 +50,13 @@ describe("session list", () => {
     expect(order(d.lines(), TITLES)).toEqual(["Bucket policy for R2", "Write the worktree playbook"]);
   });
 
+  it("takes a paste into the repo dialog's filter", async () => {
+    const d = drive();
+    await d.press("R", "/", "\x1b[200~inf\n\x1b[201~", KEY.enter);
+    expect(d.text()).not.toMatch(/[○●] billing/);
+    expect(d.text()).toMatch(/[○●] infra/);
+  });
+
   it("r cycles repos by frequency and x clears filters but keeps the view options", async () => {
     const d = drive();
     await d.press("g", "o"); // group: date, sort: last updated
@@ -99,6 +106,13 @@ describe("session list", () => {
     await d.type("harness:pi since:2d");
     await d.press(KEY.enter);
     expect(order(d.lines(), TITLES)).toEqual(["Refactor money helpers", "Auth token refresh race"]);
+  });
+
+  it("takes a paste into the search box", async () => {
+    const d = drive();
+    await d.press("/", "\x1b[200~POST invoices\n\x1b[201~");
+    await d.press(KEY.enter);
+    expect(order(d.lines(), TITLES)).toEqual(["Fix invoice currency bug"]);
   });
 
   it("starts from the initial query and harness options", () => {

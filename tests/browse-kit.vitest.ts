@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ago, dayBucket, durationMs, sessionDuration, toolSummary } from "../src/browse/display.js";
-import { composite, emergencyRestore, isPlain, isShift, padLines, plainText, Screen, w } from "../src/browse/kit.js";
+import { composite, emergencyRestore, isPlain, isShift, padLines, plainText, Screen, typedText, w } from "../src/browse/kit.js";
 
 class Boom extends Screen {
   constructor(private failing: { key?: boolean; draw?: boolean }) {
@@ -80,6 +80,15 @@ describe("key helpers", () => {
     expect(isShift("R", "r")).toBe(true);
     expect(isShift("\x1b[114;2u", "r")).toBe(true); // Kitty: Shift+r
     expect(isPlain("\x1b[114;2u", "r")).toBe(false);
+  });
+
+  it("typedText keeps printable keys and a bracketed paste on one line, and nothing else", () => {
+    expect(typedText("a")).toBe("a");
+    expect(typedText("\x1b[A")).toBeUndefined(); // up arrow
+    expect(typedText("\r")).toBeUndefined();
+    expect(typedText("\x1b[200~fix invoice\x1b[201~")).toBe("fix invoice");
+    expect(typedText("\x1b[200~two\r\nlines\tand\x1b[31mred\x07\n\x1b[201~")).toBe("two lines andred");
+    expect(typedText("\x1b[200~infra\n\x1b[0m\x1b[201~")).toBe("infra"); // a reset after the newline leaves no space
   });
 });
 

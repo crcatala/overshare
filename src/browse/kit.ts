@@ -15,6 +15,7 @@ import {
   type Component,
   type KeyId,
 } from "@earendil-works/pi-tui";
+import { stripControls } from "../sanitize.js";
 
 const sgr = (open: string, close = "0") => (s: string): string => `\x1b[${open}m${s}\x1b[${close}m`;
 export const st = {
@@ -71,6 +72,19 @@ export const isKey = (data: string, key: string): boolean => matchesKey(data, ke
 export const isPlain = (data: string, key: string): boolean => data !== key.toUpperCase() && isKey(data, key) && !isKey(data, `shift+${key}`);
 /** Shift + a letter. */
 export const isShift = (data: string, key: string): boolean => data === key.toUpperCase() || isKey(data, `shift+${key}`);
+
+const PASTE = /^\x1b\[200~([\s\S]*)\x1b\[201~$/;
+
+/**
+ * What a key adds to a one-line text box: a printable key as is, or a paste (pi-tui hands one over whole, wrapped in
+ * bracketed-paste markers) on one line with its controls stripped. Undefined for any other key.
+ */
+export function typedText(data: string): string | undefined {
+  const paste = PASTE.exec(data);
+  // Trim last: an escape sequence after the trailing newline would otherwise keep the space it became.
+  if (paste) return stripControls(paste[1]!.replace(/[\r\n\t]+/g, " ")).trim();
+  return !data.startsWith("\x1b") && data >= " " ? data : undefined;
+}
 
 /** A page-sized move: `fraction` of the visible rows, up or down. */
 export interface PageMove {

@@ -197,6 +197,12 @@ describe("viewer search", () => {
     expect(d.text()).toContain("no message");
   });
 
+  it("takes a paste into the search box", async () => {
+    const d = await openViewer();
+    await d.press("v", "/", "\x1b[200~currency\x1b[201~", KEY.enter, "o");
+    expect(d.text()).toContain("everything · 3 of 6");
+  });
+
   it("o adds tool output to what is searched", async () => {
     const d = await openViewer();
     await d.press("v", "/");

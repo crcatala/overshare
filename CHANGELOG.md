@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and its tool calls. Model-call bars in the turn box now go to the step the call produced when
   clicked, and their card lists what the call did (thinking, reply, tool calls).
 
+### Removed
+
+- The viewer's `timeline` and `hybrid` design variants, and the IBM Plex Sans font only `hybrid`
+  used. Links and saved defaults that name either fall back to the reader's own variant.
+
 ### Security
 
 - `overshare serve` and `demo` refuse requests whose `Host` names a domain other than localhost, an

@@ -170,6 +170,6 @@ to report a vulnerability privately. Release notes are in [CHANGELOG.md](CHANGEL
 
 ## License
 
-[MIT](LICENSE). The viewer bundles the JetBrains Mono and IBM Plex Sans fonts (and the landing page
+[MIT](LICENSE). The viewer bundles the JetBrains Mono font (and the landing page
 Bricolage Grotesque), each under the [SIL Open Font License 1.1](https://openfontlicense.org); their
 licenses ship as `font-licenses.txt` beside the viewer and inside every HTML export.

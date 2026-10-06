@@ -1776,6 +1776,152 @@ button.bars-toggle.bars-toggle-top {
   font-size: 11px;
 }
 
+/* bucket cards: a chart bar that merges turns (or calls), one section per member */
+.hc.cb {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.hc.cb > .cc-sec {
+  flex: none;
+}
+.cb-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+  padding: 6px 6px 7px;
+}
+.cb-entry + .cb-entry {
+  border-top: 1px solid var(--line);
+}
+.cb-head {
+  appearance: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  width: 100%;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+}
+.cb-head:hover,
+.cb-head:focus-visible {
+  background: var(--bg-2);
+  outline: none;
+}
+.cb-head.is-static {
+  cursor: default;
+}
+.cb-head.is-static:hover {
+  background: none;
+}
+.cb-titles {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.cb-name {
+  font-weight: 700;
+}
+.cb-cost {
+  flex: none;
+  color: var(--ink-2);
+}
+.cb-label {
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cb-entry.is-inh .cb-name::after {
+  content: " · inherited";
+  font-weight: 400;
+  color: var(--faint);
+}
+.cb-entry.is-inh .cb-bar {
+  opacity: 0.4;
+}
+.cb-stats,
+.cb-more,
+.cb-entry > .cc-cache {
+  padding: 0 5px;
+}
+.cb-bar {
+  height: 6px;
+  margin: 1px 0 2px;
+}
+.cb-facts {
+  color: var(--dim);
+}
+.cb-lines {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.cb-line {
+  padding: 2px 5px;
+  gap: 7px;
+}
+.cb-line.is-static {
+  cursor: default;
+}
+.cb-line.is-static:hover {
+  background: none;
+  color: var(--ink-2);
+}
+.cb-ctx {
+  flex: none;
+  width: 5ch;
+  text-align: right;
+  color: var(--faint);
+}
+.cb-what {
+  flex: none;
+  max-width: 9ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+}
+.cb-line.is-error .cb-what {
+  color: var(--err);
+}
+/* "↓ 4 more turns": floats at the bottom of the list while there is more below it */
+.cb-float {
+  position: sticky;
+  bottom: 6px;
+  height: 22px;
+  margin-top: -22px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.cb-float.is-hidden {
+  opacity: 0;
+}
+.cb-pill {
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  color: var(--ink-2);
+  font-size: 10.5px;
+  line-height: 16px;
+}
+.cb-float.is-hidden .cb-pill {
+  pointer-events: none;
+}
+.cb-pill:hover {
+  color: var(--accent);
+}
+
 /* tooltip */
 .tooltip {
   position: fixed;
@@ -1797,17 +1943,7 @@ button.bars-toggle.bars-toggle-top {
   color: var(--ink-2);
 }
 
-/* chart cards: the token charts' tooltips, a close-up of the bar under the pointer */
-.tooltip.tip-card {
-  width: 276px;
-  max-width: calc(100vw - 16px);
-  padding: 0;
-  border-radius: 8px;
-  overflow: hidden;
-  font-size: 11.5px;
-  line-height: 1.4;
-  font-variant-numeric: tabular-nums;
-}
+/* chart cards: the pieces of the token charts' cards, a close-up of the bar under the pointer */
 .cc-head,
 .cc-sec,
 .cc-hint {
@@ -1921,20 +2057,6 @@ button.bars-toggle.bars-toggle-top {
 .cc-row.is-error .cc-note {
   color: var(--err);
 }
-.cc-spark {
-  display: flex;
-  align-items: flex-end;
-  gap: 1px;
-  border-bottom: 1px solid var(--line);
-}
-.cc-spark-col {
-  flex: 1 1 0;
-  min-width: 1px;
-  max-width: 10px;
-  display: flex;
-  flex-direction: column-reverse;
-  gap: 1px;
-}
 .cc-caches {
   gap: 3px;
 }
@@ -1947,30 +2069,6 @@ button.bars-toggle.bars-toggle-top {
 }
 .cc-cache .mark {
   align-self: center;
-}
-.cc-acts {
-  display: grid;
-  gap: 1px;
-}
-.cc-act {
-  display: grid;
-  grid-template-columns: minmax(0, 8ch) minmax(0, 1fr);
-  gap: 8px;
-  color: var(--ink-2);
-}
-.cc-act-what {
-  color: var(--dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cc-act-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cc-act.is-error .cc-act-text {
-  color: var(--err);
 }
 .cc-more,
 .cc-muted {
@@ -2448,4 +2546,534 @@ button.share[aria-expanded="true"] {
   display: flex;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* ---------- turn cards: a context-by-turn bar's card, in one of four views ---------- */
+.hc.tc {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.hc.tc > .cc-sec {
+  flex: none;
+}
+.tc-bar-row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.tc-views {
+  display: flex;
+  gap: 2px;
+}
+.tc-tab {
+  appearance: none;
+  border: 0;
+  border-radius: 4px;
+  padding: 1px 7px;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: var(--dim);
+  cursor: pointer;
+}
+.tc-tab:hover {
+  color: var(--ink);
+}
+.tc-tab[aria-selected="true"] {
+  background: var(--bg-3);
+  color: var(--ink);
+}
+.tc-tab:focus-visible,
+.tc-info:focus-visible,
+.tc-chip:focus-visible,
+.tc-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.tc-info {
+  display: inline-flex;
+  color: var(--faint);
+  cursor: help;
+  border-radius: 3px;
+}
+.tc-info:hover {
+  color: var(--ink-2);
+}
+.tooltip.tip-over {
+  z-index: 60;
+  max-width: 300px;
+}
+.tip-line.tc-shifted {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+}
+.tc-list {
+  position: relative;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+.tc-list > .cc-sec:first-child {
+  border-top: 0;
+}
+/* a call's card: the title and hint stay put while the rest scrolls */
+.hc.tc > .cc-head,
+.hc.tc > .cc-hint {
+  flex: none;
+}
+.tc-foot {
+  color: var(--faint);
+  font-size: 10.5px;
+}
+.tc-pad {
+  padding: 0 5px;
+}
+.tc-ledger {
+  display: grid;
+  gap: 2px;
+}
+.tc-you,
+.tc-row i.tc-you {
+  color: var(--accent);
+}
+.seg-recached {
+  background: repeating-linear-gradient(135deg, var(--seg-cache-write) 0 3px, transparent 3px 5px);
+  box-shadow: inset 0 0 0 1px var(--seg-cache-write);
+}
+
+/* table: a row per source, each column on its own scale */
+.tc-table {
+  display: grid;
+  padding: 0 4px 6px;
+}
+.tc-row {
+  appearance: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.5ch 6ch 5ch 5ch;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--ink-2);
+}
+button.tc-row {
+  cursor: pointer;
+}
+button.tc-row:hover {
+  background: var(--bg-2);
+  color: var(--ink);
+}
+.tc-headrow {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding-top: 5px;
+}
+.tc-th {
+  color: var(--faint);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: right;
+}
+.tc-th:first-child {
+  text-align: left;
+}
+.tc-lab {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tc-lab i {
+  font-style: normal;
+  color: var(--dim);
+}
+.tc-turnrow {
+  color: var(--ink);
+  margin-top: 3px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 4px 4px;
+}
+.tc-headrow + .tc-turnrow {
+  margin-top: 0;
+  border-top: 0;
+}
+.tc-turnrow .tc-lab b {
+  margin-right: 4px;
+}
+.tc-yourow .tc-lab,
+.tc-callrow .tc-lab {
+  padding-left: 9px;
+}
+.tc-subrow {
+  padding-top: 0;
+  padding-bottom: 1px;
+  font-size: 10.5px;
+  color: var(--dim);
+}
+.tc-subrow .tc-lab {
+  grid-column: 1 / -1;
+  padding-left: 21px;
+}
+.tc-subrow .tc-lab::before {
+  content: "└ ";
+  color: var(--faint);
+}
+.tc-row.is-error .tc-lab {
+  color: var(--err);
+}
+.tc-num {
+  display: grid;
+  gap: 1px;
+  justify-items: end;
+  text-align: right;
+}
+.tc-turnrow .tc-num {
+  color: var(--ink);
+}
+.tc-ticks {
+  justify-self: stretch;
+  display: flex;
+  justify-content: flex-end;
+  height: 2px;
+}
+.tc-tick {
+  display: block;
+  height: 100%;
+  border-radius: 1px;
+}
+.tc-z {
+  color: var(--faint);
+}
+.tc-sum {
+  margin-top: 3px;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--dim);
+}
+
+/* the cache read a turn started from, cut short; then its new tokens by source */
+.tc-stub {
+  flex: none;
+  display: flex;
+}
+.tc-stub-read {
+  flex: 1;
+  min-width: 0;
+  padding-left: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  border-radius: 2px 0 0 2px;
+  background: var(--seg-cache-read);
+  color: #fff;
+  font-size: 9px;
+}
+.tc-stub.is-empty .tc-stub-read {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--seg-cache-read);
+  color: var(--seg-cache-read);
+}
+.tc-cut {
+  flex: none;
+  position: relative;
+  width: 6px;
+}
+.tc-cut::before,
+.tc-cut::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 1.5px;
+  background: var(--faint);
+  transform: skewX(-22deg);
+}
+.tc-cut::before {
+  left: 1px;
+}
+.tc-cut::after {
+  left: 3.5px;
+}
+.tc-srcbar,
+.tc-new {
+  position: relative;
+  display: flex;
+}
+.tc-new {
+  flex: 1;
+}
+.tc-grp,
+.tc-piece {
+  display: flex;
+  min-width: 2px;
+}
+.tc-grp {
+  position: relative;
+  overflow: hidden;
+  transition: opacity 0.12s;
+}
+.tc-grp + .tc-grp {
+  margin-left: 1px;
+}
+.tc-grp .seg,
+.tc-piece .seg {
+  flex: 1 1 0;
+  min-width: 1px;
+  border-radius: 0;
+}
+.tc-lit.is-lit .tc-grp:not(.lit) {
+  opacity: 0.28;
+}
+
+/* waterfall: each source's piece under the part of the bar it added */
+.tc-wf {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.tc-wf-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 5px 4px;
+}
+.tc-wf-total {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--dim);
+}
+.tc-wf-total b {
+  color: var(--ink);
+}
+.tc-wf-track {
+  flex: none;
+  position: relative;
+  display: flex;
+  width: 34%;
+  height: 6px;
+}
+.tc-wf-top .tc-wf-track {
+  height: 10px;
+}
+.tc-wf-row .tc-stub {
+  visibility: hidden;
+}
+/* the calls view draws each call's own prompt, so its stub shows */
+.tc-calls .tc-wf-row .tc-stub {
+  visibility: visible;
+}
+.tc-wf-row .cb-ctx {
+  width: 6.5ch;
+}
+.tc-wf-row .tc-new::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 1px dotted var(--line);
+}
+.tc-wf-row.lit {
+  background: var(--bg-2);
+  color: var(--ink);
+}
+.tc-piece {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.tc-end {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* bar: one broken bar per turn, named pieces, a chip per source */
+.tc-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--faint);
+  font-size: 10px;
+}
+.tc-lb {
+  display: flex;
+  height: 15px;
+  margin: 3px 0 4px;
+  line-height: 15px;
+}
+.tc-lbl {
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #fff;
+  font-size: 9.5px;
+  line-height: 12px;
+  white-space: nowrap;
+  padding: 0 3px;
+  border-radius: 2px;
+  background: rgb(0 0 0 / 0.32);
+  pointer-events: none;
+}
+.tc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 4px;
+}
+.tc-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 100%;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  font: inherit;
+  font-size: 10.5px;
+  line-height: 17px;
+  color: var(--ink-2);
+}
+button.tc-chip {
+  cursor: pointer;
+}
+.tc-chip i {
+  font-style: normal;
+  color: var(--dim);
+}
+.tc-chip b {
+  color: var(--ink);
+}
+.tc-chip.is-you i {
+  color: var(--accent);
+}
+.tc-chip.is-error i {
+  color: var(--err);
+}
+button.tc-chip:hover,
+.tc-chip.lit {
+  border-color: var(--faint);
+  background: var(--bg-2);
+}
+.tc-chip.is-end {
+  border-style: dashed;
+  color: var(--faint);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tc-grp {
+    transition: none;
+  }
+}
+
+/* a call's card: where its prompt's new tokens came from, and what it added to the next one */
+.tc-io {
+  display: grid;
+  grid-template-columns: 3.5ch minmax(0, 1fr) 6.5ch;
+  gap: 2px 7px;
+  align-items: center;
+}
+.tc-io-lab {
+  color: var(--faint);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.tc-io-track {
+  display: flex;
+  height: 7px;
+}
+.tc-io-fill {
+  display: flex;
+  gap: 1px;
+  height: 100%;
+}
+.tc-io-fill .seg {
+  flex: 1 1 0;
+  min-width: 1px;
+  border-radius: 0;
+}
+.tc-io-num {
+  text-align: right;
+  color: var(--ink);
+}
+.tc-io-who {
+  grid-column: 2 / 4;
+  margin: -1px 0 2px;
+  padding: 0 4px;
+  margin-left: -4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font: inherit;
+  font-size: 10.5px;
+  text-align: left;
+  color: var(--dim);
+}
+button.tc-io-who {
+  cursor: pointer;
+}
+button.tc-io-who:hover,
+button.tc-io-who:focus-visible {
+  background: var(--bg-2);
+  color: var(--ink-2);
+  outline: none;
+}
+.tc-io-who b {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.tc-io-who b.tc-you {
+  color: var(--accent);
+}
+.tc-call .cb-line .cb-what {
+  width: 8ch;
+}
+
+/* while a call's card is open: its bar, and the bar its results went into */
+.chart.has-next .col:not(.is-from):not(.is-next) {
+  opacity: 0.32;
+}
+.col.is-next .seg-cache-write,
+.col.is-next .seg-input {
+  box-shadow: 0 0 0 1.5px var(--ink);
+}
+.chart.has-next .cols:not(.cols-out) {
+  position: relative;
+}
+.col-tag {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 1;
 }

@@ -9,6 +9,7 @@ const { renderTranscript } = await import("../viewer/src/transcript.ts");
 const { renderTokenRail } = await import("../viewer/src/tokens.ts");
 const { renderHeader } = await import("../viewer/src/header.ts");
 const { closeMenus } = await import("../viewer/src/menu.ts");
+const { closeHoverCard } = await import("../viewer/src/popover.ts");
 const { VARIANTS } = await import("../viewer/src/variants.ts");
 
 const usage = (context: number, output = 50, cacheWrite = 0): Usage => ({ input: 0, output, cacheRead: context, cacheWrite, reasoning: 0 });
@@ -130,8 +131,9 @@ describe("context by turn chart markers", () => {
     const r = renderTokenRail(s, turns, (t) => jumps.push(t));
     mount(r.el);
     const cell = r.el.querySelectorAll<HTMLElement>(".marks .colmark")[1]!;
-    cell.dispatchEvent(new Event("pointerenter"));
-    expect(document.querySelector(".tooltip")!.textContent).toContain("cache miss after 4h 31m idle: 385k re-cached, ~$3.01");
+    cell.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(document.querySelector(".hcard")!.textContent).toContain("cache miss after 4h 31m idle: 385k re-cached, ~$3.01");
+    closeHoverCard();
     cell.click();
     expect(jumps).toEqual([1]);
   });
@@ -144,8 +146,14 @@ describe("context by turn chart markers", () => {
     expect(cols.length).toBeLessThanOrEqual(90);
     const marked = Array.from(el.querySelectorAll(".marks .colmark")).flatMap((m, i) => (m.querySelector(".mark") ? [i] : []));
     expect(marked).toHaveLength(1);
-    el.querySelectorAll<HTMLElement>(".marks .colmark")[marked[0]!]!.dispatchEvent(new Event("pointerenter"));
-    expect(document.querySelector(".tooltip")!.textContent).toContain("1 cache event in these turns");
+    // A bucket's marker opens the bucket's card, which counts its events and names the one it holds.
+    const cell = el.querySelectorAll<HTMLElement>(".marks .colmark")[marked[0]!]!;
+    expect(cell.tabIndex).toBe(-1);
+    cell.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    const card = document.querySelector(".hcard")!;
+    expect(card.textContent).toContain("1 cache event in these turns");
+    expect(card.querySelector(".tc-unit .cc-cache")!.textContent).toContain("cache miss after 4h 31m idle");
+    closeHoverCard();
   });
 
   it("marks the most serious kind when a bucket holds several", () => {
@@ -241,13 +249,14 @@ describe("the turn in view", () => {
     expect(el.querySelector(".rail-turn .turn-cache")).toBeNull();
   });
 
-  it("marks the call's bar in the turn's own chart and names the event in its tooltip", () => {
+  it("marks the call's bar in the turn's own chart and names the event in its card", () => {
     const { el, setActive } = rail(build([{ turn: 0, context: 5_000 }, { turn: 0, event: idleMiss }, { turn: 0, context: 5_000 }], { cache: summary() }));
     setActive(0);
     const marks = Array.from(el.querySelectorAll(".rail-turn .marks .colmark"), (m) => m.querySelector(".mark") !== null);
     expect(marks).toEqual([false, true, false]);
-    el.querySelectorAll<HTMLElement>(".rail-turn .marks .colmark")[1]!.dispatchEvent(new Event("pointerenter"));
-    expect(document.querySelector(".tooltip")!.textContent).toContain("cache miss after 4h 31m idle: 385k re-cached, ~$3.01");
+    el.querySelectorAll<HTMLElement>(".rail-turn .marks .colmark")[1]!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(document.querySelector(".hcard")!.textContent).toContain("cache miss after 4h 31m idle: 385k re-cached, ~$3.01");
+    closeHoverCard();
   });
 });
 

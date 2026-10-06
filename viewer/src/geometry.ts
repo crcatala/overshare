@@ -81,6 +81,11 @@ export class SafeZone {
     this.last = start;
   }
 
+  /** Between the two, on the way (as of the last move). */
+  get inTransit(): boolean {
+    return this.zone === "gap";
+  }
+
   move(p: Point): boolean {
     const card = this.card();
     const trigger = this.trigger();

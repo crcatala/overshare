@@ -164,6 +164,49 @@ describe("hoverCard", () => {
     expect(card()).not.toBeNull();
   });
 
+  it("does not swap to a trigger crossed on the way to the card, only to one the pointer rests on", () => {
+    // A chart's bars: the next bar sits between this one and the card.
+    const other = h("div", {});
+    document.body.append(other);
+    hoverCard(other, { label: "Next bar", build: () => h("div", { class: "second" }, "x") });
+    enter(trigger, 1000, 110);
+    vi.advanceTimersByTime(300);
+    move(1000, 110);
+    move(909, 112); // left the trigger, heading for the card
+    enter(other, 909, 112);
+    for (let x = 908; x > 900; x--) {
+      vi.advanceTimersByTime(20);
+      move(x, 112, other);
+    }
+    expect(card()!.querySelector(".second")).toBeNull();
+    // Stopped on it: it takes over.
+    vi.advanceTimersByTime(200);
+    expect(card()!.querySelector(".second")).not.toBeNull();
+  });
+
+  it("still closes when the pointer leaves after a click put focus in the card", () => {
+    enter(trigger, 1000, 110);
+    vi.advanceTimersByTime(300);
+    const two = card()!.querySelectorAll("button")[1]!;
+    two.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    two.focus();
+    move(800, 150); // inside the card
+    move(300, 600); // far away
+    vi.advanceTimersByTime(200);
+    expect(card()).toBeNull();
+  });
+
+  it("lets Tab move between its entries, and closes back to the trigger past the last", () => {
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    const [one, two] = Array.from(card()!.querySelectorAll("button"));
+    one!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    expect(card()).not.toBeNull();
+    two!.focus();
+    two!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    expect(card()).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("swaps to another trigger's card quickly", () => {
     const other = h("div", {});
     document.body.append(other);

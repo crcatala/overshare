@@ -1,9 +1,9 @@
 /**
- * The cards the token charts show on hover: what a bar stands for (a turn, a run of turns
- * or a model call), its context split into cache read / cache write / uncached input and
- * drawn to scale, its output and cost, its cache events and, for a model call, what it
- * produced in the transcript. Built from the same colour slots as the charts, so a card
- * reads as a close-up of the bar under the pointer.
+ * Pieces of the cards the token charts' bars open (turncard.ts builds the cards): a prompt
+ * split into cache read / cache write / uncached input and drawn to scale, output and cost,
+ * cache events, what a model call produced in the transcript, and the pill a long list floats
+ * at its bottom. Built from the same colour slots as the charts, so a card reads as a close-up
+ * of the bar under the pointer.
  */
 import { cacheEventDetail, cacheEventLabel, formatTokens, plural } from "../../src/format.ts";
 import { contextTokens, type CacheEvent, type CacheEventKind, type Step, type Usage } from "../../src/schema.ts";
@@ -19,13 +19,6 @@ export const SEGMENTS: [keyof Usage, string, string][] = [
 ];
 
 type Child = Node | string | null | undefined | false;
-
-/** The tooltip class that sizes and pads a card. */
-export const CARD_CLASS = "tip-card";
-
-export function card(...children: Child[]): HTMLElement {
-  return h("div", { class: "cc" }, ...children);
-}
 
 /** Title with a figure on the right (usually the cost), and an optional quieter line under it. */
 export function cardHead(title: string, aside?: string, sub?: string): HTMLElement {
@@ -98,7 +91,7 @@ export function outputBlock(output: number, reasoning: number, cost?: string, ..
   );
 }
 
-const note = (kind: CacheEventKind, text: string) => h("p", { class: `cc-cache cc-cache-${kind}` }, cacheMark(kind), h("span", {}, text));
+export const note = (kind: CacheEventKind, text: string) => h("p", { class: `cc-cache cc-cache-${kind}` }, cacheMark(kind), h("span", {}, text));
 
 /** One line per cache event ("cache miss after 4h 31m idle: 385k re-cached, ~$3.01"). */
 export function cacheNotes(events: CacheEvent[], max = 3): HTMLElement | null {
@@ -109,37 +102,6 @@ export function cacheNotes(events: CacheEvent[], max = 3): HTMLElement | null {
     ...events.slice(0, max).map((e) => note(e.kind, `${cacheEventLabel(e)}: ${cacheEventDetail(e)}`)),
     events.length > max ? h("p", { class: "cc-more" }, `+${events.length - max} more cache events`) : null,
   );
-}
-
-/** For a run of bars too narrow to tell apart: how many events they hold, marked by the worst. */
-export function cacheCount(kind: CacheEventKind, text: string): HTMLElement {
-  return h("div", { class: "cc-sec cc-caches" }, note(kind, text));
-}
-
-/** A small chart of several prompts (a turn's calls, a run of turns) on their own scale. */
-export function sparkBlock(list: Usage[], label: string, max = 48): HTMLElement | null {
-  if (list.length < 2) return null;
-  const size = Math.ceil(list.length / max);
-  const peaks: Usage[] = [];
-  for (let i = 0; i < list.length; i += size) peaks.push(list.slice(i, i + size).reduce((a, b) => (contextTokens(b) > contextTokens(a) ? b : a)));
-  const top = Math.max(1, ...peaks.map(contextTokens));
-  const H = 28;
-  const cols = h("div", { class: "cc-spark", "aria-hidden": "true" });
-  cols.style.height = `${H}px`;
-  for (const u of peaks) {
-    const col = h("span", { class: "cc-spark-col" });
-    const ctx = contextTokens(u);
-    const total = Math.max(ctx ? 2 : 0, Math.round((ctx / top) * H));
-    for (const [key, cls] of SEGMENTS) {
-      const v = u[key] ?? 0;
-      if (!v) continue;
-      const seg = h("span", { class: `seg ${cls}` });
-      seg.style.height = `${Math.max(1, (v / Math.max(1, ctx)) * total)}px`;
-      col.append(seg);
-    }
-    cols.append(col);
-  }
-  return h("div", { class: "cc-sec" }, h("div", { class: "cc-label" }, h("span", {}, label), h("span", {}, `peak ${formatTokens(top)}`)), cols);
 }
 
 /** A step a model call produced, as one line of its card. */
@@ -182,22 +144,31 @@ function activityOf(s: Step, cwd: string | undefined): Activity[] {
   }
 }
 
-export function activityBlock(items: Activity[], label: string, max = 6): HTMLElement | null {
-  if (!items.length) return null;
-  return h(
-    "div",
-    { class: "cc-sec" },
-    h("div", { class: "cc-label" }, h("span", {}, label)),
-    h(
-      "div",
-      { class: "cc-acts" },
-      ...items.slice(0, max).map((a) => h("div", { class: `cc-act${a.error ? " is-error" : ""}` }, h("span", { class: "cc-act-what" }, a.what), h("span", { class: "cc-act-text" }, a.text || "–"))),
-    ),
-    items.length > max ? h("p", { class: "cc-more" }, `+${items.length - max} more`) : null,
-  );
-}
+/** Close enough to the end of the list that nothing worth pointing at is left below. */
+const NEAR_END = 16;
 
-/** The quiet last line: what clicking the bar does. */
-export function cardHint(text: string): HTMLElement {
-  return h("div", { class: "cc-hint" }, text);
+/**
+ * "↓ 4 more turns": a pill floating at the bottom of a scrolling list while there is more below
+ * it, counting the `items` (one per member) that start below the fold. Returns the update to run
+ * when the list is refilled; the pill puts itself back if the refill removed it.
+ */
+export function floatingMore(list: HTMLElement, items: () => HTMLElement[], unit: string): () => void {
+  const label = h("span", {});
+  const float = h(
+    "div",
+    { class: "cb-float is-hidden", "aria-hidden": "true" },
+    h("span", { class: "cb-pill", onclick: () => list.scrollBy?.({ top: list.clientHeight * 0.8, behavior: "smooth" }) }, "↓ ", label),
+  );
+  const update = () => {
+    if (float.parentNode !== list) list.append(float);
+    const bottom = list.scrollTop + list.clientHeight;
+    const below = items().filter((s) => s.offsetTop >= bottom).length;
+    float.classList.toggle("is-hidden", list.scrollHeight - bottom <= NEAR_END);
+    label.textContent = below ? plural(below, `more ${unit}`) : "more below";
+  };
+  list.addEventListener("scroll", update, { passive: true });
+  update();
+  // Measured once the card is placed and its height capped.
+  requestAnimationFrame(update);
+  return update;
 }

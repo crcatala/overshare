@@ -17,7 +17,10 @@ const WARM_DELAY = 60;
 const WARM_WINDOW = 400;
 /** After the pointer leaves every safe zone, wait this long (it may come straight back). */
 const CLOSE_DELAY = 160;
+/** On the way to an open card, another trigger the pointer crosses takes over only once it rests there this long. */
+const REST_DELAY = 120;
 const GAP = 8;
+const FOCUSABLE = "button, [href], input, select, textarea, [tabindex]";
 const MAX_HEIGHT = 360;
 
 export interface HoverCardOptions {
@@ -27,6 +30,10 @@ export interface HoverCardOptions {
   build: (close: () => void) => HTMLElement;
   /** Open to the left of this (default: the trigger), e.g. the rail the trigger sits in. */
   beside?: () => Element;
+  /** Tallest the card may be (default 360px); its list scrolls beyond that. */
+  maxHeight?: number;
+  /** Called when the card opens, and with false when it closes (e.g. to mark what it is about). */
+  onToggle?: (open: boolean) => void;
 }
 
 interface OpenCard {
@@ -34,6 +41,8 @@ interface OpenCard {
   card: HTMLElement;
   close: () => void;
   keepOpen: () => void;
+  /** The pointer is between the trigger and the card, heading for the card. */
+  inTransit: () => boolean;
 }
 
 let open: OpenCard | undefined;
@@ -49,22 +58,33 @@ export function hoverCard(trigger: HTMLElement, opts: HoverCardOptions): void {
   trigger.setAttribute("aria-expanded", "false");
   let timer: ReturnType<typeof setTimeout> | undefined;
   let pointer: Point = { x: 0, y: 0 };
+  let movedAt = 0;
   let touch = false;
 
   const show = (focus = false) => {
     if (open?.trigger === trigger) return;
     open = openCard(trigger, opts, pointer, focus);
   };
+  // Triggers side by side (a chart's bars) lie across the way to an open card: one passed over doesn't take it.
+  const showOnRest = () => {
+    const still = performance.now() - movedAt;
+    if (open && open.trigger !== trigger && open.inTransit() && still < REST_DELAY) timer = setTimeout(showOnRest, REST_DELAY - still);
+    else show();
+  };
 
   trigger.addEventListener("pointerdown", (e) => (touch = e.pointerType === "touch"));
   trigger.addEventListener("pointerenter", (e) => {
     if (e.pointerType === "touch") return;
     pointer = { x: e.clientX, y: e.clientY };
+    movedAt = performance.now();
     if (open?.trigger === trigger) return open.keepOpen();
     clearTimeout(timer);
-    timer = setTimeout(show, open || performance.now() - closedAt < WARM_WINDOW ? WARM_DELAY : OPEN_DELAY);
+    timer = setTimeout(showOnRest, open || performance.now() - closedAt < WARM_WINDOW ? WARM_DELAY : OPEN_DELAY);
   });
-  trigger.addEventListener("pointermove", (e) => (pointer = { x: e.clientX, y: e.clientY }));
+  trigger.addEventListener("pointermove", (e) => {
+    pointer = { x: e.clientX, y: e.clientY };
+    movedAt = performance.now();
+  });
   trigger.addEventListener("pointerleave", () => clearTimeout(timer));
   trigger.addEventListener("click", () => {
     clearTimeout(timer);
@@ -93,11 +113,12 @@ function openCard(trigger: HTMLElement, opts: HoverCardOptions, pointer: Point, 
     trigger.setAttribute("aria-expanded", "false");
     if (open === self) open = undefined;
     closedAt = performance.now();
+    opts.onToggle?.(false);
   };
   const card = h("div", { class: "hcard", role: "dialog", "aria-label": opts.label }, opts.build(close));
   document.body.append(card);
   trigger.setAttribute("aria-expanded", "true");
-  place(card, trigger, opts.beside?.() ?? trigger);
+  place(card, trigger, opts.beside?.() ?? trigger, opts.maxHeight ?? MAX_HEIGHT);
 
   const cancelClose = () => {
     clearTimeout(closeTimer);
@@ -108,8 +129,12 @@ function openCard(trigger: HTMLElement, opts: HoverCardOptions, pointer: Point, 
     () => card.getBoundingClientRect(),
     pointer,
   );
+  // Focus in the card holds it open for the keyboard, not after a click (a tab picked with the mouse).
+  let clicked = false;
+  card.addEventListener("pointerdown", () => (clicked = true), { signal });
+  card.addEventListener("keydown", () => (clicked = false), { signal, capture: true });
   const settle = (stay: boolean) => {
-    if (stay || card.contains(document.activeElement)) return cancelClose();
+    if (stay || (!clicked && card.contains(document.activeElement))) return cancelClose();
     closeTimer ??= setTimeout(close, CLOSE_DELAY);
   };
   document.addEventListener("pointermove", (e) => e.pointerType !== "touch" && settle(zone.move({ x: e.clientX, y: e.clientY })), { signal });
@@ -156,7 +181,17 @@ function openCard(trigger: HTMLElement, opts: HoverCardOptions, pointer: Point, 
       e.preventDefault();
       const to = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : (i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
       items[to]?.focus({ preventScroll: false });
-    } else if (e.key === "Tab") close();
+    } else if (e.key === "Tab") {
+      // Tab moves through the card (its tabs, then its list). Past either end the card closes and
+      // focus goes back to the trigger: going on, the browser then moves past the trigger as if the
+      // card weren't there; going back, it stops on the trigger.
+      const stops = Array.from(card.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.tabIndex >= 0 && !el.closest("[hidden]"));
+      const at = stops.indexOf(document.activeElement as HTMLElement);
+      if (e.shiftKey ? at > 0 : at >= 0 && at < stops.length - 1) return;
+      if (e.shiftKey) e.preventDefault();
+      close();
+      trigger.focus({ preventScroll: true });
+    }
   });
   trigger.addEventListener(
     "keydown",
@@ -166,14 +201,15 @@ function openCard(trigger: HTMLElement, opts: HoverCardOptions, pointer: Point, 
     { signal },
   );
   if (focus) card.querySelector<HTMLElement>("[data-hc-item]")?.focus();
+  opts.onToggle?.(true);
 
-  const self: OpenCard = { trigger, card, close, keepOpen: cancelClose };
+  const self: OpenCard = { trigger, card, close, keepOpen: cancelClose, inTransit: () => zone.inTransit };
   return self;
 }
 
 /** Beside `edge` (left of it, else right of it), top-aligned with the trigger; below the trigger when there's no room. */
-function place(card: HTMLElement, trigger: HTMLElement, edge: Element): void {
-  card.style.maxHeight = `${Math.min(MAX_HEIGHT, window.innerHeight - 16)}px`;
+function place(card: HTMLElement, trigger: HTMLElement, edge: Element, maxHeight: number): void {
+  card.style.maxHeight = `${Math.min(maxHeight, window.innerHeight - 16)}px`;
   const { width, height } = card.getBoundingClientRect();
   const t = trigger.getBoundingClientRect();
   const b = edge.getBoundingClientRect();

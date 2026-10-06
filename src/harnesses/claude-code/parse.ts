@@ -191,9 +191,11 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
       }
       if (e.isMeta) {
         if (rawText.startsWith("Base directory for this skill:")) {
+          // A Skill tool call's body names the call; a typed `/skill` arrives right after its command markup.
+          const invokedBy = pendingCommand && !e.sourceToolUseID ? "user" : "model";
           promptFromCommand();
           const skill = /Base directory for this skill:\s*(\S+)/.exec(rawText)?.[1]?.split("/").filter(Boolean).at(-1);
-          b.addEvent("skill", `Skill loaded: ${skill ?? "unknown"}`, timestamp);
+          b.addSkill(skill ?? "unknown", invokedBy, timestamp);
         } else if (pendingCommand && rawText.trim() && !rawText.startsWith("<local-command-caveat>")) {
           promptFromCommand(stripInjectedContext(rawText));
         } else {

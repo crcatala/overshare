@@ -39,6 +39,14 @@ export interface ToolCall {
   count?: number;
 }
 
+export interface SkillLoad {
+  /** The step to jump to. */
+  id: string;
+  name: string;
+  /** Unknown for a share written before skill events recorded it. */
+  invokedBy?: "user" | "model";
+}
+
 export interface TurnInfo {
   index: number;
   /** 1-based prompt number, 0 for steps before the first prompt. */
@@ -53,6 +61,8 @@ export interface TurnInfo {
   items: OutlineItem[];
   /** Every tool call in the turn, in order. */
   calls: ToolCall[];
+  /** Every skill loaded in the turn, typed or picked up by the model, in order. */
+  skills: SkillLoad[];
   responses: ResponseUsage[];
   /** What the subagents launched in this turn add up to (absent in a prompts view, which keeps no steps). */
   subagents?: TurnSubagents;
@@ -591,6 +601,20 @@ function toolCalls(turn: Turn, stepIds: string[], ctx: Ctx): ToolCall[] {
   return out;
 }
 
+/** The turn's skill events. A share is untrusted, so a `skill` field that isn't the expected shape is ignored. */
+function skillLoads(turn: Turn, stepIds: string[]): SkillLoad[] {
+  const out: SkillLoad[] = [];
+  turn.steps.forEach((step, i) => {
+    if (step.kind !== "event" || step.event !== "skill") return;
+    const meta = step.skill && typeof step.skill === "object" ? step.skill : undefined;
+    const name = typeof meta?.name === "string" && meta.name ? meta.name : /^Skill loaded:\s*(.+)$/.exec(String(step.text))?.[1]?.trim();
+    if (!name) return;
+    const invokedBy = meta?.invokedBy === "user" || meta?.invokedBy === "model" ? meta.invokedBy : undefined;
+    out.push({ id: stepIds[i]!, name, ...(invokedBy ? { invokedBy } : {}) });
+  });
+  return out;
+}
+
 /** The first step of each model call in a turn, by call id (a call's steps come together, so the first is where it starts). */
 function responseSteps(turn: Turn, stepIds: string[]): Map<string, string> {
   const out = new Map<string, string>();
@@ -643,6 +667,7 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
         errors: session.mode === "prompts" ? turn.activity?.toolErrors ?? 0 : o.errors,
         items: o.items,
         calls: toolCalls(turn, stepIds, ctx),
+        skills: skillLoads(turn, stepIds),
         responses: ctx.byTurn.get(turn.index) ?? [],
         ...(subagents ? { subagents } : {}),
         responseSteps: session.mode === "prompts" ? new Map() : responseSteps(turn, stepIds),
@@ -654,7 +679,7 @@ export function renderTranscript(session: NormalizedSession, opts: TranscriptOpt
     const n = turn.user ? ordinal : 0;
     const id = `turn-${turn.index}`;
     const section = h("section", { class: "turn", id, "data-turn": String(turn.index), "data-n": String(n) }, unsupported(stepId(turn.index, 0), "turn", undefined, true));
-    turns.push({ index: turn.index, ordinal: n, id, el: section, label: n ? `Prompt ${n}` : "Session start", tools: 0, errors: 0, items: [], calls: [], responses: [], responseSteps: new Map() });
+    turns.push({ index: turn.index, ordinal: n, id, el: section, label: n ? `Prompt ${n}` : "Session start", tools: 0, errors: 0, items: [], calls: [], skills: [], responses: [], responseSteps: new Map() });
     return section;
   };
   const sections = session.turns

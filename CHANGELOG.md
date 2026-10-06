@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The viewer's token rail has a *Skills* list with every skill loaded in the session, typed as a
+  command or loaded by the model. Hover a skill to see each load and who made it, and click one to
+  jump to it. Skills typed as a command (such as `/assess-review-feedback`) used to be missing,
+  because the rail only listed the Skill tool's calls. pi sessions now record skill loads too: a
+  typed `/skill:name`, and a `read` of a `SKILL.md`.
+
 ### Fixed
 
 - `overshare browse` takes a paste in its search boxes: the session list's `/` search, the viewer's

@@ -702,3 +702,59 @@ describe("system prompt", () => {
     }
   });
 });
+
+describe("token rail skills", () => {
+  const skill = (id: string, name: string, invokedBy?: "user" | "model"): Step => ({ kind: "event", id, event: "skill", text: `Skill loaded: ${name}`, ...(invokedBy ? { skill: { name, invokedBy } } : {}) });
+  const skillTool = (id: string, name: string): Step => ({ kind: "tool", id, name: "Skill", action: "other", summary: name, input: { skill: name } });
+  const typedAndModel = () => {
+    const s = session([
+      turn(0, [skill("a", "assess-review-feedback", "user"), { kind: "text", id: "b", text: "on it" }], "/assess-review-feedback"),
+      turn(1, [skillTool("c", "agent-browser"), skill("d", "agent-browser", "model"), skillTool("e", "agent-browser"), skill("f", "agent-browser", "model")]),
+    ]);
+    s.stats.tools = { Skill: 2 };
+    s.stats.toolCalls = 2;
+    return s;
+  };
+  const rail = (s: NormalizedSession, onJumpTo?: (id: string) => void) => renderTokenRail(s, renderTranscript(s).turns, () => {}, onJumpTo).el;
+  const section = (el: HTMLElement) => Array.from(el.querySelectorAll(".rail-sec")).find((x) => x.querySelector("h3")?.textContent?.startsWith("Skills"));
+  const rows = (el: Element | undefined) => Array.from(el?.querySelectorAll(".bars-row") ?? [], (r) => [r.querySelector(".bars-name")?.textContent, r.querySelector(".bars-n")?.textContent]);
+
+  afterEach(() => closeHoverCard());
+
+  it("lists typed and model-loaded skills apart from the Skill tool calls", () => {
+    const el = rail(typedAndModel());
+    const sec = section(el);
+    expect(sec?.querySelector("h3 .help")?.textContent).toBe("Skills · 3");
+    expect(rows(sec)).toEqual([
+      ["agent-browser", "2"],
+      ["assess-review-feedback", "1"],
+    ]);
+    // A typed skill is no tool call: Tools still counts the two Skill calls only.
+    const tools = Array.from(el.querySelectorAll(".rail-sec")).find((x) => x.querySelector("h3")?.textContent?.startsWith("Tools"));
+    expect(rows(tools)).toEqual([["Skill", "2"]]);
+  });
+
+  it("shows each load and who loaded it on hover, and jumps to the one picked", () => {
+    const jumps: string[] = [];
+    const el = rail(typedAndModel(), (id) => jumps.push(id));
+    const [browser, typed] = Array.from(section(el)!.querySelectorAll<HTMLElement>(".bars-row"));
+    typed!.click();
+    const items = () => Array.from(document.querySelectorAll(".hcard .hc-item"), (i) => [i.querySelector(".hc-turn")?.textContent, i.querySelector(".hc-text")?.textContent]);
+    expect(document.querySelector(".hcard .hc-count")?.textContent).toBe("1 load");
+    expect(items()).toEqual([["1", "typed as a command"]]);
+    browser!.click();
+    expect(items()).toEqual([
+      ["2", "loaded by the model"],
+      ["2", "loaded by the model"],
+    ]);
+    document.querySelector<HTMLButtonElement>(".hcard .hc-item")!.click();
+    expect(jumps).toEqual(["s-1-1"]);
+  });
+
+  it("names skills from an older share's event text, and lists none where the view keeps no skill events", () => {
+    const old = session([turn(0, [skill("a", "ticket")])]);
+    expect(rows(section(rail(old)))).toEqual([["ticket", "1"]]);
+    expect(section(rail(projectSession(typedAndModel(), "brief")))).toBeDefined();
+    expect(section(rail(projectSession(typedAndModel(), "minimal")))).toBeUndefined();
+  });
+});

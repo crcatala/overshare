@@ -24,6 +24,7 @@ const turn = (index: number, label: string, items: TurnInfo["items"] = []): Turn
   errors: 0,
   items,
   calls: [],
+  skills: [],
   responses: [],
 });
 

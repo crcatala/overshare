@@ -82,6 +82,25 @@ describe("claude-code adapter", () => {
     expect(session.responses).toHaveLength(1);
   });
 
+  it("tells a typed skill from one the model loaded with the Skill tool", () => {
+    const t = new ClaudeTranscript()
+      .user("<command-message>assess-review-feedback</command-message>\n<command-name>/assess-review-feedback</command-name>\n<command-args>PR 12</command-args>")
+      .user("Base directory for this skill: /home/tester/.claude/skills/assess-review-feedback\n# docs\n\nARGUMENTS: PR 12", { isMeta: true })
+      .assistant("m1", [{ type: "tool_use", id: "tu_s", name: "Skill", input: { skill: "agent-browser" } }], ccUsage(1, 1))
+      .toolResult("tu_s", "Launching skill: agent-browser")
+      .user("Base directory for this skill: /home/tester/.claude/skills/agent-browser\n# docs", { isMeta: true, sourceToolUseID: "tu_s" })
+      .assistant("m2", [{ type: "text", text: "ok" }], ccUsage(1, 1));
+    const { session } = parseClaudeCode(t.toJsonl());
+    expect(session.turns[0]!.user).toMatchObject({ command: { name: "/assess-review-feedback", args: "PR 12" } });
+    const skills = session.turns.flatMap((x) => x.steps).filter((s) => s.kind === "event" && s.event === "skill");
+    expect(skills).toMatchObject([
+      { text: "Skill loaded: assess-review-feedback", skill: { name: "assess-review-feedback", invokedBy: "user" } },
+      { text: "Skill loaded: agent-browser", skill: { name: "agent-browser", invokedBy: "model" } },
+    ]);
+    // Only the Skill tool call is a tool call.
+    expect(computeStats(session).tools).toEqual({ Skill: 1 });
+  });
+
   it("follows the latest branch after a rewind", () => {
     const t = new ClaudeTranscript().user("first").assistant("m1", [{ type: "text", text: "a1" }], ccUsage(1, 1));
     const fork = t.lastUuid;

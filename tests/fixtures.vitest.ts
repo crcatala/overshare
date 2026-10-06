@@ -102,6 +102,11 @@ describe("fixture generator", () => {
         expect(steps.some((s) => s.kind === "tool" && s.result?.images)).toBe(true);
         expect(session.turns.some((t) => t.user?.images)).toBe(true);
         for (const e of ["interrupted", "error", "compaction"] as const) expect(events.has(e), e).toBe(true);
+        // A skill the model loaded and one the user typed.
+        expect(steps.flatMap((s) => (s.kind === "event" && s.skill ? [s.skill] : []))).toEqual([
+          { name: "code-review", invokedBy: "model" },
+          { name: "ship-pr", invokedBy: "user" },
+        ]);
         // The demo shows each kind of cache event: an idle-gap miss, the rebuild after the compaction and (pi) a model switch.
         const cache = session.responses.flatMap((r) => (r.cacheEvent ? [r.cacheEvent] : []));
         expect(cache.find((e) => e.kind === "miss")).toMatchObject({ idle: true, gapMs: expect.any(Number) });

@@ -217,6 +217,10 @@ export class TurnBuilder {
     this.addStep({ kind: "event", id: this.nextId("e"), event, text, timestamp, ...(detail ? { detail } : {}) });
   }
 
+  addSkill(name: string, invokedBy: "user" | "model", timestamp?: string): void {
+    this.addStep({ kind: "event", id: this.nextId("e"), event: "skill", text: `Skill loaded: ${name}`, timestamp, skill: { name, invokedBy } });
+  }
+
   /** Register a tool call (or subagent launch) so its result can be attached later. */
   addToolCall(callId: string, rawName: unknown, input: unknown, meta: { timestamp?: string; responseId?: string }): void {
     // A transcript can carry any JSON here; a name that is not a string is a malformed call, kept under a generic name (ass-3llz).
@@ -234,7 +238,8 @@ export class TurnBuilder {
     this.pendingTools.set(callId, step);
   }
 
-  attachToolResult(callId: string, result: ToolResult, details?: unknown): void {
+  /** Returns the step the result was attached to, if the call was registered. */
+  attachToolResult(callId: string, result: ToolResult, details?: unknown): ToolStep | SubagentStep | undefined {
     const step = this.pendingTools.get(callId);
     if (!step) return;
     this.pendingTools.delete(callId);
@@ -251,6 +256,7 @@ export class TurnBuilder {
         if (typeof d.agentId === "string" && d.agentId) this.subagentsByAgentId.set(d.agentId, step);
       }
     }
+    return step;
   }
 
   /** The subagent step a transcript file belongs to: by the launching tool call's id, else by the agent's id. */

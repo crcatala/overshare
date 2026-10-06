@@ -47,7 +47,8 @@ export type Item =
   | { t: "prompt"; text: string; image?: boolean; reminder?: boolean }
   | { t: "command"; name: string; stdout: string }
   | { t: "commandPrompt"; name: string; args?: string; expanded: string }
-  | { t: "skill"; name: string }
+  /** A skill loaded by the model, or `typed` by the user as a command (`args` follow it). */
+  | { t: "skill"; name: string; body: string; typed?: boolean; args?: string }
   | { t: "response"; blocks: Block[] }
   | { t: "interrupt" }
   | { t: "apiError"; text: string }
@@ -219,7 +220,7 @@ export function buildScript(rng: Rng, opts: { home: string; username: string; se
       args: "src/invoices",
       expanded: "Review the changes in src/invoices for correctness, edge cases and missing tests. Delegate a deep read of related modules to a subagent, then summarise findings as a table.",
     },
-    { t: "skill", name: "code-review" },
+    { t: "skill", name: "code-review", body: "Review checklist: correctness, edge cases, tests." },
     {
       t: "response",
       blocks: [
@@ -338,7 +339,13 @@ export function buildScript(rng: Rng, opts: { home: string; username: string; se
         "## Summary so far\n- Fixed 500 on POST /v1/invoices without currency (fallback request → customer → USD)\n- Added regression tests (13 passing)\n- Found DATABASE_URL port mismatch (5433 vs 5432)\n- Review: zero-decimal currency bug in toMinorUnits — fixed\n- Added pino structured logging",
     },
     { t: "thinkingLevel", level: "high" },
-    { t: "prompt", text: `Ship it: create a branch, commit, push and open a PR.` },
+    {
+      t: "skill",
+      name: "ship-pr",
+      typed: true,
+      args: "create a branch, commit, push and open a PR.",
+      body: "Ship the current work: split it into logical commits, push a branch and open a pull request with a summary.",
+    },
     {
       t: "response",
       blocks: [

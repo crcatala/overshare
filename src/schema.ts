@@ -190,6 +190,12 @@ export interface NormalizedSession {
   stats: SessionStats;
   responses: ResponseUsage[];
   turns: Turn[];
+  /**
+   * The harness's system prompt, as recorded in the transcript (Claude Code: the last `prompt_snapshot` on the branch),
+   * one string per section. Only in full mode, and only when the sharer opted in (`--include-system-prompt`); never
+   * CLAUDE.md, AGENTS.md or other injected context. Absent for a harness that does not record one.
+   */
+  systemPrompt?: string[];
   redaction?: RedactionSummary;
   generator?: { name: string; version: string; sharedAt: string };
 }

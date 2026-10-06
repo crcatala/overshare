@@ -10,7 +10,8 @@ In order (see `src/redact/`):
 1. **Structural drop** — never exported: Claude Code `attachment` entries (CLAUDE.md,
    environment, credential org, reminders…), `<system-reminder>` blocks, meta/skill
    bodies, sidechains, system prompts and tool schemas, thinking signatures, image data.
-   The report lists what was dropped.
+   The report lists what was dropped. The system prompt alone can be shared on request
+   (`--include-system-prompt`, full mode only); see [Injected context](#injected-context).
 2. **Known local values** — exact values of secret-looking env vars
    (`*KEY*|*TOKEN*|*SECRET*|*PASSWORD*…`) and the session project's `.env*` files, plus anything
    you opt in to or declare (see [What this tool reads and why](#what-this-tool-reads-and-why)).
@@ -40,6 +41,34 @@ In order (see `src/redact/`):
    pattern or home path still present **blocks publishing**. As a backstop (never the guard against a secret cut in two
    before redaction) it also looks for a long, random-looking prefix or suffix of a known value (**blocks**) or of a secret a
    pattern redacted (**needs confirmation**); ordinary text a value starts or ends with, like `postgres://user:` or a host name, never counts.
+
+## Injected context
+
+Harnesses send the model more than the conversation: a system prompt, instruction files
+(`CLAUDE.md`, `AGENTS.md`, auto-memory), and context such as the environment, git status,
+the signed-in account's email and organization, permissions, and skill and tool listings.
+Claude Code records most of it in the transcript as `attachment` entries.
+
+**Instruction files are never shared, and there is no option to include them.** Redaction
+catches secrets, not privacy: a personal `~/.claude/CLAUDE.md` rarely holds an API key, but it
+often names internal hosts, an employer or team, other projects, or personal habits, none of which
+any rule recognises. Deciding which files are safe would need a per-harness classifier: Claude Code
+tags each file (`User`, `Project`, `AutoMem`), but a project-local `CLAUDE.local.md` is personal
+while sitting in the project, "checked into the codebase" can still mean a private repository,
+other harnesses label these files differently or not at all, and new kinds keep appearing. Leaving
+them out entirely is the only rule that never shares something the sharer did not mean to. The
+environment, account and permission context is dropped for the same reason.
+
+**The system prompt can be shared on request**, with `--include-system-prompt` on `report`,
+`export` and `publish` in full mode (it is an error with any other mode, and a full share stepped
+down in the viewer drops it). Claude Code rewrites it every turn as a `prompt_snapshot` attachment
+and the last one on the exported branch is used. It is mostly the harness's own fixed text: in
+Claude Code it holds the memory directory path (redacted like any home path) and none of the
+instruction files or environment above. Any custom system prompt you configured
+(`--system-prompt`, `--append-system-prompt`, an output style, an SDK agent) is likely part of it,
+so review it before sharing. It goes through the same redaction and final re-scan as everything
+else, the report lists it under "Included on request", and the viewer shows it collapsed above
+the first turn. Harnesses that do not record a system prompt (pi, for now) share nothing.
 
 ## Report status
 

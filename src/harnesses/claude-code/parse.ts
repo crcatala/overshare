@@ -23,7 +23,9 @@ import {
  * - Lines form a tree through `parentUuid` (rewinds fork it; compaction links via
  *   `logicalParentUuid`); we follow the branch that ends at the last entry.
  * - `attachment` lines carry injected context (CLAUDE.md, environment, credentials
- *   org, reminders) and are dropped wholesale.
+ *   org, reminders) and are dropped wholesale. The one exception is `prompt_snapshot`
+ *   (the system prompt, rewritten every turn): the last one on the branch is kept as
+ *   `systemPrompt`, which the pipeline drops unless the sharer opted in.
  */
 
 type Entry = Record<string, any>;
@@ -93,6 +95,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   let pendingCommand: { name: string; args?: string; timestamp?: string } | undefined;
   let startedAt: string | undefined;
   let endedAt: string | undefined;
+  let systemPrompt: string[] | undefined;
 
   const promptFromCommand = (expanded?: string) => {
     if (!pendingCommand) return;
@@ -138,6 +141,10 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
         }
         promptFromCommand();
         b.startTurn({ text: stripInjectedContext(a.prompt) }, timestamp);
+        continue;
+      }
+      if (a.type === "prompt_snapshot" && Array.isArray(a.systemPrompt)) {
+        systemPrompt = systemPromptSections(a.systemPrompt);
         continue;
       }
       bump(dropped, `attachment${a.type ? `:${a.type}` : ""}`);
@@ -278,6 +285,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   session.models = models;
   session.turns = b.turns;
   session.responses = b.responses;
+  if (systemPrompt?.length) session.systemPrompt = systemPrompt;
   // Nothing in Claude Code transcripts identifies history copied from another session (pi forks
   // say so in the header), so unlike pi nothing is ever marked `inherited` here.
   // Claude Code records tokens, not dollars: costs are estimated at list price.
@@ -285,6 +293,13 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   if (otherBranches) session.stats.otherBranches = otherBranches;
   if (subagentUsage) session.stats.subagentUsage = subagentUsage;
   return { session, dropped };
+}
+
+/** Claude Code's internal cache marker between the static and per-session parts carries nothing to read. */
+const PROMPT_BOUNDARY = "__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__";
+
+function systemPromptSections(parts: unknown[]): string[] {
+  return parts.filter((p): p is string => typeof p === "string" && p.trim() !== "" && p.trim() !== PROMPT_BOUNDARY).map((p) => p.trim());
 }
 
 /**

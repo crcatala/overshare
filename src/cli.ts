@@ -29,6 +29,7 @@ interface SessionOptions {
   leaf?: string;
   mode: ShareMode;
   secretsFile?: string[];
+  includeSystemPrompt?: boolean;
 }
 
 const EXPORT_FORMATS = ["json", "html"] as const;
@@ -62,16 +63,18 @@ function withSessionOptions(cmd: Command, defaultMode: ShareMode): Command {
     .addOption(new Option("--harness <name>", "restrict to one harness").choices(HARNESS_NAMES))
     .option("--leaf <entryId>", "export the branch ending at this entry (tree-shaped sessions)")
     .option("-m, --mode <mode>", `share mode: ${SHARE_MODES.join(" | ")}`, parseMode, defaultMode)
-    .option("--secrets-file <file...>", "extra values to redact: KEY=VALUE lines or one value per line");
+    .option("--secrets-file <file...>", "extra values to redact: KEY=VALUE lines or one value per line")
+    .option("--include-system-prompt", "full mode: also share the harness's system prompt (Claude Code), including any custom system prompt you configured; never CLAUDE.md/AGENTS.md");
 }
 
 function prepare(arg: string | undefined, opts: SessionOptions): { ref: SessionRef; prepared: PreparedShare } {
+  if (opts.includeSystemPrompt && opts.mode !== "full") throw new Error("--include-system-prompt only applies to --mode full");
   const ref = resolveSession(arg, { current: opts.current, harness: opts.harness });
   const config = loadConfig();
   const raw = readFileSync(ref.path, "utf8");
   const extraKnownSecrets = (opts.secretsFile ?? []).flatMap((f) => readSecretsFile(f, (msg) => console.error(`warning: ${msg}`)));
   const subagentFiles = loadSubagentFiles(ref.harness, ref.path);
-  const prepared = prepareShare(raw, { mode: opts.mode, config, harness: ref.harness, leafId: opts.leaf, subagentFiles, extraKnownSecrets });
+  const prepared = prepareShare(raw, { mode: opts.mode, config, harness: ref.harness, leafId: opts.leaf, subagentFiles, extraKnownSecrets, includeSystemPrompt: opts.includeSystemPrompt });
   return { ref, prepared };
 }
 

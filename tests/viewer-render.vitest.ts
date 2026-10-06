@@ -531,3 +531,24 @@ describe("cost and usage scope", () => {
     document.body.replaceChildren();
   });
 });
+
+describe("system prompt", () => {
+  const withPrompt = (mode: ShareMode, systemPrompt: unknown): NormalizedSession => ({ ...session([turn(0, [])]), mode, systemPrompt: systemPrompt as string[] });
+
+  it("shows a closed line above the first turn that opens to the prompt", () => {
+    const { el } = renderTranscript(withPrompt("full", ["You are an agent.", "Be brief."]));
+    const line = el.querySelector<HTMLElement>("#system-prompt")!;
+    expect(el.firstElementChild?.classList.contains("session-context")).toBe(true);
+    expect(line.textContent).toContain("system prompt");
+    expect(line.textContent).toContain("2 sections");
+    expect(line.textContent).not.toContain("You are an agent.");
+    line.querySelector<HTMLButtonElement>("button.tline")!.click();
+    expect(line.querySelector("pre")?.textContent).toBe("You are an agent.\n\nBe brief.");
+  });
+
+  it("is not drawn outside full mode or when malformed", () => {
+    for (const s of [withPrompt("brief", ["x"]), withPrompt("full", "not a list"), withPrompt("full", [1, ""]), withPrompt("full", undefined)]) {
+      expect(renderTranscript(s).el.querySelector("#system-prompt")).toBeNull();
+    }
+  });
+});

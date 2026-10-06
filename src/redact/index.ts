@@ -286,6 +286,7 @@ export function redactSession(session: NormalizedSession, redactor: Redactor): N
   const copy: NormalizedSession = { ...session };
   copy.title = session.title ? redactor.redactText(session.title, "title") : session.title;
   copy.project = walk(session.project, "", "project") as NormalizedSession["project"];
+  if (session.systemPrompt) copy.systemPrompt = session.systemPrompt.map((p) => redactor.redactText(p, "system prompt"));
   // Model ids, like the response ids below, are copied from the transcript and published as they are in every mode: values of
   // `models` and `responses[].model` and keys of the stats keyed by model (ass-gmih).
   copy.models = session.models.map((m) => redactor.redactIdentifier(m, "models"));

@@ -44,6 +44,10 @@ export function formatReport(r: ShareReport, opts: { maxFindings?: number; color
     lines.push("", bold("Dropped (never shared):"));
     lines.push(`  ${dropped.map(([k, n]) => `${k} ×${n}`).join(", ")}`);
   }
+  if (r.systemPrompt) {
+    lines.push("", bold("Included on request:"));
+    lines.push(`  system prompt (${plural(r.systemPrompt.sections, "section")}, ${formatTokens(r.systemPrompt.chars)} chars), redacted like the rest`);
+  }
 
   lines.push("", bold("Redactions:"));
   const entries = Object.entries(r.counts) as [RedactionCategory, number][];

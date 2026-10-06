@@ -48,7 +48,14 @@ export function projectSession(session: NormalizedSession, mode: ShareMode): Nor
   const reason = mode === "prompts" ? promptsUnavailableReason(session) : undefined;
   if (reason) throw new PromptsUnavailableError(reason);
   const project = mode === "full" ? (t: Turn) => t : mode === "brief" ? briefTurn : mode === "minimal" ? minimalTurn : promptsTurn;
-  return { ...session, mode, turns: session.turns.map((turn) => project({ ...turn, activity: turn.activity ?? turnActivity(turn) })) };
+  const { systemPrompt, ...rest } = session;
+  return {
+    ...rest,
+    // Full mode only: below it the share would carry instructions it no longer shows the work for.
+    ...(mode === "full" && systemPrompt ? { systemPrompt } : {}),
+    mode,
+    turns: session.turns.map((turn) => project({ ...turn, activity: turn.activity ?? turnActivity(turn) })),
+  };
 }
 
 /** Counts from the full session's steps; every projection carries the result, so it is computed once, before any steps are collapsed. */

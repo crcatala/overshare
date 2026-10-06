@@ -14,11 +14,10 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** Each font's license file, verbatim (copyright notice, any Reserved Font Name, the OFL text). */
 const LICENSE_FILES = {
   "JetBrains Mono": "viewer/src/fonts/JetBrainsMono-OFL.txt",
-  "IBM Plex Sans": "node_modules/@fontsource-variable/ibm-plex-sans/LICENSE",
   "Bricolage Grotesque": "node_modules/@fontsource-variable/bricolage-grotesque/LICENSE",
 };
 
-export const VIEWER_FONTS = ["JetBrains Mono", "IBM Plex Sans"];
+export const VIEWER_FONTS = ["JetBrains Mono"];
 export const SITE_FONTS = ["JetBrains Mono", "Bricolage Grotesque"];
 export const FONT_LICENSES_FILE = "font-licenses.txt";
 

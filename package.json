@@ -74,7 +74,6 @@
   },
   "devDependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.3.0",
-    "@fontsource-variable/ibm-plex-sans": "^5.3.0",
     "@release-it/keep-a-changelog": "^8.0.1",
     "@types/node": "^24.10.1",
     "dompurify": "^3.4.0",

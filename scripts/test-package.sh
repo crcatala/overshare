@@ -40,7 +40,7 @@ if [[ -n "${stray//[$'\n']/}" ]]; then
 fi
 
 # The bundled fonts are OFL-licensed: their licenses ship beside the viewer and inside every HTML export.
-for font in 'JetBrains Mono' 'IBM Plex Sans'; do
+for font in 'JetBrains Mono'; do
   grep -q "^== $font ==" "$pkg/viewer/dist/s/font-licenses.txt" || { echo "font-licenses.txt lacks $font" >&2; exit 1; }
 done
 

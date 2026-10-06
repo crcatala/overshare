@@ -5,7 +5,7 @@
  */
 import type { TableStyle } from "./asciitable.ts";
 
-export type VariantId = "classic" | "cli" | "timeline" | "hybrid" | "log";
+export type VariantId = "classic" | "cli" | "log";
 
 export interface Variant {
   id: VariantId;
@@ -24,8 +24,6 @@ export interface Variant {
 export const VARIANTS: Variant[] = [
   { id: "classic", label: "classic", blurb: "Minimal blocks: tinted prompts and tool calls, thinking in italics", table: "square", inlineThinking: true },
   { id: "cli", label: "cli", blurb: "Terminal transcript: ● tool lines, └ output, rounded tables", table: "rounded" },
-  { id: "timeline", label: "timeline", blurb: "Vertical timeline with a time gutter and docs-style rails", table: "square" },
-  { id: "hybrid", label: "hybrid", blurb: "Proportional prose, mono tooling, editorial spacing", table: "minimal" },
   { id: "log", label: "log", blurb: "TUI log: time/role columns, framed panes, statusline", table: "ascii" },
 ];
 

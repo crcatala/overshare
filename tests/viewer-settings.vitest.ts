@@ -28,7 +28,7 @@ describe("&ui= tokens", () => {
   });
 
   it("reads tokens in any order and only the fields given", () => {
-    expect(parseUi("dark.timeline")).toEqual({ theme: "dark", variant: "timeline" });
+    expect(parseUi("dark.log")).toEqual({ theme: "dark", variant: "log" });
     expect(parseUi("minimal")).toEqual({ view: "minimal" });
     expect(parseUi("prompts.toc-all")).toEqual({ view: "prompts", toc: "all" });
     expect(parseUi("toc-prompts")).toEqual({ toc: "prompts" });
@@ -37,6 +37,7 @@ describe("&ui= tokens", () => {
   // A renamed or removed option (or a typo) drops only that field back to the reader's own setting.
   it("skips tokens it doesn't know", () => {
     expect(parseUi("retro.brief.sepia.LRX.toc-some.constructor.__proto__")).toEqual({ view: "brief" });
+    expect(parseUi("timeline.hybrid.dark")).toEqual({ theme: "dark" }); // removed variants
     expect(parseUi("")).toEqual({});
     expect(parseUi(null)).toEqual({});
   });
@@ -49,7 +50,7 @@ describe("&ui= tokens", () => {
 
 describe("resolve", () => {
   it("takes each field from the link, then this tab, then the saved default, then built-in", () => {
-    const s = resolve({ variant: "log" }, { variant: "cli", theme: "light" }, { variant: "hybrid", theme: "dark", view: "brief" });
+    const s = resolve({ variant: "log" }, { variant: "cli", theme: "light" }, { variant: "classic", theme: "dark", view: "brief" });
     expect(s).toEqual({ ...BUILT_IN, variant: "log", theme: "light", view: "brief" });
   });
 

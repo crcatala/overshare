@@ -15,11 +15,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   because the rail only listed the Skill tool's calls. pi sessions now record skill loads too: a
   typed `/skill:name`, and a `read` of a `SKILL.md`.
 
+### Changed
+
+- Opening the viewer with no share in the link shows a start page instead of an error: what
+  overshare is, a box to open a pasted gist URL or share link, the example session, and how to
+  share your own. A link whose hash names no share still shows an error, and error pages
+  link back to the start page.
+
 ### Fixed
 
 - `overshare browse` takes a paste in its search boxes: the session list's `/` search, the viewer's
   message search and the filter in dialogs such as Repo. A paste used to be dropped. Pasted line breaks
   and tabs become spaces.
+- A viewer link with a malformed `%` escape after the `#` shows an error instead of leaving the
+  viewer stuck on "loading viewer".
 
 ## [0.2.0] - 2026-10-06
 

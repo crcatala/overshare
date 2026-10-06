@@ -168,6 +168,7 @@ button.theme::before {
   margin: 0 auto;
   padding: 64px 16px;
   color: var(--ink-2);
+  overflow-wrap: anywhere;
 }
 .status.error h1 {
   font-size: 1.2em;
@@ -2175,6 +2176,146 @@ button.share[aria-expanded="true"] {
 .badge.is-error {
   color: var(--err);
   background: var(--err-bg);
+}
+
+/* ---------- start page (welcome.ts) ---------- */
+.welcome {
+  max-width: 620px;
+  padding-top: 64px;
+}
+.welcome-hdr {
+  margin-bottom: 32px;
+}
+/* Only two icons beside a short title: they stay on its line where a share's header stacks. */
+.welcome-hdr .hdr-top {
+  flex-direction: row;
+  align-items: center;
+}
+.welcome-title {
+  margin: 0;
+  font-size: 1.6em;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+.welcome-lede {
+  margin: 10px 0 0;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.welcome-label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.welcome-row {
+  display: flex;
+  gap: 8px;
+}
+.welcome-input {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 7px 10px;
+  outline: none;
+}
+.welcome-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.welcome-input[aria-invalid="true"] {
+  border-color: var(--err);
+}
+.welcome-input::placeholder {
+  color: var(--faint);
+}
+.welcome-btn {
+  appearance: none;
+  flex: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 16px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+.welcome-btn:hover {
+  background: color-mix(in srgb, var(--accent) 85%, var(--ink));
+}
+.welcome-hint {
+  margin-top: 6px;
+}
+.welcome-hint.is-error {
+  color: var(--err);
+}
+.welcome-example {
+  margin: 20px 0 0;
+}
+.welcome-example a {
+  font-weight: 600;
+  text-decoration: none;
+}
+.welcome-example a:hover {
+  text-decoration: underline;
+}
+.welcome-share {
+  margin-top: 44px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+.welcome-share h2 {
+  margin: 0 0 10px;
+  font-size: 1em;
+}
+.welcome-cmd {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+  margin-bottom: 10px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 6px;
+  background: var(--code-bg);
+  font-family: var(--font-mono);
+}
+.welcome-cmd code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font: inherit;
+  color: var(--code);
+}
+.welcome-prompt {
+  color: var(--faint);
+  user-select: none;
+}
+.welcome-copy {
+  appearance: none;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--dim);
+  padding: 1px 8px;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.welcome-copy:hover {
+  color: var(--ink);
+  border-color: var(--faint);
+}
+.welcome-share .fine,
+.welcome-privacy {
+  text-wrap: pretty;
+}
+.welcome-privacy {
+  margin-top: 28px;
+}
+.welcome .credit {
+  margin-top: 40px;
 }
 
 /* ---------- attribution ---------- */

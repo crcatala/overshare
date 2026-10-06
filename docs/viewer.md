@@ -18,6 +18,11 @@ The share location lives in the URL hash, which is never sent to the server:
 | `…&ui=log.brief.dark.L.toc-all` | open with these view settings (see [View settings](#view-settings)) |
 | `…&turn=3` | open at prompt 3 |
 
+Opened with no share in the hash, the viewer lists local shares when `overshare serve` is serving some,
+and otherwise shows a start page: what overshare is, a box that opens a pasted gist URL, viewer link or
+`owner/gistId`, the example session, and the command to share your own. A hash that names no share
+is shown as an error.
+
 ## Format versions
 
 Shares outlive the viewer that wrote them, and the viewer is always the latest build, so it reads

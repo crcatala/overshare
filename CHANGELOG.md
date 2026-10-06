@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The session viewer and exported HTML pages show the overshare logo as their browser tab icon. The
+  landing page adds a `favicon.ico` fallback and an Apple touch icon for iOS home screens.
+
 ### Changed
 
 - Opening the viewer with no share in the link shows a start page instead of an error: what

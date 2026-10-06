@@ -29,7 +29,7 @@ done
 # Nothing else ships: every compiled file has a source file, and only the viewer build's own
 # files are under viewer/dist (no source maps, no landing page).
 stray=$(cd "$pkg" && find . -type f -not -path './node_modules/*' | sed 's#^\./##' | grep -vxE \
-  'package\.json|README\.md|LICENSE|dist/.+\.js|integrations/claude-code/share-session/SKILL\.md|integrations/pi/overshare\.ts|viewer/dist/standalone\.html|viewer/dist/s/index\.html|viewer/dist/s/examples/session\.json|viewer/dist/s/font-licenses\.txt|viewer/dist/s/assets/[A-Za-z0-9_-]+\.(js|css|woff2)' || true)
+  'package\.json|README\.md|LICENSE|dist/.+\.js|integrations/claude-code/share-session/SKILL\.md|integrations/pi/overshare\.ts|viewer/dist/standalone\.html|viewer/dist/s/index\.html|viewer/dist/s/examples/session\.json|viewer/dist/s/font-licenses\.txt|viewer/dist/s/assets/[A-Za-z0-9_-]+\.(js|css|woff2|svg)' || true)
 for f in $(cd "$pkg" && find dist -type f); do
   src="src/${f#dist/}"
   test -f "${src%.js}.ts" || stray+=$'\n'"$f (no source file)"

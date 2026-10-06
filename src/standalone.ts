@@ -19,6 +19,7 @@ import { viewerDistDir } from "./serve.js";
 export const SESSION_MARKER = "<!--overshare:session-->";
 
 const FONT_TYPES: Record<string, string> = { woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf", otf: "font/otf" };
+const ICON_TYPES: Record<string, string> = { svg: "image/svg+xml", png: "image/png", ico: "image/x-icon" };
 
 const sha256 = (text: string) => `'sha256-${createHash("sha256").update(text).digest("base64")}'`;
 
@@ -53,6 +54,8 @@ function resolveAsset(assets: ReadonlyMap<string, Uint8Array | string>, from: st
 }
 
 const text = (v: Uint8Array | string) => (typeof v === "string" ? v : Buffer.from(v).toString("utf8"));
+const base64 = (v: Uint8Array | string) => Buffer.from(v).toString("base64");
+const extension = (ref: string) => /\.([a-z0-9]+)(?:[?#].*)?$/i.exec(ref)?.[1]?.toLowerCase() ?? "";
 
 /**
  * Turn the viewer's built `index.html` and its files into a template: one script, one style, no other
@@ -79,11 +82,19 @@ export function inlineViewer(html: string, assets: ReadonlyMap<string, Uint8Arra
   if (/<\/style/i.test(css)) throw new Error("standalone viewer: the stylesheet contains </style, which cannot be inlined safely");
   css = css.replace(/url\(\s*(["']?)([^)"']+)\1\s*\)/g, (whole, _quote: string, ref: string) => {
     if (ref.startsWith("data:") || ref.startsWith("#")) return whole;
-    const ext = /\.([a-z0-9]+)(?:[?#].*)?$/i.exec(ref)?.[1]?.toLowerCase() ?? "";
-    const type = FONT_TYPES[ext];
+    const type = FONT_TYPES[extension(ref)];
     if (!type) throw new Error(`standalone viewer: the stylesheet refers to ${ref}, which is not a font it knows how to inline`);
-    const bytes = resolveAsset(assets, cssFrom, ref);
-    return `url(data:${type};base64,${(typeof bytes === "string" ? Buffer.from(bytes) : Buffer.from(bytes)).toString("base64")})`;
+    return `url(data:${type};base64,${base64(resolveAsset(assets, cssFrom, ref))})`;
+  });
+
+  // The tab icon, as a data: URI (the policy's img-src allows those).
+  const icons = [...html.matchAll(/<link\b[^>]*\brel="icon"[^>]*>/g)].map((tag) => {
+    const href = /\bhref="([^"]+)"/.exec(tag[0]);
+    if (!href) throw new Error("standalone viewer: an icon link has no href");
+    const type = ICON_TYPES[extension(href[1]!)];
+    if (!type) throw new Error(`standalone viewer: the icon ${href[1]} is not an image type it knows how to inline`);
+    const uri = `data:${type};base64,${base64(resolveAsset(assets, "index.html", href[1]!))}`;
+    return { at: tag.index + href.index, length: href[0].length, text: `href="${uri}"` };
   });
 
   const csp = standaloneContentSecurityPolicy(js, css);
@@ -98,6 +109,7 @@ export function inlineViewer(html: string, assets: ReadonlyMap<string, Uint8Arra
     { at: style.index, length: style[0].length, text: `<style>${css}</style>` },
     { at: script.index, length: script[0].length, text: `<script type="module">${js}</script>` },
     { at: bodyEnd, length: 0, text: `${SESSION_MARKER}\n  ` },
+    ...icons,
   ].sort((a, b) => b.at - a.at);
   let out = html;
   for (const e of edits) out = out.slice(0, e.at) + e.text + out.slice(e.at + e.length);

@@ -472,10 +472,13 @@ function setView(mode: ShareMode): void {
   render({ keepPlace: true });
 }
 
-/** Show the local sessions page when the viewer was opened without a share and there are some to pick. */
-async function showLocalPicker(): Promise<boolean> {
+/**
+ * Show the local sessions page when the viewer was opened without a share and there are some to pick.
+ * `current`: false once a newer link has taken over, which then shows instead.
+ */
+async function showLocalPicker(current: () => boolean): Promise<boolean> {
   const shares = await fetchLocalShares();
-  if (!shares) return false;
+  if (!shares || !current()) return false;
   teardown.abort();
   teardown = new AbortController();
   document.title = "Local sessions · overshare";
@@ -507,14 +510,15 @@ async function main(): Promise<void> {
   navCursor = undefined;
   applyVariant(currentVariant());
   closeMenus();
+  const current = () => load === loads;
   if (!state.source) {
-    if (await showLocalPicker()) return;
-    return showError("No session in the link.");
+    if (await showLocalPicker(current)) return;
+    if (current()) showError("No session in the link.");
+    return;
   }
   // The first load continues the log index.html shows; a later one (a link to another share) starts a new one.
   const boot = bootLog(load === 1 ? app.querySelector<HTMLElement>(":scope > .loading") : undefined);
   if (!app.contains(boot.el)) show(boot.el);
-  const current = () => load === loads;
   try {
     const loaded = await loadSource(state.source, location.href, (url) => boot.step("fetching", url.origin === location.origin ? url.pathname : url.host));
     const schema = (loaded.data as { schema?: unknown } | null)?.schema;

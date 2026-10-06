@@ -971,6 +971,77 @@ describe("turn cards", () => {
     expect(chart.classList.contains("has-next")).toBe(false);
   });
 
+  it("reaches the view tabs from the keyboard: Tab moves through the card, and leaving it goes back to the bar", () => {
+    const rail = mount(many());
+    const { col, card } = open(rail);
+    const tabs = Array.from(card.querySelectorAll<HTMLElement>(".tc-tab"));
+    // One stop for the tab row, the selected tab, ahead of the list in the card's order.
+    expect(tabs.map((t) => t.tabIndex)).toEqual([0, -1, -1, -1]);
+    const stops = Array.from(card.querySelectorAll<HTMLElement>("button, [tabindex]")).filter((el) => el.tabIndex >= 0);
+    expect(stops[0]).toBe(tabs[0]);
+    const tab = (from: HTMLElement, shiftKey = false) => {
+      from.focus();
+      from.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true }));
+    };
+    // Within the card, Tab is left to move focus.
+    tab(stops[1]!);
+    expect(document.querySelector(".hcard")).not.toBeNull();
+    tab(stops[1]!, true);
+    expect(document.querySelector(".hcard")).not.toBeNull();
+    // From the tabs, arrows switch views; the selected tab stays the stop.
+    tabs[0]!.focus();
+    tabs[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    expect(document.activeElement).toBe(tabs[1]);
+    expect(tabs.map((t) => t.tabIndex)).toEqual([-1, 0, -1, -1]);
+    // Back past the first stop, or on past the last: the card closes and focus returns to the bar.
+    tab(tabs[1]!, true);
+    expect(document.querySelector(".hcard")).toBeNull();
+    expect(document.activeElement).toBe(col);
+    const again = open(rail).card;
+    const last = Array.from(again.querySelectorAll<HTMLElement>("button, [tabindex]")).filter((el) => el.tabIndex >= 0).at(-1)!;
+    tab(last);
+    expect(document.querySelector(".hcard")).toBeNull();
+    expect(document.activeElement).toBe(col);
+  });
+
+  /** Two calls whose provider reports no caching: every prompt is all uncached input. */
+  const uncached = () =>
+    session(
+      [turn(0, [{ kind: "text", id: "a", text: "first", responseId: "r0" }, { kind: "text", id: "b", text: "second", responseId: "r1" }])],
+      [
+        { id: "r0", turn: 0, usage: { input: 9_000, output: 40, cacheRead: 0, cacheWrite: 0, reasoning: 0 } },
+        { id: "r1", turn: 0, usage: { input: 9_500, output: 60, cacheRead: 0, cacheWrite: 0, reasoning: 0 } },
+      ],
+    );
+
+  it("doesn't credit sources where the provider reports no caching: ledger only, and no in/out", () => {
+    setCardView("table");
+    const rail = mount(uncached());
+    const { card } = open(rail);
+    // Every prompt would count as all new: the attribution views aren't offered.
+    expect(card.querySelector(".tc-views")).toBeNull();
+    expect(card.querySelector(".tc-ledger")).not.toBeNull();
+    expect(card.textContent).toContain("doesn't report prompt caching");
+    expect(card.querySelector(".tc-overview")!.textContent).toBe("9.5k peak context · 100 out");
+    rail.setActive(0);
+    const call = openCall(rail, 0);
+    expect(call.querySelector(".tc-io")).toBeNull();
+    expect(call.textContent).toContain("doesn't report prompt caching");
+    expect(rail.el.querySelector(".rail-turn .chart")!.classList.contains("has-next")).toBe(false);
+  });
+
+  it("scrolls a call's card below its title, so every step it produced can be reached", () => {
+    const steps: Step[] = Array.from({ length: 24 }, (_, i) => ({ kind: "tool", id: `t${i}`, name: "Read", action: "read", summary: `src/f${i}.ts`, input: { file_path: `src/f${i}.ts` }, responseId: "r0" }) as Step);
+    const rail = mount(session([turn(0, steps)], [{ id: "r0", turn: 0, usage: { input: 5, output: 30, cacheRead: 2_000, cacheWrite: 400, reasoning: 0 } }]));
+    rail.setActive(0);
+    const card = openCall(rail, 0);
+    const list = card.querySelector(".hc-list")!;
+    expect(list.querySelectorAll(".cb-line")).toHaveLength(24);
+    expect(list.querySelector(".tc-io")).not.toBeNull();
+    // The title stays above the list.
+    expect(list.contains(card.querySelector(".cc-head"))).toBe(false);
+  });
+
   /** One turn of 130 calls: the turn's chart merges them three to a bar. */
   const longTurn = () => {
     const steps: Step[] = [];

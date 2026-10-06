@@ -20,6 +20,7 @@ const CLOSE_DELAY = 160;
 /** On the way to an open card, another trigger the pointer crosses takes over only once it rests there this long. */
 const REST_DELAY = 120;
 const GAP = 8;
+const FOCUSABLE = "button, [href], input, select, textarea, [tabindex]";
 const MAX_HEIGHT = 360;
 
 export interface HoverCardOptions {
@@ -180,7 +181,17 @@ function openCard(trigger: HTMLElement, opts: HoverCardOptions, pointer: Point, 
       e.preventDefault();
       const to = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : (i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
       items[to]?.focus({ preventScroll: false });
-    } else if (e.key === "Tab") close();
+    } else if (e.key === "Tab") {
+      // Tab moves through the card (its tabs, then its list). Past either end the card closes and
+      // focus goes back to the trigger: going on, the browser then moves past the trigger as if the
+      // card weren't there; going back, it stops on the trigger.
+      const stops = Array.from(card.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.tabIndex >= 0 && !el.closest("[hidden]"));
+      const at = stops.indexOf(document.activeElement as HTMLElement);
+      if (e.shiftKey ? at > 0 : at >= 0 && at < stops.length - 1) return;
+      if (e.shiftKey) e.preventDefault();
+      close();
+      trigger.focus({ preventScroll: true });
+    }
   });
   trigger.addEventListener(
     "keydown",

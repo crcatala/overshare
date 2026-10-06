@@ -17,6 +17,11 @@
  * the call before it (its output and tool results). The last call's reply lands in the next
  * turn's first prompt. Calls outside the conversation (a compaction, a background call) have
  * prompts of their own and are left out of the sources.
+ *
+ * All of that rests on cache read standing for what an earlier prompt already held. A session
+ * whose provider reports no caching sends every prompt as uncached input, so new tokens can't
+ * be told from old: its cards offer ledger only, and a call's card leaves out where its tokens
+ * came from.
  */
 import { cacheEventDetail, cacheEventLabel, formatCost, formatTokens, plural } from "../../src/format.ts";
 import { contextTokens, type CacheEvent, type ResponsePurpose, type ResponseUsage, type Step } from "../../src/schema.ts";
@@ -97,7 +102,11 @@ export interface TurnCardEnv {
   cwd?: string;
   onJump: (turn: number) => void;
   onJumpTo?: (id: string) => void;
+  /** The provider reports prompt caching: without it, what a prompt added can't be told from what it carried. */
+  cacheReported: boolean;
 }
+
+const NO_CACHE = "This session's provider doesn't report prompt caching, so each prompt counts as all new: where its tokens came from can't be told.";
 
 /** Lines listed per member when several share the card; the rest are counted. */
 const MERGED_LINES = 5;
@@ -629,8 +638,8 @@ interface ShellOptions {
 
 /** A card with a tab per view, an explanation of the one shown, and a list that scrolls. */
 function viewCard(o: ShellOptions): HTMLElement {
-  const order = Object.keys(o.views) as CardView[];
-  let view = o.views[lastView] ? lastView : "ledger";
+  const order = (o.ctx.env.cacheReported ? Object.keys(o.views) : ["ledger"]) as CardView[];
+  let view: CardView = order.includes(lastView) ? lastView : "ledger";
   const list = h("div", { class: "hc-list tc-list" });
   const foot = h("div", { class: "cc-sec tc-foot" }, SHIFTED_FOOT);
   const aboutId = `tc-about-${Math.random().toString(36).slice(2, 8)}`;
@@ -653,7 +662,11 @@ function viewCard(o: ShellOptions): HTMLElement {
     view = v;
     if (chosen) lastView = v;
     const info = o.views[v]!;
-    for (const t of tabs) t.setAttribute("aria-selected", String(t.dataset.view === v));
+    // One Tab stop for the row (the selected tab); arrows move between tabs.
+    for (const t of tabs) {
+      t.setAttribute("aria-selected", String(t.dataset.view === v));
+      t.tabIndex = t.dataset.view === v ? 0 : -1;
+    }
     list.replaceChildren(...o.render[v]!(o.ctx));
     list.scrollTop = 0;
     foot.hidden = !info.shifted;
@@ -675,8 +688,9 @@ function viewCard(o: ShellOptions): HTMLElement {
     "div",
     { class: "hc tc" },
     h("div", { class: "hc-head" }, h("span", { class: "hc-title" }, o.title), h("span", { class: "hc-count" }, o.aside)),
-    h("div", { class: "tc-bar-row" }, tablist, info, about),
+    o.ctx.env.cacheReported ? h("div", { class: "tc-bar-row" }, tablist, info, about) : null,
     ...o.overview,
+    o.ctx.env.cacheReported ? null : h("p", { class: "cc-sec cc-muted" }, NO_CACHE),
     list,
     foot,
   );
@@ -710,7 +724,7 @@ export function turnCard(turns: TurnInfo[], env: TurnCardEnv, close: () => void)
     render: TURN_RENDER,
     ctx: { models, merged, run: false, pick: pickThen(close), env },
     overview: [
-      h("div", { class: "cc-sec cb-facts tc-overview" }, [`${formatTokens(peak)} peak context`, `+${formatTokens(totalAdded)} added`, `${formatTokens(totalOut)} out`, ...(merged && cost ? [cost] : [])].join(" · ")),
+      h("div", { class: "cc-sec cb-facts tc-overview" }, [`${formatTokens(peak)} peak context`, ...(env.cacheReported ? [`+${formatTokens(totalAdded)} added`] : []), `${formatTokens(totalOut)} out`, ...(merged && cost ? [cost] : [])].join(" · ")),
       merged && worst ? h("div", { class: "cc-sec cc-caches" }, note(worst.kind, `${plural(events.length, "cache event")} in these turns`)) : null,
     ],
     unit: "turn",
@@ -729,7 +743,7 @@ export function callRunCard(t: TurnInfo, ids: string[], env: TurnCardEnv, close:
     render: CALL_RENDER,
     ctx: { models: [m], merged: false, run: true, pick: pickThen(close), env },
     overview: [
-      h("div", { class: "cc-sec cb-facts tc-overview" }, [plural(m.calls.length, "call"), `${formatTokens(contextTokens(m.peak.usage))} peak context`, `+${formatTokens(m.added)} added`, `${formatTokens(m.output)} out`].join(" · ")),
+      h("div", { class: "cc-sec cb-facts tc-overview" }, [plural(m.calls.length, "call"), `${formatTokens(contextTokens(m.peak.usage))} peak context`, ...(env.cacheReported ? [`+${formatTokens(m.added)} added`] : []), `${formatTokens(m.output)} out`].join(" · ")),
       worst ? h("div", { class: "cc-sec cc-caches" }, note(worst.kind, `${plural(events.length, "cache event")} in these calls`)) : null,
     ],
     unit: "call",
@@ -750,7 +764,9 @@ export function callCard(t: TurnInfo, r: ResponseUsage, env: TurnCardEnv, close:
   const sub = [r.model, r.purpose ? PURPOSE_LABEL[r.purpose] : undefined, r.inherited ? "inherited from the parent session" : undefined].filter(Boolean).join(" · ");
 
   let flow: HTMLElement;
-  if (r.purpose) {
+  if (!env.cacheReported) {
+    flow = h("div", { class: "cc-sec" }, h("p", { class: "cc-muted" }, NO_CACHE));
+  } else if (r.purpose) {
     flow = h("div", { class: "cc-sec" }, h("p", { class: "cc-muted" }, "Made outside the conversation: its prompt is its own, and what it returns isn't part of the next prompt."));
   } else {
     const inFrom = m.sources.find((s) => s.into === r);
@@ -779,17 +795,22 @@ export function callCard(t: TurnInfo, r: ResponseUsage, env: TurnCardEnv, close:
       h("span", { class: "tc-io-who" }, out?.into ? `its output and results, into call ${nextCall?.n ?? "?"}` : "its reply goes into the next turn"),
     );
   }
+  // Below the title it scrolls: a call that ran many tools at once lists more steps than fit.
   return h(
     "div",
     { class: "hc tc tc-call" },
     cardHead(`Model call ${call.n} of ${m.calls.length}`, !r.inherited && u.cost !== undefined ? formatCost(u.cost) : undefined, sub || undefined),
-    flow,
-    contextBlock(u),
-    outputBlock(u.output, u.reasoning),
-    cacheNotes(e ? [e] : []),
-    call.acts.length
-      ? h("div", { class: "cc-sec" }, h("div", { class: "cc-label" }, h("span", {}, "produced")), h("div", { class: "cb-lines" }, ...call.acts.map((a) => lineEl(a, null, pick))))
-      : null,
+    h(
+      "div",
+      { class: "hc-list tc-list" },
+      flow,
+      contextBlock(u),
+      outputBlock(u.output, u.reasoning),
+      cacheNotes(e ? [e] : []),
+      call.acts.length
+        ? h("div", { class: "cc-sec" }, h("div", { class: "cc-label" }, h("span", {}, "produced")), h("div", { class: "cb-lines" }, ...call.acts.map((a) => lineEl(a, null, pick))))
+        : null,
+    ),
     call.acts.some((a) => a.go) ? h("div", { class: "cc-hint" }, "Click a line to go to that step") : null,
   );
 }

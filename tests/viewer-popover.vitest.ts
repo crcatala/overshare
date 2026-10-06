@@ -196,6 +196,17 @@ describe("hoverCard", () => {
     expect(card()).toBeNull();
   });
 
+  it("lets Tab move between its entries, and closes back to the trigger past the last", () => {
+    trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    const [one, two] = Array.from(card()!.querySelectorAll("button"));
+    one!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    expect(card()).not.toBeNull();
+    two!.focus();
+    two!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    expect(card()).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("swaps to another trigger's card quickly", () => {
     const other = h("div", {});
     document.body.append(other);

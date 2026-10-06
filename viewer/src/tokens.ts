@@ -360,7 +360,9 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
   const cwd = session.project?.cwd;
   const stepIds = new Map<Step, string>();
   for (const turn of session.turns) turn.steps.forEach((step, i) => stepIds.set(step, stepId(turn.index, i)));
-  const env: TurnCardEnv = { produced, stepIds, ...(cwd ? { cwd } : {}), onJump, ...(onJumpTo ? { onJumpTo } : {}) };
+  // From the calls themselves: the cards credit each call's new tokens, which only caching tells apart.
+  const cachedPrompts = Boolean(st.cache) || session.responses.some((r) => r.usage.cacheRead + r.usage.cacheWrite > 0);
+  const env: TurnCardEnv = { produced, stepIds, ...(cwd ? { cwd } : {}), onJump, ...(onJumpTo ? { onJumpTo } : {}), cacheReported: cachedPrompts };
   const byIndex = new Map(turns.map((t) => [t.index, t]));
   const turnCardOf = (indexes: number[]) => (close: () => void) => turnCard(indexes.flatMap((i) => byIndex.get(i) ?? []), env, close);
 
@@ -614,7 +616,8 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
         ...(cache ? { cache } : {}),
         ...(target ? { jump: () => onJumpTo!(target) } : {}),
         card: (close) => callCard(t, r, env, close),
-        ...(into ? { next: { col: colOf.get(into.id)!, tag: `+${formatTokens(into.usage.cacheWrite + into.usage.input)}` } } : {}),
+        // Where its results went is only known when caching tells new tokens from carried ones.
+        ...(into && cachedPrompts ? { next: { col: colOf.get(into.id)!, tag: `+${formatTokens(into.usage.cacheWrite + into.usage.input)}` } } : {}),
       };
     });
     const inherited = own.length === 0;

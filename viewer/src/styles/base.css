@@ -2473,6 +2473,14 @@ button.share[aria-expanded="true"] {
   padding: 0;
   border-top: 1px solid var(--line);
 }
+.tc-list > .cc-sec:first-child {
+  border-top: 0;
+}
+/* a call's card: the title and hint stay put while the rest scrolls */
+.hc.tc > .cc-head,
+.hc.tc > .cc-hint {
+  flex: none;
+}
 .tc-foot {
   color: var(--faint);
   font-size: 10.5px;

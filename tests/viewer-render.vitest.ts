@@ -530,4 +530,83 @@ describe("cost and usage scope", () => {
     expect(document.querySelector(".tooltip")?.textContent).toContain("compaction");
     document.body.replaceChildren();
   });
+
+  /** Two calls in one turn: the first thinks and runs a command, the second replies. */
+  const twoCalls = () =>
+    session(
+      [
+        turn(0, [
+          { kind: "thinking", id: "t", text: "Check the tests first", chars: 21, blocks: 1, responseId: "r0" },
+          { kind: "tool", id: "b", name: "Bash", action: "exec", summary: "npm test", input: { command: "npm test" }, result: { text: "1 failed", isError: true }, isError: true, responseId: "r0" },
+          { kind: "text", id: "x", text: "**One** test fails.", responseId: "r1" },
+        ]),
+      ],
+      [
+        { id: "r0", turn: 0, usage: { input: 200, output: 40, cacheRead: 3_000, cacheWrite: 800, reasoning: 10 } },
+        { id: "r1", turn: 0, usage: usage(4_000, 90) },
+      ],
+    );
+  const hoverTip = (el: Element) => {
+    el.dispatchEvent(new PointerEvent("pointerenter", { clientX: 5, clientY: 5 }));
+    return document.querySelector<HTMLElement>(".tooltip")!;
+  };
+
+  it("goes to the first step a model call produced when its bar is clicked", () => {
+    const s = twoCalls();
+    const { turns } = renderTranscript(s);
+    const steps: string[] = [];
+    const rail = renderTokenRail(s, turns, () => {}, (id) => steps.push(id));
+    rail.setActive(0);
+    const [first, second] = rail.el.querySelectorAll<HTMLElement>(".rail-turn .cols:not(.cols-out) .col");
+    first!.click();
+    second!.click();
+    // The output bar below goes to the same place.
+    rail.el.querySelectorAll<HTMLElement>(".rail-turn .cols-out .col")[1]!.click();
+    expect(steps).toEqual(["s-0-0", "s-0-2", "s-0-2"]);
+  });
+
+  it("leaves call bars unclickable where there is no step to go to", () => {
+    const s = twoCalls();
+    const { turns } = renderTranscript(s);
+    const rail = renderTokenRail(s, turns, () => {});
+    rail.setActive(0);
+    expect(rail.el.querySelector(".rail-turn .cols:not(.cols-out) button.col")).toBeNull();
+  });
+
+  it("shows a model call's split, output and what it produced in its card", () => {
+    document.body.innerHTML = '<div id="tooltip" class="tooltip" hidden></div>';
+    const s = twoCalls();
+    const { turns } = renderTranscript(s);
+    const rail = renderTokenRail(s, turns, () => {}, () => {});
+    rail.setActive(0);
+    const tip = hoverTip(rail.el.querySelectorAll(".rail-turn .cols:not(.cols-out) .col")[0]!);
+    expect(tip.classList.contains("tip-card")).toBe(true);
+    expect(tip.querySelector(".cc-title")!.textContent).toBe("Model call 1 of 2");
+    const rows = Array.from(tip.querySelectorAll(".cc-row"), (r) => Array.from(r.children, (c) => c.textContent).slice(1).join("|"));
+    expect(rows).toEqual(["cache read|3.0k|75%", "cache write|800|20%", "uncached input|200|5%", "output (10 thinking)|40|"]);
+    const acts = Array.from(tip.querySelectorAll(".cc-act"), (a) => [a.querySelector(".cc-act-what")!.textContent, a.querySelector(".cc-act-text")!.textContent, a.classList.contains("is-error")]);
+    expect(acts).toEqual([["thinking", "Check the tests first", false], ["Bash", "npm test", true]]);
+    expect(tip.querySelector(".cc-hint")!.textContent).toBe("Click to go to it");
+    // The second call's card has only its own reply, as plain text.
+    expect(hoverTip(rail.el.querySelectorAll(".rail-turn .cols:not(.cols-out) .col")[1]!).querySelector(".cc-act-text")!.textContent).toBe("One test fails.");
+    document.body.replaceChildren();
+  });
+
+  it("shows a turn's prompt, its calls and its tool calls in the context-by-turn card", () => {
+    document.body.innerHTML = '<div id="tooltip" class="tooltip" hidden></div>';
+    const s = twoCalls();
+    const { turns } = renderTranscript(s);
+    const jumps: number[] = [];
+    const rail = renderTokenRail(s, turns, (t) => jumps.push(t));
+    const col = rail.el.querySelector<HTMLElement>(".rail-sec .cols:not(.cols-out) .col")!;
+    const tip = hoverTip(col);
+    expect(tip.querySelector(".cc-title")!.textContent).toBe("Turn 1");
+    expect(tip.querySelector(".cc-sub")!.textContent).toBe("“prompt 0”");
+    expect(tip.querySelectorAll(".cc-spark-col")).toHaveLength(2);
+    expect(tip.querySelector(".cc-total")!.textContent).toBe("peak context4.0k");
+    expect(tip.textContent).toContain("tool calls (1 failed)1");
+    col.click();
+    expect(jumps).toEqual([0]);
+    document.body.replaceChildren();
+  });
 });

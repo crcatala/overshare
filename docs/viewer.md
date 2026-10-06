@@ -66,7 +66,10 @@ Around the transcript, without pushing it off-center:
   write / uncached input) with its output on a row below; the turn in view is marked and
   bars jump to their turn — then *the turn in view*, one bar per model call on the same
   session-wide scale (so turns can be compared), tool counts and files. Each chart labels
-  the top of its scale.
+  the top of its scale. Hovering a bar shows a card beside the rail: its context split by
+  cache read / write / uncached input to scale, output, cost and cache events; a turn's card
+  adds its prompt, a small chart of its calls and its tool calls, and a model call's card
+  lists the steps it produced. Clicking a model call's bar goes to the first of those steps.
 - **Header**: title, agent/model/project/date, key stats, where the share was loaded
   from and that it isn't verified, and the controls (view mode, theme, settings, share).
   Once it scrolls away a one-line **minibar** takes over with the turn in view, reading

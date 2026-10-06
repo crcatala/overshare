@@ -28,6 +28,7 @@ import { renderTokenRail } from "./tokens.ts";
 import { renderTranscript, type TurnInfo } from "./transcript.ts";
 import { findVariant, VARIANTS, type Variant } from "./variants.ts";
 import { BUILT_IN, defaultsState, describe, formatUi, loadSaved, loadTab, parseUi, resolve, saveDefault, saveTab, viewFor, wantedView, type ViewSettings } from "./viewsettings.ts";
+import { renderWelcome } from "./welcome.ts";
 
 const app = document.getElementById("app") as HTMLElement;
 const root = document.documentElement;
@@ -216,8 +217,10 @@ function showError(message: string, log?: HTMLElement): void {
       h("h1", {}, "Can't show this session"),
       h("p", {}, message),
       h("p", { class: "muted" }, "Links look like …/s/#owner/gistId (or #local:name when served locally)."),
+      h("p", {}, h("a", { href: "#" }, "Paste a link or see an example")),
     ),
   );
+  document.title = "Can't show this session · overshare";
 }
 
 function currentView(): ShareMode {
@@ -472,17 +475,11 @@ function setView(mode: ShareMode): void {
   render({ keepPlace: true });
 }
 
-/**
- * Show the local sessions page when the viewer was opened without a share and there are some to pick.
- * `current`: false once a newer link has taken over, which then shows instead.
- */
-async function showLocalPicker(current: () => boolean): Promise<boolean> {
-  const shares = await fetchLocalShares();
-  if (!shares || !current()) return false;
-  teardown.abort();
+/** Show a page without a share (the picker, the start page), where v / V still cycle the variant. */
+function showPage(title: string, page: HTMLElement): void {
+  show(page);
   teardown = new AbortController();
-  document.title = "Local sessions · overshare";
-  app.replaceChildren(renderPicker(shares, { settings: settingsMenu, toggleTheme }));
+  document.title = title;
   document.addEventListener(
     "keydown",
     (e) => {
@@ -491,6 +488,16 @@ async function showLocalPicker(current: () => boolean): Promise<boolean> {
     },
     { signal: teardown.signal },
   );
+}
+
+/**
+ * Show the local sessions page when the viewer was opened without a share and there are some to pick.
+ * `current`: false once a newer link has taken over, which then shows instead.
+ */
+async function showLocalPicker(current: () => boolean): Promise<boolean> {
+  const shares = await fetchLocalShares();
+  if (!shares || !current()) return false;
+  showPage("Local sessions · overshare", renderPicker(shares, { settings: settingsMenu, toggleTheme }));
   return true;
 }
 
@@ -512,8 +519,11 @@ async function main(): Promise<void> {
   closeMenus();
   const current = () => load === loads;
   if (!state.source) {
+    // Something after the # that names no share is a broken link, not a visit to the start page.
+    const head = location.hash.replace(/^#/, "").split("&")[0];
+    if (head) return showError(`"#${head}" doesn't name a session.`);
     if (await showLocalPicker(current)) return;
-    if (current()) showError("No session in the link.");
+    if (current()) showPage("overshare · session viewer", renderWelcome({ settings: settingsMenu, toggleTheme }));
     return;
   }
   // The first load continues the log index.html shows; a later one (a link to another share) starts a new one.
@@ -546,7 +556,8 @@ window.addEventListener("hashchange", () => {
   const { ui, turn } = takeLinkParams();
   update(ui);
   applyTheme();
-  if (JSON.stringify(state.source) !== JSON.stringify(previous)) {
+  // Without a share either side, the hash went from a broken link to none (or back): show what it is now.
+  if (JSON.stringify(state.source) !== JSON.stringify(previous) || (!state.source && !previous)) {
     openAt = turn;
     void main();
   } else if (shared) render({ keepPlace: true, turn });

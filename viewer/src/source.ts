@@ -29,6 +29,9 @@ export type Source =
 declare const __OVERSHARE_SOURCES__: Record<string, string>;
 const SOURCES: Record<string, string> = typeof __OVERSHARE_SOURCES__ === "undefined" ? {} : __OVERSHARE_SOURCES__;
 const SHARE_ID = /^[A-Za-z0-9_-]{8,128}$/;
+const GIST_HOSTS = new Set(["gist.github.com", "gist.githubusercontent.com"]);
+const GIST_ID = /^[0-9a-f]{20,}$/i;
+const GIST_OWNER = /^[\w-]+$/;
 
 export interface HashState {
   source?: Source;
@@ -51,8 +54,38 @@ export function parseHash(hash: string): HashState {
   else if (/^[\w-]+\/[0-9a-f]{20,}$/i.test(src)) {
     const [owner, id] = src.split("/") as [string, string];
     source = { kind: "raw-gist", owner, id };
-  } else if (/^[0-9a-f]{20,}$/i.test(src)) source = { kind: "api-gist", id: src };
+  } else if (GIST_ID.test(src)) source = { kind: "api-gist", id: src };
   return { source, params };
+}
+
+/**
+ * Read a link someone pasted: a viewer link (its hash names the share, whatever site it is on),
+ * a gist page or raw URL, or just the part after `#` (`owner/gistId`, `gist:<id>`, …).
+ * A scheme-less `gist.github.com/…` counts too. Undefined when it names no share.
+ */
+export function parseShareLink(input: string): HashState | undefined {
+  const text = input.trim();
+  if (!text) return undefined;
+  let url: URL | undefined;
+  try {
+    url = new URL(/^[\w-]+(\.[\w-]+)+(:\d+)?\//.test(text) ? `https://${text}` : text);
+  } catch {
+    // Not a URL: a bare hash.
+  }
+  if (url && (url.protocol === "https:" || url.protocol === "http:")) {
+    if (!GIST_HOSTS.has(url.hostname.toLowerCase())) {
+      const parsed = parseHash(url.hash);
+      return parsed.source ? parsed : undefined;
+    }
+    // gist.github.com/<owner>/<id>[/<revision>], gist.github.com/<id>, gist.githubusercontent.com/<owner>/<id>/raw/…
+    const [first = "", second = ""] = url.pathname.split("/").filter(Boolean);
+    const params = new URLSearchParams();
+    if (GIST_OWNER.test(first) && GIST_ID.test(second)) return { source: { kind: "raw-gist", owner: first, id: second }, params };
+    if (GIST_ID.test(first) && !second) return { source: { kind: "api-gist", id: first }, params };
+    return undefined;
+  }
+  const parsed = parseHash(text.startsWith("#") ? text : `#${text}`);
+  return parsed.source ? parsed : undefined;
 }
 
 /** What parseHash would misread, `%` (it decodes) and `&` (it splits), plus `#`, which isn't safe twice in a link. Spaces and `/` stay readable. */

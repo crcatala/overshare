@@ -299,19 +299,30 @@ function callsCard(title: string, count: number, calls: (ToolCall & { turn: numb
   );
 }
 
-/** Shell calls by program, per shell tool name. Empty for a view that dropped the commands (minimal). */
+/**
+ * Shell calls by program, per shell tool name. Empty for a view that dropped the commands (minimal).
+ * A share is untrusted: a step that can't be read is left out (the transcript shows it as a
+ * placeholder) rather than allowed to stop the rail rendering, and only string commands count.
+ */
 function shellBreakdown(session: NormalizedSession): Map<string, [program: string, count: number][]> {
   const commands = new Map<string, string[]>();
-  const add = (tool: string, list: string[]) => commands.set(tool, [...(commands.get(tool) ?? []), ...list]);
+  const add = (tool: unknown, list: unknown[]) => {
+    const named = list.filter((c): c is string => typeof c === "string");
+    if (typeof tool === "string" && named.length) commands.set(tool, [...(commands.get(tool) ?? []), ...named]);
+  };
   for (const turn of session.turns) {
     for (const step of turn.steps) {
-      if (step.kind === "tool" && isExecTool(step.name)) {
-        const input = (step.input ?? {}) as Record<string, unknown>;
-        const cmd = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : step.summary;
-        add(step.name, [cmd]);
-      } else if (step.kind === "toolGroup") {
-        const shell = groupShell(step);
-        if (shell) add(shell.call.name, shell.commands);
+      try {
+        if (step.kind === "tool" && isExecTool(step.name)) {
+          const input = (step.input ?? {}) as Record<string, unknown>;
+          const cmd = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : step.summary;
+          add(step.name, [cmd]);
+        } else if (step.kind === "toolGroup") {
+          const shell = groupShell(step);
+          if (shell) add(shell.call.name, shell.commands);
+        }
+      } catch {
+        // Left out, as above.
       }
     }
   }

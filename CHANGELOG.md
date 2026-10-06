@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and its tool calls. Model-call bars in the turn box now go to the step the call produced when
   clicked, and their card lists what the call did (thinking, reply, tool calls).
 
+### Fixed
+
+- A share with a malformed tool group (its `calls` or `commands` not a list) no longer stops the
+  whole session from showing: the transcript shows that turn as a placeholder, as it already did,
+  and the token rail renders around it. A model-call card shows a step it can't read as
+  "couldn't be shown" instead of not opening.
+
 ### Security
 
 - `overshare serve` and `demo` refuse requests whose `Host` names a domain other than localhost, an

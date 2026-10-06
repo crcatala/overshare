@@ -580,6 +580,45 @@ describe("cost and usage scope", () => {
     expect(rail.el.querySelector(".rail-sec h3")!.textContent).toBe("Session");
   });
 
+  // Regression (ove-irp5): the rail's shell breakdown read a tool group's calls and commands unchecked.
+  it.each<[string, Record<string, unknown>]>([
+    ["calls is null", { calls: null }],
+    ["calls is a number", { calls: 5 }],
+    ["calls is a string", { calls: "Bash" }],
+    ["calls is an object", { calls: {} }],
+    ["calls holds a non-object", { calls: [null] }],
+    ["commands is null", { commands: null }],
+    ["commands holds a non-string", { commands: [null, 5] }],
+  ])("still renders the session when a tool group's %s", (_, broken) => {
+    const bad = { kind: "toolGroup", id: "g", calls: [{ name: "Bash", count: 2, errors: 0 }], total: 2, files: { read: [], edited: [], written: [] }, commands: ["npm test", "git status"], responseIds: ["r0"], ...broken } as unknown as Step;
+    const good: Step = { kind: "tool", id: "t", name: "Bash", action: "exec", summary: "npm run build", input: { command: "npm run build" }, responseId: "r1" };
+    const base = session([turn(0, [bad]), turn(1, [good])], [
+      { id: "r0", turn: 0, usage: usage(1_000, 50) },
+      { id: "r1", turn: 1, usage: usage(2_000, 50) },
+    ]);
+    const s = { ...base, mode: "brief" as const, stats: { ...base.stats, toolCalls: 3, tools: { Bash: 3 } } };
+    const { el, turns } = renderTranscript(s);
+    const rail = renderTokenRail(s, turns, () => {}, () => {});
+    rail.setActive(1);
+    expect(el.querySelectorAll(".turn")).toHaveLength(2);
+    // The tool rows still show, with what the readable step ran.
+    const rows = Array.from(rail.el.querySelectorAll(".bars-row .bars-name"), (n) => n.textContent);
+    expect(rows.slice(0, 2)).toEqual(["Bash", "npm"]);
+  });
+
+  it("says a step couldn't be shown in a model call's card instead of dropping the card", () => {
+    document.body.innerHTML = '<div id="tooltip" class="tooltip" hidden></div>';
+    const s = session([turn(0, [{ kind: "thinking", id: "t", text: 5, chars: 3, blocks: 1, responseId: "r0" } as unknown as Step])], [{ id: "r0", turn: 0, usage: usage(1_000, 50) }]);
+    const { turns } = renderTranscript(s);
+    const rail = renderTokenRail(s, turns, () => {}, () => {});
+    rail.setActive(0);
+    rail.el.querySelector(".rail-turn .cols:not(.cols-out) .col")!.dispatchEvent(new PointerEvent("pointerenter", { clientX: 5, clientY: 5 }));
+    const tip = document.querySelector<HTMLElement>(".tooltip")!;
+    expect(tip.hidden).toBe(false);
+    expect(tip.querySelector(".cc-act")!.textContent).toBe("?couldn't be shown");
+    document.body.replaceChildren();
+  });
+
   it("goes to the first step a model call produced when its bar is clicked", () => {
     const s = twoCalls();
     const { turns } = renderTranscript(s);

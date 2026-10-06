@@ -44,12 +44,14 @@ describe("cli", { timeout: 30_000 }, () => {
     expect(dirty.stdout).not.toContain(secret);
   });
 
-  it("report fails with a clear error on an unknown --leaf", () => {
-    const r = cli(["report", sessionFile(), "--mode", "full", "--leaf", "no-such-entry"]);
-    expect(r.status).not.toBe(0);
-    expect(r.status).not.toBe(2);
-    expect(r.stderr).toContain("--leaf no-such-entry: no entry with that id in this session");
-    expect(r.stdout).not.toContain("run it");
+  it("report fails with a clear error on an unknown or empty --leaf", () => {
+    for (const [leaf, shown] of [["no-such-entry", "no-such-entry"], ["", '""']]) {
+      const r = cli(["report", sessionFile(), "--mode", "full", "--leaf", leaf]);
+      expect(r.status, shown).not.toBe(0);
+      expect(r.status, shown).not.toBe(2);
+      expect(r.stderr).toContain(`--leaf ${shown}: no entry with that id in this session`);
+      expect(r.stdout).not.toContain("run it");
+    }
   });
 
   it("export writes redacted JSON", () => {

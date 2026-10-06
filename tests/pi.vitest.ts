@@ -26,6 +26,7 @@ describe("pi adapter", () => {
     const t = new PiTranscript();
     t.user("first").assistant([{ type: "text", text: "a1" }]);
     expect(() => parsePi(t.toJsonl(), { leafId: "no-such-entry" })).toThrow("--leaf no-such-entry: no entry with that id in this session");
+    expect(() => parsePi(t.toJsonl(), { leafId: "" })).toThrow('--leaf "": no entry with that id in this session');
   });
 
   it("maps tool calls, results, thinking and per-response cost", () => {

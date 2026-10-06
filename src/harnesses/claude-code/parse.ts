@@ -317,7 +317,7 @@ function branchSystemPrompt(entries: Entry[], leafId?: string): string[] | undef
 
 /** `leafId`'s entry, or by default the last conversation entry. */
 function findLeaf(withId: Entry[], byId: Map<string, Entry>, leafId?: string): Entry | undefined {
-  return leafId ? byId.get(leafId) : [...withId].reverse().find((e) => (CONVERSATION_TYPES.has(e.type) || e.type === "attachment") && !e.isSidechain);
+  return leafId !== undefined ? byId.get(leafId) : [...withId].reverse().find((e) => (CONVERSATION_TYPES.has(e.type) || e.type === "attachment") && !e.isSidechain);
 }
 
 /**
@@ -374,7 +374,7 @@ function branchEntries(entries: Entry[], leafId: string | undefined, dropped: Dr
   const byId = new Map<string, Entry>(withId.map((e) => [e.uuid, e]));
   const leaf = findLeaf(withId, byId, leafId);
   if (!leaf) {
-    if (leafId) throw new Error(`--leaf ${leafId}: no entry with that id in this session`);
+    if (leafId !== undefined) throw new Error(`--leaf ${leafId || '""'}: no entry with that id in this session`);
     return withId; // no main-chain conversation line at all: nothing here can be exported, only counted as dropped
   }
   const path: Entry[] = [];

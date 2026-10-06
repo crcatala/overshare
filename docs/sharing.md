@@ -43,7 +43,7 @@ instead of guessing. Other modes still show the stored text and must be reviewed
 
 Rewinding (Claude Code) or branching (pi) leaves the abandoned turns in the session file. Only the
 current branch is shared: the chain of parent links from the leaf, which is the last entry or the
-one passed as `--leaf` (an id that is not in the file is an error). Other branches are never shared,
+one passed as `--leaf` (an empty id, or one that is not in the file, is an error). Other branches are never shared,
 however much longer they are; the tokens and cost spent on them are reported as "not counted".
 
 If a Claude Code chain stops at a parent that is missing from the file, the history before the

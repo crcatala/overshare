@@ -115,6 +115,8 @@ describe("claude-code adapter", () => {
   it("fails on an unknown --leaf instead of exporting every entry", () => {
     const t = new ClaudeTranscript().user("first").assistant("m1", [{ type: "text", text: "a1" }], ccUsage(1, 1));
     expect(() => parseClaudeCode(t.toJsonl(), { leafId: "no-such-entry" })).toThrow("--leaf no-such-entry: no entry with that id in this session");
+    // An empty id (say, an unset variable in a wrapper) is not "no leaf": it would export a later point than asked for.
+    expect(() => parseClaudeCode(t.toJsonl(), { leafId: "" })).toThrow('--leaf "": no entry with that id in this session');
   });
 
   it("exports only the reachable tail of a chain whose parent is missing from the file, and says so", () => {

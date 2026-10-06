@@ -33,7 +33,7 @@ export interface ShareOptions {
  * Copy to the clipboard. Plain http on anything but localhost has no async clipboard,
  * so fall back to the old selection copy there.
  */
-async function copy(text: string): Promise<boolean> {
+export async function copy(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
     return true;

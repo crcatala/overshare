@@ -17,12 +17,12 @@
  *            marked with an icon (❯) or the kind's name ([User])
  */
 import { formatBytes } from "../format.js";
-import { sharesFor } from "../sessions/shares.js";
+import { latestShare, sharesFor } from "../sessions/shares.js";
 import type { SessionSummary } from "../sessions/summary.js";
 import { branchLabel, plural, shortModel } from "./display.js";
 import { RadioDialog, type DialogSection } from "./dialogs.js";
 import { HARNESS_META } from "../harnesses/meta.js";
-import { cut, fit, frame, isKey, isPlain, isShift, padLines, pagingKey, st, w, wrap } from "./kit.js";
+import { cut, elide, fit, frame, isKey, isPlain, isShift, padLines, pagingKey, st, w, wrap } from "./kit.js";
 import { markLine, splitWords, unstyled } from "./mark.js";
 import { SAVE_FAILED_MESSAGE, type MarkerStyle, type SettingsStore } from "./settings.js";
 import { renderItem } from "./render.js";
@@ -478,6 +478,11 @@ export class SessionViewer {
     const v = this.view;
     const lines = [`${st.bold("overshare")}  ${st.dim("›")}  ${st.bold(cut(s.title ?? "(untitled)", width - 20))}`];
     lines.push(cut(st.dim([HARNESS_META[s.harness].label, s.project, branchLabel(s), s.models.map(shortModel).join(", ")].filter(Boolean).join(" · ")), width));
+    const last = latestShare(this.source.shares, s.harness, s.id);
+    if (last) {
+      const label = `✓ shared (${last.record.mode})${last.earlier ? ` · +${last.earlier} earlier` : ""}  `;
+      lines.push(cut(`${st.green(label)}${st.cyan(elide(last.link, width - w(label)))}`, width));
+    }
     if (!v) return lines;
     const d = v.stats;
     lines.push(

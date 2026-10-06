@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `overshare browse` shows a shared session's latest link in the preview and the session viewer,
+  and `y` prints the whole link in the footer, so it can be copied by hand in terminals without
+  OSC 52 clipboard support.
+
 ### Security
 
 - `overshare serve` and `demo` refuse requests whose `Host` names a domain other than localhost, an

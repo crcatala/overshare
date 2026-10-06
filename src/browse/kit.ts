@@ -49,6 +49,21 @@ export const fit = (s: string, n: number): string => (n <= 0 ? "" : truncateToWi
 /** Truncate only. */
 export const cut = (s: string, n: number): string => (n <= 0 ? "" : truncateToWidth(s, n, "…"));
 export const wrap = (s: string, n: number): string[] => (n <= 0 ? [] : wrapTextWithAnsi(s, n));
+/** Shorten plain text to `n` columns by cutting out its middle, so both ends stay readable (a link's host and its id's tail). */
+export function elide(s: string, n: number): string {
+  if (w(s) <= n) return s;
+  if (n <= 2) return cut(s, n);
+  const chars = Array.from(s);
+  const room = n - 1;
+  let head = "";
+  for (const c of chars) {
+    if (w(head + c) > Math.ceil(room / 2)) break;
+    head += c;
+  }
+  let tail = "";
+  for (let i = chars.length - 1; i >= 0 && w(head) + w(chars[i]! + tail) <= room; i--) tail = chars[i]! + tail;
+  return `${head}…${tail}`;
+}
 export const padLines = (lines: string[], n: number): string[] => lines.concat(Array.from({ length: Math.max(0, n - lines.length) }, () => ""));
 export const isKey = (data: string, key: string): boolean => matchesKey(data, key as KeyId);
 

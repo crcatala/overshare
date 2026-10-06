@@ -34,7 +34,7 @@ overshare  7/7
 | `ctrl-r` | refresh: list the sessions again and read the new and changed ones (a session still being written, a new one, a deleted one); the selection, search and filters stay | |
 | `enter` | open the session viewer | |
 | `p` | publish: mode → review → confirm (`enter` continues; only `y` publishes) | |
-| `y` | copy the share link (terminal clipboard, OSC 52) | |
+| `y` | copy the latest share link (terminal clipboard, OSC 52) and print it whole in the footer | |
 | `,` | settings: confirm before quitting, date format | |
 | `?` / `q` | help / clear filters, then quit (asks first unless you turned that off) | |
 
@@ -124,7 +124,12 @@ field, falls back to its default.
   that one publish (the config is never rewritten). A target that is not set up (no `r2` section, no credentials) is marked `✗`, says what
   is missing and cannot be published to. The review is made for the target on screen, so switching scans again and what you reviewed is what is uploaded there.
 - **Shared marks.** Every successful `publish` (CLI or browser) is recorded in `~/.local/state/overshare/shares.json`
-  (`OVERSHARE_SHARES` overrides). The browser shows a ✓ on those sessions and can filter by them.
+  (`OVERSHARE_SHARES` overrides). The browser shows a ✓ on those sessions and can filter by them. The preview and the
+  session viewer's header show the latest link (cut in the middle when it does not fit) and how many earlier shares there are.
+  OSC 52 asks the terminal to set the clipboard and nothing reports whether it did (macOS Terminal.app, and tmux without
+  `set-clipboard on`, ignore it), so after `y` the footer prints the whole link to select by hand (on a narrow terminal it
+  drops its explanation first, and cuts the link only when the link alone is wider than the terminal). The stored link is printed
+  and copied without control characters or whitespace, so what you paste is what you saw.
 - **What gets published.** The publish dialog reviews the chosen mode with the real pipeline and uploads exactly the payload you
   reviewed. Modes the pipeline refuses (for example `prompts` on a legacy pi session) say why and cannot be selected; a blocked
   re-scan cannot be published, and suspicious values (see [Suspicious values](redaction.md#suspicious-values)) need an extra confirmation first. The viewer itself shows your local transcript unredacted, because it never leaves your machine.

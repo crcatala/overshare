@@ -682,6 +682,122 @@ describe("cost and usage scope", () => {
   });
 });
 
+describe("bucketed chart bars", () => {
+  afterEach(() => {
+    closeHoverCard();
+    document.body.replaceChildren();
+  });
+
+  /** 100 turns (bucketed two to a bar); turn 1 makes three calls, the first a failing Bash call. */
+  const many = () => {
+    const turns: Turn[] = [];
+    const responses: NormalizedSession["responses"] = [];
+    for (let i = 0; i < 100; i++) {
+      const steps: Step[] = [];
+      const calls = i === 1 ? 7 : 1;
+      for (let c = 0; c < calls; c++) {
+        const id = `r${i}-${c}`;
+        steps.push(
+          c === 0 && i === 1
+            ? { kind: "tool", id: `b${i}`, name: "Bash", action: "exec", summary: "npm test", input: { command: "npm test" }, result: { text: "1 failed", isError: true }, isError: true, responseId: id }
+            : { kind: "text", id: `x${i}-${c}`, text: `reply ${i}.${c}`, responseId: id },
+        );
+        responses.push({ id, turn: i, usage: usage(1_000 * (i + 1), 10) });
+      }
+      turns.push(turn(i, steps, `prompt ${i}`));
+    }
+    return session(turns, responses);
+  };
+
+  const open = (onJump: (t: number) => void = () => {}, onJumpTo: (id: string) => void = () => {}) => {
+    const s = many();
+    const { turns } = renderTranscript(s);
+    const rail = renderTokenRail(s, turns, onJump, onJumpTo);
+    document.body.append(rail.el);
+    const col = rail.el.querySelector<HTMLElement>(".rail-sec .cols:not(.cols-out) .col")!;
+    col.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    return { rail, col, card: document.querySelector<HTMLElement>(".hcard")! };
+  };
+
+  it("opens a card with a section per turn: its prompt, figures and model calls", () => {
+    const { col, card } = open();
+    expect(col.getAttribute("aria-expanded")).toBe("true");
+    expect(card.querySelector(".hc-title")!.textContent).toBe("Turn 1 – Turn 2");
+    expect(card.querySelector(".hc-count")!.textContent).toBe("2 turns");
+    expect(card.querySelector(".hc > .cb-facts")!.textContent).toBe("2.0k peak context · 80 out");
+    const entries = Array.from(card.querySelectorAll(".cb-entry"));
+    expect(entries.map((e) => e.querySelector(".cb-name")!.textContent)).toEqual(["Turn 1", "Turn 2"]);
+    expect(entries.map((e) => e.querySelector(".cb-label")!.textContent)).toEqual(["“prompt 0”", "“prompt 1”"]);
+    expect(entries[1]!.querySelector(".cb-facts")!.textContent).toBe("2.0k peak context · 70 out · 7 calls · 1 tool (1 failed)");
+    // One line per call, with its size and what it did; capped, and the rest counted.
+    const lines = Array.from(entries[1]!.querySelectorAll(".cb-line"), (l) => [l.querySelector(".cb-ctx")!.textContent, l.querySelector(".cb-what")!.textContent, l.querySelector(".hc-text")!.textContent, l.classList.contains("is-error")]);
+    expect(lines).toEqual([
+      ["2.0k", "Bash", "npm test", true],
+      ["2.0k", "reply", "reply 1.1", false],
+      ["2.0k", "reply", "reply 1.2", false],
+      ["2.0k", "reply", "reply 1.3", false],
+      ["2.0k", "reply", "reply 1.4", false],
+    ]);
+    expect(entries[1]!.querySelector(".cb-more")!.textContent).toBe("+2 more calls");
+    // Each turn's context is drawn against the larger of the two.
+    expect(entries.map((e) => e.querySelector<HTMLElement>(".cb-bar")!.style.width)).toEqual(["50%", "100%"]);
+  });
+
+  it("goes to a turn from its heading and to a model call from its line, closing the card", () => {
+    const jumps: number[] = [];
+    const steps: string[] = [];
+    const first = open((t) => jumps.push(t), (id) => steps.push(id));
+    first.card.querySelectorAll<HTMLElement>(".cb-head")[1]!.click();
+    expect(jumps).toEqual([1]);
+    expect(document.querySelector(".hcard")).toBeNull();
+    first.col.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    document.querySelectorAll<HTMLElement>(".cb-entry")[1]!.querySelectorAll<HTMLElement>(".cb-line")[2]!.click();
+    expect(steps).toEqual(["s-1-2"]);
+    expect(document.querySelector(".hcard")).toBeNull();
+  });
+
+  it("is reached from the keyboard: Enter opens it on the first turn, arrows walk turns and calls", () => {
+    const { card } = open();
+    const items = Array.from(card.querySelectorAll<HTMLElement>("[data-hc-item]"));
+    expect(document.activeElement).toBe(items[0]);
+    expect(items[0]!.classList.contains("cb-head")).toBe(true);
+    items[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    expect(document.activeElement).toBe(items[1]);
+    expect(items[1]!.classList.contains("cb-line")).toBe(true);
+  });
+
+  it("floats a count of the turns below the fold until the list is scrolled near its end", () => {
+    const { card } = open();
+    const list = card.querySelector<HTMLElement>(".cb-list")!;
+    const float = card.querySelector<HTMLElement>(".cb-float")!;
+    const [one, two] = Array.from(card.querySelectorAll<HTMLElement>(".cb-entry"));
+    // jsdom has no layout: the list shows 100px of 300, the second turn starts at 120px.
+    Object.defineProperty(list, "clientHeight", { value: 100, configurable: true });
+    Object.defineProperty(list, "scrollHeight", { value: 300, configurable: true });
+    Object.defineProperty(one!, "offsetTop", { value: 0 });
+    Object.defineProperty(two!, "offsetTop", { value: 120 });
+    list.dispatchEvent(new Event("scroll"));
+    expect(float.classList.contains("is-hidden")).toBe(false);
+    expect(float.textContent).toBe("↓ 1 more turn");
+    list.scrollTop = 150;
+    list.dispatchEvent(new Event("scroll"));
+    expect(float.textContent).toBe("↓ more below");
+    list.scrollTop = 190;
+    list.dispatchEvent(new Event("scroll"));
+    expect(float.classList.contains("is-hidden")).toBe(true);
+  });
+
+  it("keeps the output bar out of the tab order and plain tooltips on unbucketed bars", () => {
+    const { rail } = open();
+    const out = rail.el.querySelector<HTMLElement>(".rail-sec .cols-out .col")!;
+    expect(out.getAttribute("aria-haspopup")).toBe("true");
+    expect(out.hasAttribute("tabindex")).toBe(false);
+    // The turn in view has one call per bar: those keep their tooltip.
+    rail.setActive(1);
+    expect(rail.el.querySelector(".rail-turn .col")!.hasAttribute("aria-haspopup")).toBe(false);
+  });
+});
+
 describe("system prompt", () => {
   const withPrompt = (mode: ShareMode, systemPrompt: unknown): NormalizedSession => ({ ...session([turn(0, [])]), mode, systemPrompt: systemPrompt as string[] });
 

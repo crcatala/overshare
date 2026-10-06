@@ -7,11 +7,12 @@
  * can be compared with each other and with the rest of the session (growth and
  * compaction show). Output has its own row and scale: it is orders of magnitude smaller.
  * Hovering a bar shows its card (chartcard.ts); clicking it goes to its turn, or for a
- * model call, to the first step the call produced.
+ * model call, to the first step the call produced. A bar that merges several turns (or
+ * calls) opens a hover card listing each of them instead, to pick one from.
  */
 import { cacheEventDetail, cacheEventLabel, formatCacheSummary, formatCost, formatDuration, formatTokens, plural } from "../../src/format.ts";
 import { contextTokens, totalTokens, type CacheEvent, type CacheEventKind, type NormalizedSession, type ResponsePurpose, type ResponseUsage, type Step, type Usage } from "../../src/schema.ts";
-import { activityBlock, cacheCount, cacheNotes, card, CARD_CLASS, cardHead, cardHint, cardRow, contextBlock, outputBlock, SEGMENTS, sparkBlock, stepActivity } from "./chartcard.ts";
+import { activityBlock, bucketCard, cacheCount, cacheNotes, card, CARD_CLASS, cardHead, cardHint, cardRow, contextBlock, outputBlock, SEGMENTS, sparkBlock, stepActivity, type BucketEntry, type BucketLine } from "./chartcard.ts";
 import { groupShell, isExecTool, tallyCommands } from "./commands.ts";
 import { h, hideTooltip, withTooltip } from "./dom.ts";
 import { svg } from "./el.ts";
@@ -50,6 +51,10 @@ interface Column {
   output: number;
   /** The card shown on hover. */
   tip: () => HTMLElement;
+  /** Its section in the card of a bucket it is merged into. */
+  entry?: () => BucketEntry;
+  /** A bucket's hover card, listing its members (shown instead of `tip`). */
+  card?: (close: () => void) => HTMLElement;
   /** Where clicking the bar goes; a bar without one is not a button. */
   jump?: () => void;
   /** Every call in it was inherited from a parent session (drawn muted). */
@@ -88,6 +93,7 @@ function bucket(cols: Column[], max: number, unit: string): Column[] {
     const first = group[0]!;
     const name = group.length > 1 ? `${first.name} – ${group[group.length - 1]!.name}` : first.name;
     const jump = group.find((c) => c.jump);
+    const entries = group.every((c) => c.entry) ? () => group.map((c) => c.entry!()) : undefined;
     out.push({
       turns,
       name,
@@ -105,10 +111,39 @@ function bucket(cols: Column[], max: number, unit: string): Column[] {
           cache ? cacheCount(cache.kind, `${plural(cache.count, "cache event")} in these ${unit}s`) : null,
           jump ? cardHint(`Click to go to ${jump.name}`) : null,
         ),
+      ...(entries && group.length > 1
+        ? {
+            card: (close: () => void) => {
+              const list = entries();
+              const costs = list.flatMap((e) => (e.cost !== undefined ? [e.cost] : []));
+              return bucketCard(
+                name,
+                unit,
+                list,
+                [
+                  sparkBlock(group.map((c) => c.context), `context per ${unit}`),
+                  // One line, so the list below keeps the room.
+                  h(
+                    "div",
+                    { class: "cc-sec cb-facts" },
+                    [`${formatTokens(contextTokens(peak.context))} peak context`, `${formatTokens(output)} out`, ...(costs.length ? [formatCost(costs.reduce((a, b) => a + b, 0))] : [])].join(" · "),
+                  ),
+                  cache ? cacheCount(cache.kind, `${plural(cache.count, "cache event")} in these ${unit}s`) : null,
+                ],
+                close,
+              );
+            },
+          }
+        : {}),
     });
   }
   return out;
 }
+
+/** A bucket's card lists every member, so it may be taller than other hover cards. */
+const BUCKET_CARD_HEIGHT = 460;
+/** Model calls listed under a turn in a bucket's card; the rest are counted. */
+const BUCKET_CALLS = 5;
 
 interface Scale {
   context: number;
@@ -126,7 +161,14 @@ function chart(cols: Column[], scale: Scale, opts: { label: string; ctxH?: numbe
   // A row of markers above the bars, only when the chart has cache events (so other charts keep their height).
   const markRow = cols.some((c) => c.cache) ? h("div", { class: "marks", "aria-hidden": "true" }) : null;
   // Cards open to the left of the rail, level with the chart, so they never cover the bars being swept.
-  const tip = (el: HTMLElement, c: Column) => withTooltip(el, c.tip, { anchor: "left", beside: () => el.closest(".rail") ?? el, className: CARD_CLASS });
+  const tip = (el: HTMLElement, c: Column) => {
+    if (!c.card) return withTooltip(el, c.tip, { anchor: "left", beside: () => el.closest(".rail") ?? el, className: CARD_CLASS });
+    const tab = el.getAttribute("tabindex");
+    hoverCard(el, { label: c.name, beside: () => el.closest(".rail") ?? el, build: c.card, maxHeight: BUCKET_CARD_HEIGHT });
+    // Only the context bar is in the tab order, as without a card.
+    if (tab !== null) el.setAttribute("tabindex", tab);
+    else if (el.tagName !== "BUTTON") el.removeAttribute("tabindex");
+  };
   for (const c of cols) {
     const pick = c.jump;
     if (markRow) {
@@ -241,11 +283,14 @@ const PURPOSE_LABEL: Record<ResponsePurpose, string> = {
   background: "background call",
 };
 
+/** "claude-opus-4 · compaction": the model, and why the call was made when it wasn't the conversation. */
+const callSub = (r: ResponseUsage): string => [r.model, r.purpose ? PURPOSE_LABEL[r.purpose] : undefined, r.inherited ? "inherited from the parent session" : undefined].filter(Boolean).join(" · ");
+
 /** A model call's card: its prompt and output, its cache event and the steps it produced. */
 function responseCard(r: ResponseUsage, i: number, n: number, steps: Step[], cwd: string | undefined, canJump: boolean): HTMLElement {
   const u = r.usage;
   const e = cacheEventOf(r);
-  const sub = [r.model, r.purpose ? PURPOSE_LABEL[r.purpose] : undefined, r.inherited ? "inherited from the parent session" : undefined].filter(Boolean).join(" · ");
+  const sub = callSub(r);
   return card(
     cardHead(`Model call ${i + 1} of ${n}`, u.cost !== undefined ? formatCost(u.cost) : undefined, sub || undefined),
     contextBlock(u),
@@ -362,6 +407,23 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     running.set(t.index, { tokens: acc, ...(accCost !== undefined ? { cost: accCost } : {}) });
   }
 
+  const produced = stepsByResponse(session);
+  const cwd = session.project?.cwd;
+  /** A model call as a line of its turn's section in a bucket's card: its size and what it did first (thinking aside). */
+  const callLine = (r: ResponseUsage, t: TurnInfo): BucketLine => {
+    const acts = stepActivity(produced.get(r.id) ?? [], cwd);
+    const main = acts.find((a) => a.what !== "thinking") ?? acts[0];
+    const target = onJumpTo ? t.responseSteps.get(r.id) : undefined;
+    return {
+      context: contextTokens(r.usage),
+      what: main?.what ?? "call",
+      text: main?.text ?? "",
+      ...(acts.length > 1 ? { extra: acts.length - 1 } : {}),
+      ...(acts.some((a) => a.error) ? { error: true } : {}),
+      ...(target ? { go: () => onJumpTo!(target) } : {}),
+    };
+  };
+
   const withResponses = turns.filter((t) => t.responses.length);
   const turnCols: Column[] = withResponses.map((t) => {
     const peak = peakOf(t.responses)!;
@@ -378,6 +440,31 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
       ...(inherited ? { inherited: true } : {}),
       ...(cache ? { cache } : {}),
       jump: () => onJump(t.index),
+      entry: () => {
+        const own = t.responses.filter((r) => !r.inherited);
+        const n = t.responses.length;
+        const lines = t.responses.map((r) => callLine(r, t));
+        // In a view that keeps no steps, a call has nothing to show but its size: the turn's figures say enough.
+        const shown = lines.some((l) => l.what !== "call") ? lines.slice(0, BUCKET_CALLS) : [];
+        const cost = own.length ? sumUsage(own).cost : undefined;
+        return {
+          name,
+          ...(t.ordinal ? { label: `“${t.label}”` } : {}),
+          ...(!inherited && cost !== undefined ? { cost } : {}),
+          context: peak.usage,
+          facts: [
+            `${formatTokens(contextTokens(peak.usage))}${n > 1 ? " peak" : ""} context`,
+            `${formatTokens(all.output)} out`,
+            plural(n, "call"),
+            ...(t.tools ? [`${plural(t.tools, "tool")}${t.errors ? ` (${t.errors} failed)` : ""}`] : []),
+          ],
+          lines: shown,
+          ...(shown.length && n > shown.length ? { more: `+${plural(n - shown.length, "more call")}` } : {}),
+          cacheEvents: t.responses.flatMap((r) => cacheEventOf(r) ?? []),
+          ...(inherited ? { inherited: true } : {}),
+          go: () => onJump(t.index),
+        };
+      },
       tip: () => {
         // Like the turn box: a fork's turn is charged only for its own calls.
         const own = t.responses.filter((r) => !r.inherited);
@@ -409,7 +496,6 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
   // Per-call charts share one session-wide scale, so turns can be compared.
   const callScale: Scale = { context: Math.max(1, ...session.responses.map((r) => contextTokens(r.usage))), output: Math.max(1, ...session.responses.map((r) => r.usage.output)) };
   const sessionChart = chart(bucket(turnCols, 90, "turn"), turnScale, { label: `Context size per turn for ${plural(withResponses.length, "turn")}` });
-  const produced = stepsByResponse(session);
 
   const turnBox = h("div", { class: "rail-turn" });
   const tools = Object.entries(st.tools).sort((a, b) => b[1] - a[1]);
@@ -605,8 +691,9 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     if (turnIndex === current) return;
     current = turnIndex;
     sessionChart.setActive(turnIndex);
-    // The turn box is rebuilt below; a tooltip from one of its bars would outlive it.
+    // The turn box is rebuilt below; a tooltip or card from one of its bars would outlive it.
     if (turnBox.matches(":hover")) hideTooltip();
+    if (turnBox.querySelector("[aria-expanded='true']")) closeHoverCard();
     const t = turns.find((x) => x.index === turnIndex);
     if (!t || !t.responses.length) {
       turnBox.replaceChildren(h("h3", {}, t ? (t.ordinal ? `Turn ${t.ordinal}` : "Start") : "Turn"), h("p", { class: "rail-empty" }, "No model calls in this turn."));
@@ -631,7 +718,25 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
         ...(r.inherited ? { inherited: true } : {}),
         ...(cache ? { cache } : {}),
         ...(target ? { jump: () => onJumpTo!(target) } : {}),
-        tip: () => responseCard(r, i, n, produced.get(r.id) ?? [], session.project?.cwd, Boolean(target)),
+        tip: () => responseCard(r, i, n, produced.get(r.id) ?? [], cwd, Boolean(target)),
+        entry: () => {
+          const acts = stepActivity(produced.get(r.id) ?? [], cwd);
+          const go = target ? () => onJumpTo!(target) : undefined;
+          const sub = callSub(r);
+          const e = cacheEventOf(r);
+          return {
+            name: `Call ${i + 1}`,
+            ...(sub ? { label: sub } : {}),
+            ...(!r.inherited && r.usage.cost !== undefined ? { cost: r.usage.cost } : {}),
+            context: r.usage,
+            facts: [`${formatTokens(contextTokens(r.usage))} context`, `${formatTokens(r.usage.output)} out${r.usage.reasoning ? ` (${formatTokens(r.usage.reasoning)} thinking)` : ""}`],
+            lines: acts.slice(0, BUCKET_CALLS).map((a) => ({ ...a, ...(go ? { go } : {}) })),
+            ...(acts.length > BUCKET_CALLS ? { more: `+${acts.length - BUCKET_CALLS} more` } : {}),
+            cacheEvents: e ? [e] : [],
+            ...(r.inherited ? { inherited: true } : {}),
+            ...(go ? { go } : {}),
+          };
+        },
       };
     });
     const inherited = own.length === 0;

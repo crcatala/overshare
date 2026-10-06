@@ -4,8 +4,11 @@
  * drawn to scale, its output and cost, its cache events and, for a model call, what it
  * produced in the transcript. Built from the same colour slots as the charts, so a card
  * reads as a close-up of the bar under the pointer.
+ *
+ * A bar that stands for a run of turns (or calls) opens a hover card instead: a section per
+ * member that can be scrolled through and clicked, see bucketCard.
  */
-import { cacheEventDetail, cacheEventLabel, formatTokens, plural } from "../../src/format.ts";
+import { cacheEventDetail, cacheEventLabel, formatCost, formatTokens, plural } from "../../src/format.ts";
 import { contextTokens, type CacheEvent, type CacheEventKind, type Step, type Usage } from "../../src/schema.ts";
 import { h } from "./dom.ts";
 import { firstLine } from "./text.ts";
@@ -98,7 +101,7 @@ export function outputBlock(output: number, reasoning: number, cost?: string, ..
   );
 }
 
-const note = (kind: CacheEventKind, text: string) => h("p", { class: `cc-cache cc-cache-${kind}` }, cacheMark(kind), h("span", {}, text));
+export const note = (kind: CacheEventKind, text: string) => h("p", { class: `cc-cache cc-cache-${kind}` }, cacheMark(kind), h("span", {}, text));
 
 /** One line per cache event ("cache miss after 4h 31m idle: 385k re-cached, ~$3.01"). */
 export function cacheNotes(events: CacheEvent[], max = 3): HTMLElement | null {
@@ -200,4 +203,125 @@ export function activityBlock(items: Activity[], label: string, max = 6): HTMLEl
 /** The quiet last line: what clicking the bar does. */
 export function cardHint(text: string): HTMLElement {
   return h("div", { class: "cc-hint" }, text);
+}
+
+/** One line of a bucket entry: a turn's model call, or a step a call produced. */
+export interface BucketLine extends Activity {
+  /** The call's prompt size. */
+  context?: number;
+  /** More steps the call produced, besides the one named. */
+  extra?: number;
+  go?: () => void;
+}
+
+/** A turn or a model call in a bucket's card. */
+export interface BucketEntry {
+  name: string;
+  /** What it was about: a turn's prompt. */
+  label?: string;
+  cost?: number;
+  context: Usage;
+  facts: string[];
+  lines: BucketLine[];
+  /** Lines left out ("+12 more calls"). */
+  more?: string;
+  cacheEvents: CacheEvent[];
+  inherited?: boolean;
+  go?: () => void;
+}
+
+/** A line or heading of an entry: a button when it leads somewhere. */
+function pickable(go: (() => void) | undefined, cls: string, title: string | undefined, ...children: Child[]): HTMLElement {
+  return go
+    ? h("button", { type: "button", class: cls, "data-hc-item": "", title, onclick: go }, ...children)
+    : h("div", { class: `${cls} is-static`, title }, ...children);
+}
+
+function entrySection(e: BucketEntry, top: number, pick: (go?: () => void) => (() => void) | undefined): HTMLElement {
+  const ctx = contextTokens(e.context);
+  const bar = h("div", { class: "cc-bar cb-bar", "aria-hidden": "true" });
+  // Against the bucket's largest prompt, so its members compare at a glance.
+  bar.style.width = `${Math.max(2, (ctx / top) * 100)}%`;
+  for (const [key, cls] of SEGMENTS) {
+    const v = e.context[key] ?? 0;
+    if (!v) continue;
+    const seg = h("span", { class: `seg ${cls}` });
+    seg.style.flexGrow = String(v);
+    bar.append(seg);
+  }
+  return h(
+    "section",
+    { class: `cb-entry${e.inherited ? " is-inh" : ""}` },
+    pickable(
+      pick(e.go),
+      "cb-head",
+      e.label,
+      h("span", { class: "cb-titles" }, h("span", { class: "cb-name" }, e.name), e.cost !== undefined ? h("span", { class: "cb-cost" }, formatCost(e.cost)) : null),
+      e.label ? h("span", { class: "cb-label" }, e.label) : null,
+    ),
+    h("div", { class: "cb-stats" }, ctx ? bar : null, h("div", { class: "cb-facts" }, e.facts.join(" · "))),
+    ...e.cacheEvents.slice(0, 2).map((c) => note(c.kind, `${cacheEventLabel(c)}: ${cacheEventDetail(c)}`)),
+    e.lines.length
+      ? h(
+          "div",
+          { class: "cb-lines" },
+          ...e.lines.map((l) =>
+            pickable(
+              pick(l.go),
+              `hc-item cb-line${l.error ? " is-error" : ""}`,
+              l.text,
+              l.context !== undefined ? h("span", { class: "cb-ctx" }, formatTokens(l.context)) : null,
+              h("span", { class: "cb-what" }, l.what),
+              h("span", { class: "hc-text" }, l.text || "–"),
+              l.extra ? h("span", { class: "hc-n" }, `+${l.extra}`) : null,
+            ),
+          ),
+        )
+      : null,
+    e.more ? h("p", { class: "cc-more cb-more" }, e.more) : null,
+  );
+}
+
+/** Close enough to the end of the list that nothing worth pointing at is left below. */
+const NEAR_END = 16;
+
+/**
+ * The card of a bar that merges several turns (or calls): an overview that stays put, then a
+ * section per member, each with its context drawn to the bucket's scale and its model calls
+ * (or what the call produced) as lines that go there. The list scrolls; while there is more
+ * below, a pill floating at its bottom says how much.
+ */
+export function bucketCard(title: string, unit: string, entries: BucketEntry[], overview: Child[], close: () => void): HTMLElement {
+  const top = Math.max(1, ...entries.map((e) => contextTokens(e.context)));
+  const pick = (go?: () => void) =>
+    go &&
+    (() => {
+      close();
+      go();
+    });
+  const sections = entries.map((e) => entrySection(e, top, pick));
+  const list = h("div", { class: "hc-list cb-list" }, ...sections);
+  const label = h("span", {});
+  const float = h(
+    "div",
+    { class: "cb-float is-hidden", "aria-hidden": "true" },
+    h("span", { class: "cb-pill", onclick: () => list.scrollBy?.({ top: list.clientHeight * 0.8, behavior: "smooth" }) }, "↓ ", label),
+  );
+  list.append(float);
+  const update = () => {
+    const bottom = list.scrollTop + list.clientHeight;
+    const below = sections.filter((s) => s.offsetTop >= bottom).length;
+    float.classList.toggle("is-hidden", list.scrollHeight - bottom <= NEAR_END);
+    label.textContent = below ? plural(below, `more ${unit}`) : "more below";
+  };
+  list.addEventListener("scroll", update, { passive: true });
+  // Measured once the card is placed and its height capped.
+  requestAnimationFrame(update);
+  return h(
+    "div",
+    { class: "hc cb" },
+    h("div", { class: "hc-head" }, h("span", { class: "hc-title" }, title), h("span", { class: "hc-count" }, plural(entries.length, unit))),
+    ...overview,
+    list,
+  );
 }

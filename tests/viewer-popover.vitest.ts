@@ -164,6 +164,26 @@ describe("hoverCard", () => {
     expect(card()).not.toBeNull();
   });
 
+  it("does not swap to a trigger crossed on the way to the card, only to one the pointer rests on", () => {
+    // A chart's bars: the next bar sits between this one and the card.
+    const other = h("div", {});
+    document.body.append(other);
+    hoverCard(other, { label: "Next bar", build: () => h("div", { class: "second" }, "x") });
+    enter(trigger, 1000, 110);
+    vi.advanceTimersByTime(300);
+    move(1000, 110);
+    move(909, 112); // left the trigger, heading for the card
+    enter(other, 909, 112);
+    for (let x = 908; x > 900; x--) {
+      vi.advanceTimersByTime(20);
+      move(x, 112, other);
+    }
+    expect(card()!.querySelector(".second")).toBeNull();
+    // Stopped on it: it takes over.
+    vi.advanceTimersByTime(200);
+    expect(card()!.querySelector(".second")).not.toBeNull();
+  });
+
   it("swaps to another trigger's card quickly", () => {
     const other = h("div", {});
     document.body.append(other);

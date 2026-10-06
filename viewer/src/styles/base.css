@@ -1772,6 +1772,157 @@ button.bars-toggle:hover {
   font-size: 11px;
 }
 
+/* bucket cards: a chart bar that merges turns (or calls), one section per member */
+.hc.cb {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.hc.cb > .cc-sec {
+  flex: none;
+}
+.cb-list {
+  position: relative;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+.cb-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+  padding: 6px 6px 7px;
+}
+.cb-entry + .cb-entry {
+  border-top: 1px solid var(--line);
+}
+.cb-head {
+  appearance: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+  width: 100%;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+}
+.cb-head:hover,
+.cb-head:focus-visible {
+  background: var(--bg-2);
+  outline: none;
+}
+.cb-head.is-static {
+  cursor: default;
+}
+.cb-head.is-static:hover {
+  background: none;
+}
+.cb-titles {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.cb-name {
+  font-weight: 700;
+}
+.cb-cost {
+  flex: none;
+  color: var(--ink-2);
+}
+.cb-label {
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cb-entry.is-inh .cb-name::after {
+  content: " · inherited";
+  font-weight: 400;
+  color: var(--faint);
+}
+.cb-entry.is-inh .cb-bar {
+  opacity: 0.4;
+}
+.cb-stats,
+.cb-more,
+.cb-entry > .cc-cache {
+  padding: 0 5px;
+}
+.cb-bar {
+  height: 6px;
+  margin: 1px 0 2px;
+}
+.cb-facts {
+  color: var(--dim);
+}
+.cb-lines {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.cb-line {
+  padding: 2px 5px;
+  gap: 7px;
+}
+.cb-line.is-static {
+  cursor: default;
+}
+.cb-line.is-static:hover {
+  background: none;
+  color: var(--ink-2);
+}
+.cb-ctx {
+  flex: none;
+  width: 5ch;
+  text-align: right;
+  color: var(--faint);
+}
+.cb-what {
+  flex: none;
+  max-width: 9ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+}
+.cb-line.is-error .cb-what {
+  color: var(--err);
+}
+/* "↓ 4 more turns": floats at the bottom of the list while there is more below it */
+.cb-float {
+  position: sticky;
+  bottom: 6px;
+  height: 22px;
+  margin-top: -22px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.cb-float.is-hidden {
+  opacity: 0;
+}
+.cb-pill {
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  color: var(--ink-2);
+  font-size: 10.5px;
+  line-height: 16px;
+}
+.cb-float.is-hidden .cb-pill {
+  pointer-events: none;
+}
+.cb-pill:hover {
+  color: var(--accent);
+}
+
 /* tooltip */
 .tooltip {
   position: fixed;

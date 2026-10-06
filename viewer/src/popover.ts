@@ -17,6 +17,8 @@ const WARM_DELAY = 60;
 const WARM_WINDOW = 400;
 /** After the pointer leaves every safe zone, wait this long (it may come straight back). */
 const CLOSE_DELAY = 160;
+/** On the way to an open card, another trigger the pointer crosses takes over only once it rests there this long. */
+const REST_DELAY = 120;
 const GAP = 8;
 const MAX_HEIGHT = 360;
 
@@ -27,6 +29,8 @@ export interface HoverCardOptions {
   build: (close: () => void) => HTMLElement;
   /** Open to the left of this (default: the trigger), e.g. the rail the trigger sits in. */
   beside?: () => Element;
+  /** Tallest the card may be (default 360px); its list scrolls beyond that. */
+  maxHeight?: number;
 }
 
 interface OpenCard {
@@ -34,6 +38,8 @@ interface OpenCard {
   card: HTMLElement;
   close: () => void;
   keepOpen: () => void;
+  /** The pointer is between the trigger and the card, heading for the card. */
+  inTransit: () => boolean;
 }
 
 let open: OpenCard | undefined;
@@ -49,22 +55,33 @@ export function hoverCard(trigger: HTMLElement, opts: HoverCardOptions): void {
   trigger.setAttribute("aria-expanded", "false");
   let timer: ReturnType<typeof setTimeout> | undefined;
   let pointer: Point = { x: 0, y: 0 };
+  let movedAt = 0;
   let touch = false;
 
   const show = (focus = false) => {
     if (open?.trigger === trigger) return;
     open = openCard(trigger, opts, pointer, focus);
   };
+  // Triggers side by side (a chart's bars) lie across the way to an open card: one passed over doesn't take it.
+  const showOnRest = () => {
+    const still = performance.now() - movedAt;
+    if (open && open.trigger !== trigger && open.inTransit() && still < REST_DELAY) timer = setTimeout(showOnRest, REST_DELAY - still);
+    else show();
+  };
 
   trigger.addEventListener("pointerdown", (e) => (touch = e.pointerType === "touch"));
   trigger.addEventListener("pointerenter", (e) => {
     if (e.pointerType === "touch") return;
     pointer = { x: e.clientX, y: e.clientY };
+    movedAt = performance.now();
     if (open?.trigger === trigger) return open.keepOpen();
     clearTimeout(timer);
-    timer = setTimeout(show, open || performance.now() - closedAt < WARM_WINDOW ? WARM_DELAY : OPEN_DELAY);
+    timer = setTimeout(showOnRest, open || performance.now() - closedAt < WARM_WINDOW ? WARM_DELAY : OPEN_DELAY);
   });
-  trigger.addEventListener("pointermove", (e) => (pointer = { x: e.clientX, y: e.clientY }));
+  trigger.addEventListener("pointermove", (e) => {
+    pointer = { x: e.clientX, y: e.clientY };
+    movedAt = performance.now();
+  });
   trigger.addEventListener("pointerleave", () => clearTimeout(timer));
   trigger.addEventListener("click", () => {
     clearTimeout(timer);
@@ -97,7 +114,7 @@ function openCard(trigger: HTMLElement, opts: HoverCardOptions, pointer: Point, 
   const card = h("div", { class: "hcard", role: "dialog", "aria-label": opts.label }, opts.build(close));
   document.body.append(card);
   trigger.setAttribute("aria-expanded", "true");
-  place(card, trigger, opts.beside?.() ?? trigger);
+  place(card, trigger, opts.beside?.() ?? trigger, opts.maxHeight ?? MAX_HEIGHT);
 
   const cancelClose = () => {
     clearTimeout(closeTimer);
@@ -167,13 +184,13 @@ function openCard(trigger: HTMLElement, opts: HoverCardOptions, pointer: Point, 
   );
   if (focus) card.querySelector<HTMLElement>("[data-hc-item]")?.focus();
 
-  const self: OpenCard = { trigger, card, close, keepOpen: cancelClose };
+  const self: OpenCard = { trigger, card, close, keepOpen: cancelClose, inTransit: () => zone.inTransit };
   return self;
 }
 
 /** Beside `edge` (left of it, else right of it), top-aligned with the trigger; below the trigger when there's no room. */
-function place(card: HTMLElement, trigger: HTMLElement, edge: Element): void {
-  card.style.maxHeight = `${Math.min(MAX_HEIGHT, window.innerHeight - 16)}px`;
+function place(card: HTMLElement, trigger: HTMLElement, edge: Element, maxHeight: number): void {
+  card.style.maxHeight = `${Math.min(maxHeight, window.innerHeight - 16)}px`;
   const { width, height } = card.getBoundingClientRect();
   const t = trigger.getBoundingClientRect();
   const b = edge.getBoundingClientRect();

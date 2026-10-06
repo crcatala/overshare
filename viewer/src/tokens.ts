@@ -275,13 +275,20 @@ function stepsByResponse(session: NormalizedSession): Map<string, Step[]> {
 
 /** Programs listed under a shell tool in the rail; the rest are summed. */
 const SHELL_ROWS = 8;
+const SKILL_ROWS = 12;
 
 /** The list a tool row opens on hover: its calls, each a line that jumps to it. */
-function callsCard(title: string, count: number, calls: (ToolCall & { turn: number })[], onPick: (id: string) => void): HTMLElement {
+const SKILL_SOURCE = { user: "typed as a command", model: "loaded by the model", unknown: "loaded" } as const;
+const SKILLS_HELP = [
+  "Skills loaded in this session, whether typed as a command or loaded by the model. Hover a skill to see each load.",
+  "A typed skill is not a tool call, so Tools does not count it.",
+];
+
+function callsCard(title: string, count: number, calls: (ToolCall & { turn: number })[], onPick: (id: string) => void, unit = "call"): HTMLElement {
   return h(
     "div",
     { class: "hc" },
-    h("div", { class: "hc-head" }, h("span", { class: "hc-title" }, title), h("span", { class: "hc-count" }, plural(count, "call"))),
+    h("div", { class: "hc-head" }, h("span", { class: "hc-title" }, title), h("span", { class: "hc-count" }, plural(count, unit))),
     h(
       "div",
       { class: "hc-list" },
@@ -419,13 +426,16 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
   /** Shell tools whose full program list is showing. */
   const expanded = new Set<string>();
 
+  const barsRow = (label: string, title: string, count: number, max: number, sub = false) => {
+    const bar = h("span", { class: "bar" });
+    bar.style.setProperty("--w", `${Math.max(3, (count / max) * 100)}%`);
+    return h("div", { class: `bars-row${sub ? " bars-sub" : ""}` }, h("span", { class: "bars-name", title }, label), h("span", { class: "bars-track" }, bar), h("span", { class: "bars-n" }, String(count)));
+  };
+
   /** `program`: only that program's calls; null: the shell calls that couldn't be named; undefined: all of the tool's. */
   const toolRow = (name: string, count: number, program?: string | null) => {
     const sub = program !== undefined;
-    const label = program ?? name;
-    const bar = h("span", { class: "bar" });
-    bar.style.setProperty("--w", `${Math.max(3, (count / maxTool) * 100)}%`);
-    const row = h("div", { class: `bars-row${sub ? " bars-sub" : ""}` }, h("span", { class: "bars-name", title: program === null ? `${name}: other` : sub ? `${name}(${program})` : name }, program === null ? "other" : label), h("span", { class: "bars-track" }, bar), h("span", { class: "bars-n" }, String(count)));
+    const row = barsRow(program === null ? "other" : program ?? name, program === null ? `${name}: other` : sub ? `${name}(${program})` : name, count, maxTool, sub);
     const mine = calls.filter((c) => c.tool === name && (program === undefined || (program === null ? !c.program : c.program === program)));
     if (mine.length) {
       hoverCard(row, {
@@ -479,6 +489,48 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
   };
   fill();
   const toolList = tools.length ? toolBox : null;
+
+  // Skills come from the steps, not `stats`: a typed skill is no tool call, and a view that keeps no skill events
+  // (minimal, prompts) publishes no skill names to list.
+  const loads = turns.flatMap((t) => t.skills.map((s) => ({ ...s, turn: t.ordinal })));
+  const skills = [...loads.reduce((m, s) => m.set(s.name, (m.get(s.name) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1]);
+  const skillRow = ([name, count]: [string, number]) => {
+    const row = barsRow(name, name, count, skills[0]![1]);
+    const mine = loads.filter((s) => s.name === name).map((s) => ({ id: s.id, tool: name, turn: s.turn, preview: SKILL_SOURCE[s.invokedBy ?? "unknown"] }));
+    hoverCard(row, {
+      label: `${name} loads`,
+      beside: () => row.closest(".rail") ?? row,
+      build: (close) => callsCard(name, count, mine, (id) => {
+        close();
+        onJumpTo?.(id);
+      }, "load"),
+    });
+    return row;
+  };
+  // Every skill stays reachable: the ones past the first few are behind a toggle, not just counted.
+  let skillsOpen = false;
+  const skillBox = h("div", { class: "bars" });
+  const fillSkills = () => {
+    closeHoverCard();
+    const hidden = skills.length > SKILL_ROWS + 1 ? skills.length - SKILL_ROWS : 0;
+    const shown = skillsOpen || !hidden ? skills : skills.slice(0, SKILL_ROWS);
+    const toggle = h(
+      "button",
+      {
+        type: "button",
+        class: "bars-more bars-toggle bars-toggle-top",
+        "aria-expanded": String(skillsOpen),
+        onclick: () => {
+          skillsOpen = !skillsOpen;
+          fillSkills();
+        },
+      },
+      skillsOpen ? "show fewer" : `+${plural(hidden, "more skill")}`,
+    );
+    skillBox.replaceChildren(...shown.map(skillRow), ...(hidden ? [toggle] : []));
+  };
+  fillSkills();
+  const skillList = skills.length ? skillBox : null;
   const files = st.files.read + st.files.edited + st.files.written;
 
   const CACHE_ROWS = 6;
@@ -571,6 +623,7 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
       : null,
     withResponses.length ? h("section", { class: "rail-sec" }, turnBox) : null,
     toolList ? h("section", { class: "rail-sec" }, h("h3", {}, `Tools · ${st.toolCalls}`), toolList) : null,
+    skillList ? h("section", { class: "rail-sec" }, helpHeading(`Skills · ${loads.length}`, SKILLS_HELP), skillList) : null,
     files ? h("section", { class: "rail-sec" }, h("h3", {}, "Files"), dl([["read", String(st.files.read)], ["edited", String(st.files.edited)], ["written", String(st.files.written)]])) : null,
   );
 

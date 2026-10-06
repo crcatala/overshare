@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { PI_INPUT_PROVENANCE_TYPE, totalsOf, type ResponsePurpose, type ResponseUsage, type TokenRates, type Usage } from "../../schema.js";
+import { PI_INPUT_PROVENANCE_TYPE, totalsOf, type ResponsePurpose, type ResponseUsage, type TokenRates, type ToolStep, type Usage } from "../../schema.js";
 import {
   TurnBuilder,
   baseSession,
@@ -177,15 +177,21 @@ function handleMessage(e: Entry, b: TurnBuilder, models: string[], dropped: Drop
       ...(original !== undefined && stored !== text ? { expanded: stored } : {}),
       ...(images ? { images } : {}),
     }, timestamp);
+    // `/skill:name` is stored expanded, as the skill's body in a `<skill>` block.
+    const skill = /^<skill name="([^"]+)"/.exec(stored)?.[1];
+    if (skill) b.addSkill(skill, "user", timestamp);
     return;
   }
   if (msg.role === "toolResult") {
     const images = countImages(msg.content);
-    b.attachToolResult(
+    const step = b.attachToolResult(
       msg.toolCallId,
       { text: contentText(msg.content), ...(images ? { images } : {}), ...(msg.isError ? { isError: true } : {}) },
       msg.details,
     );
+    // pi has no skill tool: the model loads a skill by reading its SKILL.md.
+    const skill = step?.kind === "tool" && !step.isError ? skillRead(step) : undefined;
+    if (skill) b.addSkill(skill, "model", timestamp);
     // Tools that call a model themselves report that usage on their result.
     recordUsage(b, e, inherited);
     return;
@@ -210,6 +216,15 @@ function handleMessage(e: Entry, b: TurnBuilder, models: string[], dropped: Drop
   if (msg.stopReason === "aborted") b.addEvent("interrupted", "Interrupted by user", timestamp);
   const usage = callUsage(msg);
   if (usage) b.setResponseUsage(responseId, usage, { model, timestamp, inherited });
+}
+
+/** The skill a successful `read` of `<dir>/<skill>/SKILL.md` loaded. */
+function skillRead(step: ToolStep): string | undefined {
+  if (step.action !== "read") return;
+  const parts = (step.files?.[0] ?? "").split(/[\\/]/).filter(Boolean);
+  const name = parts.length >= 2 && parts.at(-1) === "SKILL.md" ? parts.at(-2) : undefined;
+  // `./SKILL.md` or `../SKILL.md` names no skill: a relative read from inside a skill's folder, usually while editing it.
+  return name === "." || name === ".." ? undefined : name;
 }
 
 /** Usage of an assistant message. Aborted/errored calls that report nothing are not model calls worth counting. */

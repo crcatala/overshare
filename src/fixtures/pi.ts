@@ -156,8 +156,22 @@ export function emitPi(script: SessionScript, rng: Rng, opts: { sessionId: strin
           last = fork;
           break;
         }
+        case "skill": {
+          const dir = `${opts.home}/.pi/agent/skills/${item.name}`;
+          const body = `# ${item.name}\n\n${item.body}`;
+          if (item.typed) {
+            // `/skill:name` is stored expanded into a `<skill>` block.
+            tick(20, 120);
+            const expanded = `<skill name="${item.name}" location="${dir}/SKILL.md">\nReferences are relative to ${dir}.\n\n${body}\n</skill>${item.args ? `\n\n${item.args}` : ""}`;
+            userMessage(`/skill:${item.name}${item.args ? ` ${item.args}` : ""}`, [{ type: "text", text: expanded }]);
+            tokens.add(expanded.length);
+          } else {
+            // pi has no skill tool: the model reads the skill's SKILL.md.
+            emit([{ t: "response", blocks: [{ k: "tool", call: { kind: "read", path: `${dir}/SKILL.md`, output: body } }] }]);
+          }
+          break;
+        }
         case "command":
-        case "skill":
           break; // No pi transcript equivalent.
       }
     }

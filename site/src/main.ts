@@ -31,10 +31,10 @@ if (reduce || !("IntersectionObserver" in window)) {
 // Share modes. Sizes are the example session's share file in each mode (`exampleShare({ mode })`; tests/site.vitest.ts checks them).
 type Mode = "full" | "brief" | "minimal" | "prompts";
 const MODES: Record<Mode, { title: string; text: string; kb: number }> = {
-  full: { title: "Full", text: "Everything after redaction: prompts, replies, thinking, every tool call with its input and output (each cut at 20k characters).", kb: 51.9 },
-  brief: { title: "Brief", text: "Prompts and replies. Consecutive tool calls collapse into groups with the files and commands involved. No tool output. The default for publish.", kb: 17.8 },
-  minimal: { title: "Minimal", text: "Prompts, the final reply of each turn, and per-turn tool counts.", kb: 16.5 },
-  prompts: { title: "Prompts", text: "Only what you typed, followed by a compact activity line per turn. No replies, filenames, commands or tool output.", kb: 8.5 },
+  full: { title: "Full", text: "Everything after redaction: prompts, replies, thinking, every tool call with its input and output (each cut at 20k characters).", kb: 52.2 },
+  brief: { title: "Brief", text: "Prompts and replies. Consecutive tool calls collapse into groups with the files and commands involved. No tool output. The default for publish.", kb: 18.1 },
+  minimal: { title: "Minimal", text: "Prompts, the final reply of each turn, and per-turn tool counts.", kb: 16.6 },
+  prompts: { title: "Prompts", text: "Only what you typed, followed by a compact activity line per turn. No replies, filenames, commands or tool output.", kb: 8.6 },
 };
 const tabs = [...document.querySelectorAll<HTMLButtonElement>(".seg button")];
 const rows = [...document.querySelectorAll<HTMLButtonElement>("[data-kb-row]")];

@@ -85,6 +85,11 @@ Around the transcript, without pushing it off-center:
   cache read / write / uncached input to scale, output, cost and cache events; a turn's card
   adds its prompt, a small chart of its calls and its tool calls, and a model call's card
   lists the steps it produced. Clicking a model call's bar goes to the first of those steps.
+  *Skills* lists the skills loaded in the session, whether typed as a command (`/name`, pi's
+  `/skill:name`) or loaded by the model (Claude Code's Skill tool, a pi `read` of a `SKILL.md`).
+  Hovering one lists each load and who made it; a typed skill is not a tool call, so *Tools*
+  does not count it. Brief and full views list them; minimal and prompts views keep no skill
+  events, so they show no Skills list.
 - **Header**: title, agent/model/project/date, key stats, where the share was loaded
   from and that it isn't verified, and the controls (view mode, theme, settings, share).
   Once it scrolls away a one-line **minibar** takes over with the turn in view, reading

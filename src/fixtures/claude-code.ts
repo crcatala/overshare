@@ -95,12 +95,20 @@ export function emitClaudeCode(script: SessionScript, rng: Rng, opts: { sessionI
           tokens.add(item.expanded.length);
           break;
         case "skill": {
+          const body = `Base directory for this skill: ${opts.home}/.claude/skills/${item.name}\n\n# ${item.name}\n\n${item.body}`;
+          if (item.typed) {
+            tick(20, 120);
+            user(`<command-message>${item.name}</command-message>\n<command-name>/${item.name}</command-name>\n<command-args>${item.args ?? ""}</command-args>`);
+            user(item.args ? `${body}\n\nARGUMENTS: ${item.args}` : body, { isMeta: true });
+            tokens.add(body.length);
+            break;
+          }
           const id = `toolu_${rng.token(24)}`;
           const usage = tokens.respond(40, 0);
           totalCost += costOf(usage);
           entry("assistant", { message: assistantMessage([{ type: "tool_use", id, name: "Skill", input: { skill: item.name } }], usage, `msg_${rng.token(24)}`), requestId: `req_${rng.token(24)}` });
           user([{ type: "tool_result", tool_use_id: id, content: `Launching skill: ${item.name}` }]);
-          user(`Base directory for this skill: ${opts.home}/.claude/skills/${item.name}\n\n# ${item.name}\n\nReview checklist: correctness, edge cases, tests.`, { isMeta: true });
+          user(body, { isMeta: true, sourceToolUseID: id });
           break;
         }
         case "response": {

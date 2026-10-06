@@ -328,6 +328,11 @@ export interface EventStep extends StepBase {
   event: EventKind;
   text: string;
   detail?: string;
+  /**
+   * On a `skill` event: the skill and who loaded it, `user` for one typed as a command, `model` for one the agent
+   * picked up itself. Absent from shares written before it existed; their `text` is `Skill loaded: <name>`.
+   */
+  skill?: { name: string; invokedBy: "user" | "model" };
 }
 
 export type Step = TextStep | ThinkingStep | ToolStep | ToolGroupStep | SubagentStep | EventStep;

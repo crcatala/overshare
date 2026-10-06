@@ -702,3 +702,79 @@ describe("system prompt", () => {
     }
   });
 });
+
+describe("token rail skills", () => {
+  const skill = (id: string, name: string, invokedBy?: "user" | "model"): Step => ({ kind: "event", id, event: "skill", text: `Skill loaded: ${name}`, ...(invokedBy ? { skill: { name, invokedBy } } : {}) });
+  const skillTool = (id: string, name: string): Step => ({ kind: "tool", id, name: "Skill", action: "other", summary: name, input: { skill: name } });
+  const typedAndModel = () => {
+    const s = session([
+      turn(0, [skill("a", "assess-review-feedback", "user"), { kind: "text", id: "b", text: "on it" }], "/assess-review-feedback"),
+      turn(1, [skillTool("c", "agent-browser"), skill("d", "agent-browser", "model"), skillTool("e", "agent-browser"), skill("f", "agent-browser", "model")]),
+    ]);
+    s.stats.tools = { Skill: 2 };
+    s.stats.toolCalls = 2;
+    return s;
+  };
+  const rail = (s: NormalizedSession, onJumpTo?: (id: string) => void) => renderTokenRail(s, renderTranscript(s).turns, () => {}, onJumpTo).el;
+  const section = (el: HTMLElement) => Array.from(el.querySelectorAll(".rail-sec")).find((x) => x.querySelector("h3")?.textContent?.startsWith("Skills"));
+  const rows = (el: Element | undefined) => Array.from(el?.querySelectorAll(".bars-row") ?? [], (r) => [r.querySelector(".bars-name")?.textContent, r.querySelector(".bars-n")?.textContent]);
+
+  afterEach(() => closeHoverCard());
+
+  it("lists typed and model-loaded skills apart from the Skill tool calls", () => {
+    const el = rail(typedAndModel());
+    const sec = section(el);
+    expect(sec?.querySelector("h3 .help")?.textContent).toBe("Skills · 3");
+    expect(rows(sec)).toEqual([
+      ["agent-browser", "2"],
+      ["assess-review-feedback", "1"],
+    ]);
+    // A typed skill is no tool call: Tools still counts the two Skill calls only.
+    const tools = Array.from(el.querySelectorAll(".rail-sec")).find((x) => x.querySelector("h3")?.textContent?.startsWith("Tools"));
+    expect(rows(tools)).toEqual([["Skill", "2"]]);
+  });
+
+  it("shows each load and who loaded it on hover, and jumps to the one picked", () => {
+    const jumps: string[] = [];
+    const el = rail(typedAndModel(), (id) => jumps.push(id));
+    const [browser, typed] = Array.from(section(el)!.querySelectorAll<HTMLElement>(".bars-row"));
+    typed!.click();
+    const items = () => Array.from(document.querySelectorAll(".hcard .hc-item"), (i) => [i.querySelector(".hc-turn")?.textContent, i.querySelector(".hc-text")?.textContent]);
+    expect(document.querySelector(".hcard .hc-count")?.textContent).toBe("1 load");
+    expect(items()).toEqual([["1", "typed as a command"]]);
+    browser!.click();
+    expect(items()).toEqual([
+      ["2", "loaded by the model"],
+      ["2", "loaded by the model"],
+    ]);
+    document.querySelector<HTMLButtonElement>(".hcard .hc-item")!.click();
+    expect(jumps).toEqual(["s-1-1"]);
+  });
+
+  it("keeps every skill reachable: one past the first twelve is shown, more fold behind a toggle", () => {
+    const many = (n: number) => session([turn(0, Array.from({ length: n }, (_, i) => skill(`k${i}`, `skill-${String(i).padStart(2, "0")}`, "model")))]);
+    expect(rows(section(rail(many(13))))).toHaveLength(13);
+    expect(section(rail(many(13)))!.querySelector("button.bars-toggle")).toBeNull();
+
+    const sec = section(rail(many(14)))!;
+    const toggle = () => sec.querySelector<HTMLButtonElement>("button.bars-toggle")!;
+    expect(rows(sec)).toHaveLength(12);
+    expect(toggle().textContent).toBe("+2 more skills");
+    toggle().click();
+    expect(rows(sec).map(([name]) => name)).toEqual(Array.from({ length: 14 }, (_, i) => `skill-${String(i).padStart(2, "0")}`));
+    expect(toggle().textContent).toBe("show fewer");
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    // A skill past the fold opens its card like any other.
+    sec.querySelectorAll<HTMLElement>(".bars-row")[13]!.click();
+    expect(document.querySelector(".hcard .hc-title")?.textContent).toBe("skill-13");
+    toggle().click();
+    expect(rows(sec)).toHaveLength(12);
+  });
+
+  it("names skills from an older share's event text, and lists none where the view keeps no skill events", () => {
+    const old = session([turn(0, [skill("a", "ticket")])]);
+    expect(rows(section(rail(old)))).toEqual([["ticket", "1"]]);
+    expect(section(rail(projectSession(typedAndModel(), "brief")))).toBeDefined();
+    expect(section(rail(projectSession(typedAndModel(), "minimal")))).toBeUndefined();
+  });
+});

@@ -222,7 +222,8 @@ withSessionOptions(program.command("publish"), "brief")
       for (const w of postWarnings) console.error(`warning: ${w}`);
       warnings.push(...postWarnings);
       if (opts.json) {
-        console.log(JSON.stringify({ ...result, warnings }, null, 2));
+        // `publisher` has been in this output since v0.1.0, so scripts may read it.
+        console.log(JSON.stringify({ publisher: target, ...result, warnings }, null, 2));
       } else {
         console.log(`\nShared: ${result.viewerUrl}`);
         console.log(`${target === "gist" ? "Gist:  " : "Data:  "} ${result.url}`);

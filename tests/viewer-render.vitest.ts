@@ -600,10 +600,13 @@ describe("cost and usage scope", () => {
     const { el, turns } = renderTranscript(s);
     const rail = renderTokenRail(s, turns, () => {}, () => {});
     rail.setActive(1);
-    expect(el.querySelectorAll(".turn")).toHaveLength(2);
-    // The tool rows still show, with what the readable step ran.
-    const rows = Array.from(rail.el.querySelectorAll(".bars-row .bars-name"), (n) => n.textContent);
-    expect(rows.slice(0, 2)).toEqual(["Bash", "npm"]);
+    // The transcript shows the broken turn as its placeholder and the other turn as usual.
+    expect(el.querySelector("#turn-0 .k-unsupported")!.textContent).toContain("couldn't be shown");
+    expect(el.querySelector("#turn-1 .k-unsupported")).toBeNull();
+    // The rail keeps the session's Bash total; the readable step's program is named and the
+    // unreadable group's two calls, which can't be attributed, show as "other".
+    const rows = Array.from(rail.el.querySelectorAll(".bars-row"), (r) => [r.querySelector(".bars-name")!.textContent, r.querySelector(".bars-n")!.textContent]);
+    expect(rows).toEqual([["Bash", "3"], ["npm", "1"], ["other", "2"]]);
   });
 
   it("says a step couldn't be shown in a model call's card instead of dropping the card", () => {

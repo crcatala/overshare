@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `y` prints the whole link in the footer, so it can be copied by hand in terminals without
   OSC 52 clipboard support.
 
+### Removed
+
+- The viewer's `timeline` and `hybrid` design variants, and the IBM Plex Sans font only `hybrid`
+  used. Links and saved defaults that name either fall back to the reader's own variant.
+
 ### Security
 
 - `overshare serve` and `demo` refuse requests whose `Host` names a domain other than localhost, an

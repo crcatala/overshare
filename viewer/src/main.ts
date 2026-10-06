@@ -2,8 +2,6 @@ import "./styles/fonts.css";
 import "./styles/base.css";
 import "./styles/classic.css";
 import "./styles/cli.css";
-import "./styles/timeline.css";
-import "./styles/hybrid.css";
 import "./styles/log.css";
 import { plural } from "../../src/format.ts";
 import { projectSession, promptsUnavailableReason } from "../../src/modes.ts";
@@ -401,7 +399,7 @@ function render(opts: { keepPlace?: boolean; turn?: number } = {}): void {
     relayoutTables();
     land();
     if (target) beacon(target.el);
-    // A variant's font may still be loading; once it lands, put the reader back unless
+    // The font may still be loading; once it lands, put the reader back unless
     // they've scrolled since.
     if (document.fonts?.status === "loading") {
       const settled = window.scrollY;

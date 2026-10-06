@@ -44,6 +44,14 @@ describe("cli", { timeout: 30_000 }, () => {
     expect(dirty.stdout).not.toContain(secret);
   });
 
+  it("report fails with a clear error on an unknown --leaf", () => {
+    const r = cli(["report", sessionFile(), "--mode", "full", "--leaf", "no-such-entry"]);
+    expect(r.status).not.toBe(0);
+    expect(r.status).not.toBe(2);
+    expect(r.stderr).toContain("--leaf no-such-entry: no entry with that id in this session");
+    expect(r.stdout).not.toContain("run it");
+  });
+
   it("export writes redacted JSON", () => {
     const secret = fake.github();
     const out = join(mkdtempSync(join(tmpdir(), "as-out-")), "share.json");

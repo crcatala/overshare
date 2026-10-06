@@ -87,7 +87,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
     // resumed session only reports its last segment, and it includes calls the transcript never shows.
   }
 
-  const ordered = branchEntries(entries, options.leafId);
+  const ordered = branchEntries(entries, options.leafId, dropped);
   // The tool result of an Agent call reports the subagent's last model call, not a total, so its token
   // figures are not shown as one; the totals come from the subagent transcripts (see claude-usage.ts).
   const b = new TurnBuilder({ subagentUsage: subagentCountsFrom });
@@ -301,8 +301,7 @@ function systemPromptSections(parts: unknown[]): string[] {
 }
 
 /**
- * The snapshot nearest the leaf on its parent chain. Read from the chain, not from `branchEntries`: when that falls back
- * to file order, the last snapshot in the file can belong to a discarded branch. No leaf, no snapshot.
+ * The snapshot nearest the leaf on its parent chain, so one from a discarded branch is never used. No leaf, no snapshot.
  */
 function branchSystemPrompt(entries: Entry[], leafId?: string): string[] | undefined {
   const withId = entries.filter((e) => typeof e.uuid === "string");
@@ -363,28 +362,35 @@ function flattenContent(content: unknown): { text: string; images: number } {
 }
 
 /**
- * Entries on the branch ending at `leafId` (default: the last conversation entry),
- * in chronological order. Falls back to file order if the chain looks broken.
+ * Entries on the branch ending at `leafId` (default: the last conversation entry), in chronological order.
+ * Only the leaf's parent chain (plus sibling tool results, below) is ever exported: a rewind leaves the discarded
+ * turns in the file, so falling back to file order would share them. A chain that stops at a parent missing from the
+ * file (none of 150 local sessions had one when this was written) is not repaired either: only the reachable tail is
+ * exported, and the break is counted as dropped (`broken-chain`) so the report says history was left out. Spend on the
+ * other branches is still reported, as `otherBranches`.
  */
-function branchEntries(entries: Entry[], leafId?: string): Entry[] {
+function branchEntries(entries: Entry[], leafId: string | undefined, dropped: DropCounts): Entry[] {
   const withId = entries.filter((e) => typeof e.uuid === "string");
   const byId = new Map<string, Entry>(withId.map((e) => [e.uuid, e]));
   const leaf = findLeaf(withId, byId, leafId);
-  if (!leaf) return withId;
+  if (!leaf) {
+    if (leafId) throw new Error(`--leaf ${leafId}: no entry with that id in this session`);
+    return withId; // no main-chain conversation line at all: nothing here can be exported, only counted as dropped
+  }
   const path: Entry[] = [];
   const seen = new Set<string>();
   let cur: Entry | undefined = leaf;
+  let missingParent = false;
   while (cur && !seen.has(cur.uuid)) {
     seen.add(cur.uuid);
     path.push(cur);
     const parent: string | undefined = cur.parentUuid ?? cur.logicalParentUuid;
     cur = parent ? byId.get(parent) : undefined;
+    if (parent && !cur) missingParent = true;
   }
   path.reverse();
-  const withResults = withSiblingToolResults(path, entries);
-  const conversational = (list: Entry[]) => list.filter((e) => (e.type === "user" || e.type === "assistant") && !e.isSidechain).length;
-  if (!leafId && conversational(path) < conversational(withId) * 0.5) return withId;
-  return withResults;
+  if (missingParent) bump(dropped, "broken-chain");
+  return withSiblingToolResults(path, entries);
 }
 
 const toolUseIds = (e: Entry): string[] =>

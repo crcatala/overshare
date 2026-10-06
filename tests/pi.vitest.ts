@@ -22,6 +22,12 @@ describe("pi adapter", () => {
     expect(detectHarness(t.toJsonl())).toBe("pi");
   });
 
+  it("fails on an unknown --leaf instead of exporting every entry", () => {
+    const t = new PiTranscript();
+    t.user("first").assistant([{ type: "text", text: "a1" }]);
+    expect(() => parsePi(t.toJsonl(), { leafId: "no-such-entry" })).toThrow("--leaf no-such-entry: no entry with that id in this session");
+  });
+
   it("maps tool calls, results, thinking and per-response cost", () => {
     const t = new PiTranscript().user("edit it");
     t.assistant(

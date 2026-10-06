@@ -288,6 +288,7 @@ function branchEntries(entries: Entry[], leafId?: string): Entry[] {
   const nodes = entries.filter((e) => typeof e.id === "string" && e.type !== "session");
   const byId = new Map<string, Entry>(nodes.map((e) => [e.id, e]));
   const leaf = leafId ? byId.get(leafId) : nodes.at(-1);
+  if (leafId && !leaf) throw new Error(`--leaf ${leafId}: no entry with that id in this session`);
   if (!leaf) return nodes;
   const path: Entry[] = [];
   const seen = new Set<string>();

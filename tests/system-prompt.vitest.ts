@@ -45,7 +45,7 @@ describe("system prompt (opt-in)", () => {
       expect(parseClaudeCode(t.toJsonl()).session.systemPrompt).toEqual(["KEPT"]);
     });
 
-    it("takes the kept branch's snapshot when a long discarded branch makes the parser fall back to file order", () => {
+    it("takes the kept branch's snapshot when the discarded branch is the longer one", () => {
       const t = turn(new ClaudeTranscript(), "p1", "m1", "KEPT");
       const fork = t.lastUuid!;
       for (let i = 0; i < 4; i++) turn(t, `old p${i}`, `mo${i}`, `DISCARDED-${i}`);
@@ -62,13 +62,14 @@ describe("system prompt (opt-in)", () => {
       expect(parseClaudeCode(t.toJsonl(), { leafId: leaf }).session.systemPrompt).toEqual(["EARLY"]);
     });
 
-    it("has none when the only snapshot is off the branch, or the leaf is unknown", () => {
+    it("has none when the only snapshot is off the branch", () => {
       const t = turn(new ClaudeTranscript(), "p1", "m1");
       const fork = t.lastUuid!;
       turn(t, "old p2", "m2", "DISCARDED");
       turn(t.rewindTo(fork), "new p2", "m3");
       expect(parseClaudeCode(t.toJsonl()).session.systemPrompt).toBeUndefined();
-      expect(parseClaudeCode(transcript(), { leafId: "no-such-entry" }).session.systemPrompt).toBeUndefined();
+      // An unknown leaf no longer parses at all (see the claude-code adapter tests).
+      expect(() => parseClaudeCode(transcript(), { leafId: "no-such-entry" })).toThrow("--leaf no-such-entry");
     });
   });
 

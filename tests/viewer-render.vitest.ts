@@ -751,6 +751,26 @@ describe("token rail skills", () => {
     expect(jumps).toEqual(["s-1-1"]);
   });
 
+  it("keeps every skill reachable: one past the first twelve is shown, more fold behind a toggle", () => {
+    const many = (n: number) => session([turn(0, Array.from({ length: n }, (_, i) => skill(`k${i}`, `skill-${String(i).padStart(2, "0")}`, "model")))]);
+    expect(rows(section(rail(many(13))))).toHaveLength(13);
+    expect(section(rail(many(13)))!.querySelector("button.bars-toggle")).toBeNull();
+
+    const sec = section(rail(many(14)))!;
+    const toggle = () => sec.querySelector<HTMLButtonElement>("button.bars-toggle")!;
+    expect(rows(sec)).toHaveLength(12);
+    expect(toggle().textContent).toBe("+2 more skills");
+    toggle().click();
+    expect(rows(sec).map(([name]) => name)).toEqual(Array.from({ length: 14 }, (_, i) => `skill-${String(i).padStart(2, "0")}`));
+    expect(toggle().textContent).toBe("show fewer");
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    // A skill past the fold opens its card like any other.
+    sec.querySelectorAll<HTMLElement>(".bars-row")[13]!.click();
+    expect(document.querySelector(".hcard .hc-title")?.textContent).toBe("skill-13");
+    toggle().click();
+    expect(rows(sec)).toHaveLength(12);
+  });
+
   it("names skills from an older share's event text, and lists none where the view keeps no skill events", () => {
     const old = session([turn(0, [skill("a", "ticket")])]);
     expect(rows(section(rail(old)))).toEqual([["ticket", "1"]]);

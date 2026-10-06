@@ -275,6 +275,7 @@ function stepsByResponse(session: NormalizedSession): Map<string, Step[]> {
 
 /** Programs listed under a shell tool in the rail; the rest are summed. */
 const SHELL_ROWS = 8;
+const SKILL_ROWS = 12;
 
 /** The list a tool row opens on hover: its calls, each a line that jumps to it. */
 const SKILL_SOURCE = { user: "typed as a command", model: "loaded by the model", unknown: "loaded" } as const;
@@ -506,9 +507,30 @@ export function renderTokenRail(session: NormalizedSession, turns: TurnInfo[], o
     });
     return row;
   };
-  const skillList = skills.length
-    ? h("div", { class: "bars" }, ...skills.slice(0, 12).map(skillRow), ...(skills.length > 12 ? [h("div", { class: "bars-more" }, `+${plural(skills.length - 12, "more skill")}`)] : []))
-    : null;
+  // Every skill stays reachable: the ones past the first few are behind a toggle, not just counted.
+  let skillsOpen = false;
+  const skillBox = h("div", { class: "bars" });
+  const fillSkills = () => {
+    closeHoverCard();
+    const hidden = skills.length > SKILL_ROWS + 1 ? skills.length - SKILL_ROWS : 0;
+    const shown = skillsOpen || !hidden ? skills : skills.slice(0, SKILL_ROWS);
+    const toggle = h(
+      "button",
+      {
+        type: "button",
+        class: "bars-more bars-toggle bars-toggle-top",
+        "aria-expanded": String(skillsOpen),
+        onclick: () => {
+          skillsOpen = !skillsOpen;
+          fillSkills();
+        },
+      },
+      skillsOpen ? "show fewer" : `+${plural(hidden, "more skill")}`,
+    );
+    skillBox.replaceChildren(...shown.map(skillRow), ...(hidden ? [toggle] : []));
+  };
+  fillSkills();
+  const skillList = skills.length ? skillBox : null;
   const files = st.files.read + st.files.edited + st.files.written;
 
   const CACHE_ROWS = 6;

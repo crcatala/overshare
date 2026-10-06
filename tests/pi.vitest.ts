@@ -38,11 +38,17 @@ describe("pi adapter", () => {
         { type: "toolCall", id: "c2", name: "read", arguments: { path: `${dir}/missing/SKILL.md` } },
         { type: "toolCall", id: "c3", name: "read", arguments: { path: `${dir}/vexor/references/cli.md` } },
         { type: "toolCall", id: "c4", name: "read", arguments: { path: "SKILL.md" } },
+        { type: "toolCall", id: "c5", name: "read", arguments: { path: "./SKILL.md" } },
+        { type: "toolCall", id: "c6", name: "read", arguments: { path: "../SKILL.md" } },
+        { type: "toolCall", id: "c7", name: "read", arguments: { path: `${dir}/vexor/../SKILL.md` } },
       ])
       .toolResult("c1", "read", "# vexor")
       .toolResult("c2", "read", "ENOENT", undefined, true)
       .toolResult("c3", "read", "cli docs")
       .toolResult("c4", "read", "# which skill?")
+      .toolResult("c5", "read", "# which skill?")
+      .toolResult("c6", "read", "# which skill?")
+      .toolResult("c7", "read", "# which skill?")
       .assistant([{ type: "text", text: "done" }]);
     const { session } = parsePi(t.toJsonl());
     const skills = session.turns.flatMap((x) => x.steps).filter((s) => s.kind === "event" && s.event === "skill");

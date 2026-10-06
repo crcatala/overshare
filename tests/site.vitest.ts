@@ -109,9 +109,15 @@ describe("landing page build", () => {
 
   it("quotes the example session's real share-file size for every mode", () => {
     const script = readFileSync(join(repo, "site/src/main.ts"), "utf8");
+    // The page's static HTML shows the sizes before the script runs, and the script never rewrites the ledger.
+    const html = readFileSync(join(repo, "site/index.html"), "utf8");
     for (const mode of SHARE_MODES) {
+      const real = formatBytes(exampleShare({ mode }).report.bytes);
       const quoted = script.match(new RegExp(`${mode}: \\{[^}]*kb: ([\\d.]+) \\}`))?.[1];
-      expect(`${quoted} KB`, mode).toBe(formatBytes(exampleShare({ mode }).report.bytes));
+      expect(`${quoted} KB`, mode).toBe(real);
+      const ledger = html.match(new RegExp(`data-kb-row="${mode}"[^>]*>.*?<b>([\\d.]+)</b>`))?.[1];
+      expect(`${ledger} KB`, `${mode} ledger`).toBe(real);
     }
+    expect(html.match(/id="mi-size">([^<]+)</)?.[1]).toBe(formatBytes(exampleShare({ mode: "full" }).report.bytes));
   });
 });

@@ -222,7 +222,9 @@ function handleMessage(e: Entry, b: TurnBuilder, models: string[], dropped: Drop
 function skillRead(step: ToolStep): string | undefined {
   if (step.action !== "read") return;
   const parts = (step.files?.[0] ?? "").split(/[\\/]/).filter(Boolean);
-  return parts.length >= 2 && parts.at(-1) === "SKILL.md" ? parts.at(-2) : undefined;
+  const name = parts.length >= 2 && parts.at(-1) === "SKILL.md" ? parts.at(-2) : undefined;
+  // `./SKILL.md` or `../SKILL.md` names no skill: a relative read from inside a skill's folder, usually while editing it.
+  return name === "." || name === ".." ? undefined : name;
 }
 
 /** Usage of an assistant message. Aborted/errored calls that report nothing are not model calls worth counting. */

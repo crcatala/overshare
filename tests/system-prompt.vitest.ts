@@ -32,6 +32,46 @@ describe("system prompt (opt-in)", () => {
     expect(JSON.stringify(session)).not.toContain("my private CLAUDE.md");
   });
 
+  describe("branch selection", () => {
+    const snap = (text: string) => ({ type: "prompt_snapshot", systemPrompt: [text] });
+    const turn = (t: ClaudeTranscript, prompt: string, id: string, snapshot?: string) =>
+      (snapshot ? t.attachment(snap(snapshot)) : t).user(prompt).assistant(id, [{ type: "text", text: `reply to ${prompt}` }], ccUsage(1, 1));
+
+    it("takes the kept branch's snapshot after a rewind", () => {
+      const t = turn(new ClaudeTranscript(), "p1", "m1", "KEPT");
+      const fork = t.lastUuid!;
+      turn(t, "old p2", "m2", "DISCARDED");
+      turn(t.rewindTo(fork), "new p2", "m3");
+      expect(parseClaudeCode(t.toJsonl()).session.systemPrompt).toEqual(["KEPT"]);
+    });
+
+    it("takes the kept branch's snapshot when a long discarded branch makes the parser fall back to file order", () => {
+      const t = turn(new ClaudeTranscript(), "p1", "m1", "KEPT");
+      const fork = t.lastUuid!;
+      for (let i = 0; i < 4; i++) turn(t, `old p${i}`, `mo${i}`, `DISCARDED-${i}`);
+      turn(t.rewindTo(fork), "new p2", "m9");
+      const { session } = parseClaudeCode(t.toJsonl());
+      expect(session.systemPrompt).toEqual(["KEPT"]);
+      expect(JSON.stringify(session)).not.toContain("DISCARDED");
+    });
+
+    it("never takes a snapshot written after an explicit leaf", () => {
+      const t = turn(new ClaudeTranscript(), "p1", "m1", "EARLY");
+      const leaf = t.lastUuid!;
+      turn(t, "p2", "m2", "AFTER-LEAF");
+      expect(parseClaudeCode(t.toJsonl(), { leafId: leaf }).session.systemPrompt).toEqual(["EARLY"]);
+    });
+
+    it("has none when the only snapshot is off the branch, or the leaf is unknown", () => {
+      const t = turn(new ClaudeTranscript(), "p1", "m1");
+      const fork = t.lastUuid!;
+      turn(t, "old p2", "m2", "DISCARDED");
+      turn(t.rewindTo(fork), "new p2", "m3");
+      expect(parseClaudeCode(t.toJsonl()).session.systemPrompt).toBeUndefined();
+      expect(parseClaudeCode(transcript(), { leafId: "no-such-entry" }).session.systemPrompt).toBeUndefined();
+    });
+  });
+
   it("is dropped by default, and in every mode but full", () => {
     for (const [mode, includeSystemPrompt] of [["full", false], ["full", undefined], ["brief", true], ["minimal", true], ["prompts", true]] as const) {
       const { json, session, report } = prepareShare(transcript(), { mode, config: DEFAULT_CONFIG, machine, knownSecrets: [], includeSystemPrompt });

@@ -173,6 +173,75 @@ button.theme::before {
   font-size: 1.2em;
   color: var(--err);
 }
+/*
+ * Loading log (boot.ts): one line per stage, the current one spinning, finished ones ticked
+ * with their time. It waits 300ms before showing so a fast open never flashes it. The spinner
+ * turns with transform only, so it keeps moving while a long session renders on the main thread.
+ */
+.loading {
+  animation: boot-in 0.2s 0.3s both;
+}
+@keyframes boot-in {
+  from {
+    opacity: 0;
+  }
+}
+.boot {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.status.error .boot {
+  margin-bottom: 16px;
+}
+.boot li {
+  overflow-wrap: anywhere;
+}
+.boot .mark {
+  display: inline-block;
+  width: 1ch;
+  margin-right: 1ch;
+  text-align: center;
+  color: var(--ok);
+}
+.boot li:not(:last-child) .mark::before {
+  content: "✓";
+}
+.boot li:last-child .mark::before {
+  content: "";
+  display: inline-block;
+  box-sizing: border-box;
+  width: 1ch;
+  height: 1ch;
+  border: 1.5px solid var(--faint);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: boot-spin 0.7s linear infinite;
+}
+.boot li.fail .mark::before {
+  content: "✗";
+  color: var(--err);
+  width: auto;
+  height: auto;
+  border: 0;
+  animation: none;
+}
+.boot .n {
+  color: var(--dim);
+}
+.boot .t {
+  color: var(--faint);
+}
+@keyframes boot-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .boot .mark::before {
+    animation: none !important;
+  }
+}
 /* The share is from a newer format than this viewer reads, so it may not show completely. */
 .compat-notice {
   display: flex;

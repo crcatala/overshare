@@ -3,10 +3,11 @@ import "./styles/base.css";
 import "./styles/classic.css";
 import "./styles/cli.css";
 import "./styles/log.css";
-import { plural } from "../../src/format.ts";
+import { formatBytes, plural } from "../../src/format.ts";
 import { projectSession, promptsUnavailableReason } from "../../src/modes.ts";
 import type { NormalizedSession, ShareMode } from "../../src/schema.ts";
 import { beacon } from "./beacon.ts";
+import { bootLog, nextPaint } from "./boot.ts";
 import { clearHits, pulseHits, refreshHits, showHits } from "./findhits.ts";
 import { relayoutTables, releaseTables, setTableStyle } from "./asciitable.ts";
 import { h, hideTooltip, toast } from "./dom.ts";
@@ -196,15 +197,22 @@ function rail(side: Side, title: string, glyph: string, body: HTMLElement): HTML
 }
 
 // ---------- rendering ----------
-function showError(message: string): void {
+/** Replace what the page shows, dropping the current render's listeners and popups. */
+function show(...nodes: Node[]): void {
   teardown.abort();
   closeHoverCard();
   hideTooltip();
   releaseTables();
-  app.replaceChildren(
+  app.replaceChildren(...nodes);
+}
+
+/** `log`: the loading log, its failed stage marked, to show above the message. */
+function showError(message: string, log?: HTMLElement): void {
+  show(
     h(
       "div",
       { class: "status error" },
+      log,
       h("h1", {}, "Can't show this session"),
       h("p", {}, message),
       h("p", { class: "muted" }, "Links look like …/s/#owner/gistId (or #local:name when served locally)."),
@@ -464,10 +472,13 @@ function setView(mode: ShareMode): void {
   render({ keepPlace: true });
 }
 
-/** Show the local sessions page when the viewer was opened without a share and there are some to pick. */
-async function showLocalPicker(): Promise<boolean> {
+/**
+ * Show the local sessions page when the viewer was opened without a share and there are some to pick.
+ * `current`: false once a newer link has taken over, which then shows instead.
+ */
+async function showLocalPicker(current: () => boolean): Promise<boolean> {
   const shares = await fetchLocalShares();
-  if (!shares) return false;
+  if (!shares || !current()) return false;
   teardown.abort();
   teardown = new AbortController();
   document.title = "Local sessions · overshare";
@@ -483,7 +494,11 @@ async function showLocalPicker(): Promise<boolean> {
   return true;
 }
 
+/** Counts loads, so one that a newer link overtook doesn't render over it. */
+let loads = 0;
+
 async function main(): Promise<void> {
+  const load = ++loads;
   // Forget the previous share first: if this load fails, a later same-source hash change
   // (e.g. &turn=3) would otherwise re-render the old share under the new link.
   const turn = openAt;
@@ -495,22 +510,33 @@ async function main(): Promise<void> {
   navCursor = undefined;
   applyVariant(currentVariant());
   closeMenus();
+  const current = () => load === loads;
   if (!state.source) {
-    if (await showLocalPicker()) return;
-    return showError("No session in the link.");
+    if (await showLocalPicker(current)) return;
+    if (current()) showError("No session in the link.");
+    return;
   }
+  // The first load continues the log index.html shows; a later one (a link to another share) starts a new one.
+  const boot = bootLog(load === 1 ? app.querySelector<HTMLElement>(":scope > .loading") : undefined);
+  if (!app.contains(boot.el)) show(boot.el);
   try {
-    const loaded = await loadSource(state.source);
+    const loaded = await loadSource(state.source, location.href, (url) => boot.step("fetching", url.origin === location.origin ? url.pathname : url.host));
+    const schema = (loaded.data as { schema?: unknown } | null)?.schema;
+    boot.step("reading", `${typeof schema === "string" ? `${schema} · ` : ""}${formatBytes(loaded.size)}`);
     const read = await readShare(loaded.data);
+    if (!current()) return;
     const data = read.session;
     const reason = data.mode === "prompts" ? promptsUnavailableReason(data) : undefined;
     if (reason) throw new Error(reason);
+    boot.step(`rendering ${plural(data.turns.length, "turn")}`);
+    await nextPaint();
+    if (!current()) return;
     shared = data;
     newer = read.newer;
     provenance = loaded.provenance;
     render({ turn });
   } catch (err) {
-    showError(err instanceof Error ? err.message : String(err));
+    if (current()) showError(err instanceof Error ? err.message : String(err), boot.fail());
   }
 }
 

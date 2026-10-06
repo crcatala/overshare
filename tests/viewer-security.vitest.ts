@@ -239,7 +239,7 @@ describe("loadSource", () => {
     const id = "5260b8cf9b1baae31a40717ac1ab5f08";
     stubFetch({ [`https://gist.githubusercontent.com/octo/${id}/raw/session.json`]: { schema: "x" } });
     const loaded = await loadSource({ kind: "raw-gist", owner: "octo", id }, BASE);
-    expect(loaded).toEqual({ data: { schema: "x" }, provenance: { label: "GitHub gist by @octo", href: `https://gist.github.com/octo/${id}` } });
+    expect(loaded).toEqual({ data: { schema: "x" }, provenance: { label: "GitHub gist by @octo", href: `https://gist.github.com/octo/${id}` }, size: 14 });
   });
 
   it("reports the gist owner from the API, or that the gist is anonymous", async () => {
@@ -247,6 +247,15 @@ describe("loadSource", () => {
     stubFetch({ "https://api.github.com/gists/aaa": { owner: { login: "octo" }, files }, "https://api.github.com/gists/bbb": { owner: null, files } });
     expect((await loadSource({ kind: "api-gist", id: "aaa" }, BASE)).provenance).toEqual({ label: "GitHub gist by @octo", href: "https://gist.github.com/octo/aaa" });
     expect((await loadSource({ kind: "api-gist", id: "bbb" }, BASE)).provenance).toEqual({ label: "anonymous GitHub gist", href: "https://gist.github.com/bbb" });
+  });
+
+  it("says what it fetches, for the loading screen: the API and then the raw file for a truncated gist", async () => {
+    const raw = "https://gist.githubusercontent.com/octo/ccc/raw/session.json";
+    stubFetch({ "https://api.github.com/gists/ccc": { owner: { login: "octo" }, files: { "session.json": { truncated: true, raw_url: raw } } }, [raw]: { schema: "x" } });
+    const fetched: string[] = [];
+    const loaded = await loadSource({ kind: "api-gist", id: "ccc" }, BASE, (url) => fetched.push(url.href));
+    expect(fetched).toEqual(["https://api.github.com/gists/ccc", raw]);
+    expect(loaded.size).toBe(JSON.stringify({ schema: "x" }).length);
   });
 
   it("names a configured source and its host", async () => {

@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   jump to it. Skills typed as a command (such as `/assess-review-feedback`) used to be missing,
   because the rail only listed the Skill tool's calls. pi sessions now record skill loads too: a
   typed `/skill:name`, and a `read` of a `SKILL.md`.
+- The session viewer and exported HTML pages show the overshare logo as their browser tab icon. The
+  landing page adds a `favicon.ico` fallback and an Apple touch icon for iOS home screens.
 
 ### Changed
 

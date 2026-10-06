@@ -4,7 +4,8 @@
  *   npm run dev:site     Vite dev server for the landing page at http://localhost:3001/.
  *                        Its "see an example" links point at the viewer under /s/, which
  *                        this server doesn't serve; `npm run preview:cf` serves both.
- *   npm run build:site   viewer/dist/index.html and viewer/dist/assets/, next to the viewer
+ *   npm run build:site   viewer/dist/index.html, viewer/dist/assets/ and the bitmap icons
+ *                        (favicon.ico, apple-touch-icon.png from site/public/), next to the viewer
  *                        in viewer/dist/s/. Run it after build:viewer: it rewrites _headers,
  *                        _redirects and robots.txt for a deployment with a landing page
  *                        (`/` is the page, only /s/ stays out of search engines), and
@@ -29,7 +30,8 @@ export default defineConfig(({ command }) => {
   return {
     root: siteRoot,
     base: "/",
-    publicDir: false,
+    // favicon.ico and apple-touch-icon.png, copied to the root where browsers look for them by name.
+    publicDir: resolve(siteRoot, "public"),
     server: {
       port: 3001,
       fs: { strict: true, allow: [siteRoot, resolve(repo, "viewer/src/fonts"), resolve(repo, "node_modules/@fontsource-variable/bricolage-grotesque")] },

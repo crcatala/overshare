@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { EXAMPLE_SHARE_PATH, exampleShare } from "../src/fixtures/index.js";
@@ -86,6 +86,11 @@ describe("landing page build", () => {
     expect(html).not.toMatch(/\sstyle="/);
     expect(html).toContain(`href="/s/#url:${EXAMPLE_SHARE_PATH}"`);
 
+    // The bitmap icons are served from the root by name; the SVG goes through the build like other assets.
+    expect(html).toContain('<link rel="icon" href="/favicon.ico" sizes="32x32" />');
+    expect(html).toMatch(/<link rel="icon" href="\/assets\/logo-[\w-]+\.svg" type="image\/svg\+xml" \/>/);
+    expect(html).toContain('<link rel="apple-touch-icon" href="/apple-touch-icon.png" />');
+
     // The size ledger rows are controls: they must be buttons, so keyboard and screen-reader users get them too.
     const rows = [...html.matchAll(/<(\w+)[^>]*\sdata-kb-row="/g)];
     expect(rows.length).toBe(SHARE_MODES.length);
@@ -95,6 +100,20 @@ describe("landing page build", () => {
     const ids = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]));
     for (const [, target] of html.matchAll(/href="#([^"]+)"/g)) expect(ids, `#${target}`).toContain(target);
   }, 30_000);
+
+  // The page links them at the root, so the build must copy site/public/ there. A write build would touch the real
+  // viewer/dist, so check the resolved config instead: Vite copies publicDir into the root of outDir.
+  it("copies the bitmap icons to the root of the deploy", async () => {
+    const { resolveConfig } = await import("vite");
+    const config = await resolveConfig({ configFile: join(repo, "vite.site.config.ts"), logLevel: "silent" }, "build");
+    expect(config.publicDir).toBe(join(repo, "site/public"));
+    expect(config.build.outDir).toBe(join(repo, "viewer/dist"));
+    for (const file of ["favicon.ico", "apple-touch-icon.png"]) expect(existsSync(join(config.publicDir, file)), file).toBe(true);
+  });
+
+  it("gives the viewer the same tab icon as the landing page", () => {
+    expect(readFileSync(join(repo, "viewer/src/favicon.svg"), "utf8")).toBe(readFileSync(join(repo, "site/logo.svg"), "utf8"));
+  });
 
   it("switches off every animation under prefers-reduced-motion, with the override after it", () => {
     // The checker itself: an override above its animation, or none at all, is reported.

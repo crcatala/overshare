@@ -16,6 +16,7 @@ const INDEX = `<!doctype html>
   <head>
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'" />
     <title>Agent Session</title>
+    <link rel="icon" href="./assets/favicon-abc.svg" type="image/svg+xml" />
     <script type="module" crossorigin src="./assets/index-abc.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/index-abc.css">
   </head>
@@ -28,6 +29,7 @@ const INDEX = `<!doctype html>
 const JS = 'const a="</body></html>";const b="</script><script>";const c="<!-- x -->";const d="$& $1 $`";//# sourceMappingURL=index-abc.js.map\n';
 const CSS = '@font-face{font-family:F;src:url(./font-abc.woff2) format("woff2")}\nbody{background:url(#frag)}\n/*# sourceMappingURL=index-abc.css.map */';
 const FONT = Buffer.from([0x77, 0x4f, 0x46, 0x32, 0, 1, 2, 3]);
+const ICON = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>';
 
 const assets = () =>
   new Map<string, Uint8Array | string>([
@@ -35,6 +37,7 @@ const assets = () =>
     ["assets/index-abc.js", JS],
     ["assets/index-abc.css", CSS],
     ["assets/font-abc.woff2", FONT],
+    ["assets/favicon-abc.svg", ICON],
   ]);
 
 /** The body of the one element matching `tag`, as the browser would hash it. */
@@ -48,7 +51,7 @@ describe("inlineViewer", () => {
   it("leaves one inline script and style, no file references, and the session marker", () => {
     const out = inlineViewer(INDEX, assets());
     expect(out).not.toMatch(/<script[^>]*\ssrc=/);
-    expect(out).not.toMatch(/<link\b/);
+    expect(out).not.toMatch(/<link\b(?![^>]*\bhref="data:)/);
     expect(out).not.toContain("sourceMappingURL");
     expect(out).not.toContain("./assets/");
     expect(out.split(SESSION_MARKER)).toHaveLength(2);
@@ -60,6 +63,12 @@ describe("inlineViewer", () => {
     const css = inner(inlineViewer(INDEX, assets()), "style");
     expect(css).toContain(`url(data:font/woff2;base64,${FONT.toString("base64")})`);
     expect(css).toContain("url(#frag)");
+  });
+
+  it("inlines the tab icon as a data URI", () => {
+    const out = inlineViewer(INDEX, assets());
+    expect(out).toContain(`<link rel="icon" href="data:image/svg+xml;base64,${Buffer.from(ICON).toString("base64")}" type="image/svg+xml" />`);
+    expect(out).not.toContain("favicon-abc.svg");
   });
 
   it("keeps the bundle's own look-alike text where it is (no `</body>`/`$&` surprises)", () => {
@@ -111,7 +120,9 @@ describe("inlineViewer", () => {
     missing.delete("assets/font-abc.woff2");
     expect(() => inlineViewer(INDEX, missing)).toThrow(/not in the build output/);
 
-    expect(() => inlineViewer(INDEX.replace(/<link[^>]*>/, ""), assets())).toThrow(/one script and one stylesheet/);
+    expect(() => inlineViewer(INDEX.replace(/<link rel="stylesheet"[^>]*>/, ""), assets())).toThrow(/one script and one stylesheet/);
+
+    expect(() => inlineViewer(INDEX.replace("favicon-abc.svg", "favicon-abc.gif"), assets())).toThrow(/not an image type/);
 
     const closesStyle = assets();
     closesStyle.set("assets/index-abc.css", "a::after{content:'</style>'}");
@@ -162,8 +173,10 @@ describe("the real viewer build", () => {
 
     // The page's own markup: the bundle quotes HTML in its strings (`<img src="${x}">`), which is text, not markup.
     const skeleton = page.replace(inner(page, "script", ' type="module"'), "").replace(inner(page, "style"), "").replace(inner(page, "script", ` type="application/json" id="${EMBEDDED_SHARE_ID}"`), "");
-    expect(skeleton).not.toMatch(/\s(src|href)=/i);
-    expect(skeleton).not.toMatch(/<(link|img|iframe|object|embed)\b/i);
+    // The one reference left is the tab icon, as a data: URI.
+    expect(skeleton).toMatch(/<link rel="icon" href="data:image\/svg\+xml;base64,/);
+    expect(skeleton).not.toMatch(/\s(src|href)="(?!data:)/i);
+    expect(skeleton).not.toMatch(/<(img|iframe|object|embed)\b|<link\b(?![^>]*\bhref="data:)/i);
     expect(inner(page, "style")).not.toMatch(/url\((?!data:|#)/);
     expect(page.includes("sourceMappingURL")).toBe(false);
     // Whatever the bundle quotes, only our own two elements (the viewer, the session) start or end a script. Counts, not

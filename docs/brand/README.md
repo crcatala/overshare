@@ -11,6 +11,11 @@ It is shared, but the secret stays covered.
 - `whisper-duo.webp` is the original generated image it was traced from.
 - `site/logo.svg` is the version the landing page uses (favicon, nav, receipt and footer).
   It is the same artwork cropped onto a rounded mustard tile.
+- `viewer/src/favicon.svg` is a copy of it, the session viewer's tab icon. A test keeps the two
+  identical, so change both together.
+- `site/public/favicon.ico` (16 and 32px) and `site/public/apple-touch-icon.png` (180px, square
+  corners for iOS to mask) are rendered from it. Run `node scripts/favicons.mjs` after changing
+  the logo; it needs Chromium (`$CHROME`, default `chromium`).
 
 ## Alternate: shy peek
 

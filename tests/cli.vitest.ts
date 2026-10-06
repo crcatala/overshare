@@ -78,7 +78,8 @@ describe("cli", { timeout: 30_000 }, () => {
     expect(page).toContain(`id="overshare-session"`);
     expect(page).toContain("overshare/1");
     expect(page).not.toContain(secret);
-    expect(page).not.toMatch(/<script[^>]*\ssrc=|<link\b/);
+    // The tab icon is the one link left, and it is a data: URI.
+    expect(page).not.toMatch(/<script[^>]*\ssrc=|<link\b(?![^>]*\bhref="data:)/);
     expect(statSync(out).mode & 0o777).toBe(0o600);
 
     // The extension picks the format; --format wins.

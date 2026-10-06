@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `y` prints the whole link in the footer, so it can be copied by hand in terminals without
   OSC 52 clipboard support.
 
+### Security
+
+- `overshare serve` and `demo` refuse requests whose `Host` names a domain other than localhost, an
+  IP address, the `--host` value or a name passed to the new `--allowed-host`, so a web page can't
+  read the served shares through DNS rebinding.
+- `overshare serve` no longer serves files beside the viewer directory whose names share its
+  prefix (e.g. `viewer/dist/standalone.html` via `/s/..%2fstandalone.html`).
+
 ## [0.1.0] - 2026-10-05
 
 ### Added

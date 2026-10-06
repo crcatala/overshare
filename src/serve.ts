@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { basename, extname, join, normalize, resolve } from "node:path";
+import { isIP } from "node:net";
+import { basename, extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const MIME: Record<string, string> = {
@@ -32,6 +33,32 @@ export interface ServeOptions {
   host?: string;
   /** Fail instead of trying port+1, port+2, … when the port is in use. */
   strictPort?: boolean;
+  /** Extra host names the server answers to (see `hostAllowed`), e.g. a Tailscale or LAN name. */
+  allowedHosts?: string[];
+}
+
+/** A Host header's name, lowercased, without port, brackets or trailing dot; undefined if it doesn't parse. */
+function hostName(header: string): string | undefined {
+  try {
+    return new URL(`http://${header}`).hostname.replace(/^\[(.*)\]$/, "$1").replace(/\.$/, "").toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether to answer a request with this Host header. Without the check a web page could point its own
+ * domain at 127.0.0.1 (DNS rebinding) and read the served shares as same-origin; such a request still
+ * names the page's domain. As in Vite: IP addresses, localhost and *.localhost always pass (rebinding
+ * needs a domain name), and other names only when listed in `allowed`. No Host at all is not a browser.
+ */
+export function hostAllowed(header: string | undefined, allowed: Iterable<string> = []): boolean {
+  if (header === undefined) return true;
+  const name = hostName(header);
+  if (!name) return false;
+  if (isIP(name) || name === "localhost" || name.endsWith(".localhost")) return true;
+  for (const a of allowed) if (hostName(a) === name) return true;
+  return false;
 }
 
 /**
@@ -45,8 +72,13 @@ export async function startViewerServer(
   const dist = viewerDistDir();
   if (!existsSync(join(dist, "s", "index.html"))) throw new Error(`Viewer not built at ${dist} — run \`npm run build:viewer\``);
   const local = localShares(opts.files ?? []);
+  const host = opts.host ?? DEFAULT_HOST;
+  const allowedHosts = [host, ...(opts.allowedHosts ?? [])];
 
   const server = createServer((req, res) => {
+    if (!hostAllowed(req.headers.host, allowedHosts)) {
+      return void res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" }).end("This host name is not allowed; pass it to --allowed-host.\n");
+    }
     const url = new URL(req.url ?? "/", "http://localhost");
     let path: string;
     try {
@@ -68,13 +100,13 @@ export async function startViewerServer(
     }
     const viewerDir = join(dist, "s");
     const candidate = normalize(join(viewerDir, path || "index.html"));
-    const file = candidate.startsWith(viewerDir) && existsSync(candidate) && statSync(candidate).isFile() ? candidate : undefined;
+    // With the separator, so ../s-other (or ../standalone.html) can't pass as a prefix of dist/s.
+    const file = candidate.startsWith(viewerDir + sep) && existsSync(candidate) && statSync(candidate).isFile() ? candidate : undefined;
     if (!file) return void res.writeHead(404).end("not found");
     res.writeHead(200, { "Content-Type": MIME[extname(file)] ?? "application/octet-stream", "Cache-Control": "no-store" });
     res.end(readFileSync(file));
   });
 
-  const host = opts.host ?? DEFAULT_HOST;
   const attempts = opts.strictPort ? 1 : PORT_ATTEMPTS;
   for (let i = 0; i < attempts; i++) {
     const candidate = opts.port + i;

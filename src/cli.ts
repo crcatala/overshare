@@ -285,10 +285,11 @@ program
   .option("--turns <n>", "extra generic work turns (bigger sessions)", (v) => Number.parseInt(v, 10), 0)
   .option("-p, --port <port>", "port", (v) => Number.parseInt(v, 10), 3000)
   .option("--host <host>", "bind address (0.0.0.0 to expose on your network)", DEFAULT_HOST)
-  .action(async (opts: { out: string; seed: number; turns: number; port: number; host: string }) => {
+  .option("--allowed-host <name>", "also answer to this host name, e.g. a LAN or Tailscale name (repeatable; IPs and localhost always work)", (v: string, all: string[]) => [...all, v], [] as string[])
+  .action(async (opts: { out: string; seed: number; turns: number; port: number; host: string; allowedHost: string[] }) => {
     const fx = generateFixtures({ outDir: opts.out, seed: opts.seed, extraTurns: opts.turns });
     const files = exportFixtureShares(fx, opts.out, loadConfig()).map((r) => r.file);
-    const { url, port } = await startViewerServer({ port: opts.port, files, host: opts.host });
+    const { url, port } = await startViewerServer({ port: opts.port, files, host: opts.host, allowedHosts: opts.allowedHost });
     if (port !== opts.port) console.log(`Port ${opts.port} is in use; using ${port} instead.`);
     console.log(`Generated fake Claude Code + pi sessions (seed ${opts.seed}) in ${rel(opts.out)} — nothing is uploaded.\n`);
     console.log(`All sessions:  ${url}`);
@@ -303,10 +304,11 @@ program
   .argument("[files...]", "share JSON files to expose as #local:<name>")
   .option("-p, --port <port>", "port", (v) => Number.parseInt(v, 10), 3000)
   .option("--host <host>", "bind address (0.0.0.0 to expose on your network)", DEFAULT_HOST)
+  .option("--allowed-host <name>", "also answer to this host name, e.g. a LAN or Tailscale name (repeatable; IPs and localhost always work)", (v: string, all: string[]) => [...all, v], [] as string[])
   .option("--strict-port", "fail if the port is in use instead of trying the next one")
   .option("--open-hash <hash>", "print a URL for this hash (e.g. owner/gistId)")
-  .action(async (files: string[], opts: { port: number; host: string; strictPort?: boolean; openHash?: string }) => {
-    const { url, port, localNames } = await startViewerServer({ port: opts.port, files, host: opts.host, strictPort: opts.strictPort });
+  .action(async (files: string[], opts: { port: number; host: string; allowedHost: string[]; strictPort?: boolean; openHash?: string }) => {
+    const { url, port, localNames } = await startViewerServer({ port: opts.port, files, host: opts.host, allowedHosts: opts.allowedHost, strictPort: opts.strictPort });
     if (port !== opts.port) console.log(`Port ${opts.port} is in use; using ${port} instead.`);
     console.log(`Viewer: ${url}${localNames.length ? "  (lists the local files)" : ""}`);
     for (const name of localNames) console.log(`  ${url}#local:${name}`);

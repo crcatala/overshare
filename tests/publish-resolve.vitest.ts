@@ -181,6 +181,66 @@ describe("serve with unusual file names", () => {
   });
 });
 
+/** GET with a raw path and Host header (fetch normalizes `..` and won't send a foreign Host). */
+async function rawGet(port: number, path: string, host?: string): Promise<number> {
+  const { request } = await import("node:http");
+  return new Promise((resolve, reject) => {
+    const req = request({ host: "127.0.0.1", port, path, headers: host ? { Host: host } : {} }, (res) => {
+      res.resume();
+      resolve(res.statusCode!);
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+describe("serve host check (DNS rebinding)", () => {
+  it("accepts IPs, localhost and listed names; refuses other host names", async () => {
+    const { hostAllowed } = await import("../src/serve.js");
+    for (const h of ["127.0.0.1:3000", "localhost:3000", "LOCALHOST.", "app.localhost", "[::1]:3000", "192.168.1.20:3000", undefined]) {
+      expect(hostAllowed(h), String(h)).toBe(true);
+    }
+    for (const h of ["evil.example", "evil.example:3000", "localhost.evil.example", "localhost@evil.example", "", "a b"]) {
+      expect(hostAllowed(h), h).toBe(false);
+    }
+    expect(hostAllowed("box.tail1234.ts.net:3000", ["box.tail1234.ts.net"])).toBe(true);
+    expect(hostAllowed("BOX.local", ["box.local"])).toBe(true);
+  });
+
+  it("refuses a request whose Host names another domain, even on loopback", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { startViewerServer } = await import("../src/serve.js");
+    const file = join(mkdtempSync(join(tmpdir(), "as-host-")), "a.json");
+    writeFileSync(file, JSON.stringify({ schema: "overshare/1", title: "T" }));
+    const { server, port } = await startViewerServer({ port: 0, host: "127.0.0.1", files: [file], allowedHosts: ["box.lan"] });
+    try {
+      expect(await rawGet(port, "/s/local/a.json", `evil.example:${port}`)).toBe(403);
+      expect(await rawGet(port, "/s/local/index.json", `evil.example:${port}`)).toBe(403);
+      expect(await rawGet(port, "/s/local/a.json", `localhost:${port}`)).toBe(200);
+      expect(await rawGet(port, "/s/local/a.json", `box.lan:${port}`)).toBe(200);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe("serve path check", () => {
+  it("serves nothing outside the viewer directory, including siblings that share its prefix", async () => {
+    const { startViewerServer } = await import("../src/serve.js");
+    const { server, port } = await startViewerServer({ port: 0, host: "127.0.0.1" });
+    try {
+      expect(await rawGet(port, "/s/index.html")).toBe(200);
+      // dist/standalone.html starts with "dist/s"; it must not pass as inside dist/s/.
+      expect(await rawGet(port, "/s/..%2fstandalone.html")).toBe(404);
+      expect(await rawGet(port, "/s/..%2f..%2fconfig.mjs")).toBe(404);
+    } finally {
+      server.close();
+    }
+  });
+});
+
 describe("loadConfig", () => {
   it("records where viewerUrl came from", async () => {
     const { mkdtempSync, writeFileSync } = await import("node:fs");

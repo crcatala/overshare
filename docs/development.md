@@ -102,7 +102,10 @@ npm run dev     # Vite dev server → http://localhost:3000/s/
   package (`server.fs.allow`), so the any-hostname setting cannot be used to read other
   files in the checkout (raw transcripts, a secrets file) via `/@fs/`.
 - **Network:** listens on localhost only; `npm run dev -- --host` exposes it on all
-  interfaces. Any hostname is accepted (VPS domain, Tailscale name, tunnel).
+  interfaces. Any hostname is accepted (VPS domain, Tailscale name, tunnel), which also
+  turns off Vite's DNS-rebinding protection: while it runs, a web page could read the shares
+  it serves, so keep real ones out of `OVERSHARE_DEV_SHARES` and use `overshare serve`
+  (which checks the host) for those.
 - `npm run preview:cf` builds and runs the viewer in Cloudflare's local runtime
   (`wrangler dev`) to check `_headers`/`_redirects` exactly as deployed.
 

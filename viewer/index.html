@@ -14,7 +14,8 @@
     <title>Shared session · overshare</title>
   </head>
   <body>
-    <main id="app"><p class="status">Loading session…</p></main>
+    <!-- The loading log's first line, shown before the script loads; boot.ts adds the rest. -->
+    <main id="app"><div class="status loading" role="status"><ol class="boot"><li><span class="mark"></span>loading viewer</li></ol></div></main>
     <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
     <!-- In the page from the start: screen readers only announce changes to a live region they already know. -->
     <div id="toast" class="toast" role="status"></div>

@@ -97,6 +97,8 @@ export interface Provenance {
 export interface LoadedShare {
   data: unknown;
   provenance: Provenance;
+  /** Length of the share's JSON text (UTF-16 code units, close to bytes for transcripts), for the loading screen. */
+  size: number;
 }
 
 const gistProvenance = (id: string, owner?: string): Provenance => ({
@@ -116,14 +118,15 @@ export function sameOriginUrl(path: string, base: string): string {
   return url.href;
 }
 
-export async function loadSource(source: Source, base = location.href): Promise<LoadedShare> {
+/** `onFetch` is told each URL just before it is requested (an API gist can take two), for the loading screen. */
+export async function loadSource(source: Source, base = location.href, onFetch?: (url: URL) => void): Promise<LoadedShare> {
   let url: string;
   let provenance: Provenance;
   switch (source.kind) {
     case "embedded": {
       const text = document.getElementById(EMBEDDED_SHARE_ID)?.textContent;
       if (!text) throw new Error("This page has no session in it.");
-      return { data: JSON.parse(text), provenance: { label: "this HTML file" } };
+      return { data: JSON.parse(text), provenance: { label: "this HTML file" }, size: text.length };
     }
     case "raw-gist":
       url = `https://gist.githubusercontent.com/${encodeURIComponent(source.owner)}/${encodeURIComponent(source.id)}/raw/${FILE}`;
@@ -146,7 +149,9 @@ export async function loadSource(source: Source, base = location.href): Promise<
       provenance = { label: `${new URL(url).pathname} on this site` };
       break;
     case "api-gist": {
-      const res = await fetch(`https://api.github.com/gists/${encodeURIComponent(source.id)}`);
+      const api = `https://api.github.com/gists/${encodeURIComponent(source.id)}`;
+      onFetch?.(new URL(api));
+      const res = await fetch(api);
       if (res.status === 404) throw new Error("Share not found. It may have been deleted.");
       if (!res.ok) throw new Error(`GitHub API error ${res.status}${res.status === 403 ? " (rate limited — use the owner/id link form)" : ""}`);
       const gist = (await res.json()) as {
@@ -157,14 +162,16 @@ export async function loadSource(source: Source, base = location.href): Promise<
       provenance = gistProvenance(source.id, owner);
       const file = gist.files?.[FILE];
       if (!file) throw new Error(`No ${FILE} in this gist.`);
-      if (!file.truncated && file.content) return { data: JSON.parse(file.content), provenance };
+      if (!file.truncated && file.content) return { data: JSON.parse(file.content), provenance, size: file.content.length };
       if (!file.raw_url) throw new Error("Gist file is truncated and has no raw URL.");
       url = file.raw_url;
       break;
     }
   }
+  onFetch?.(new URL(url, base));
   const res = await fetch(url);
   if (res.status === 404) throw new Error("Share not found. It may have been deleted.");
   if (!res.ok) throw new Error(`Failed to load share (${res.status})`);
-  return { data: await res.json(), provenance };
+  const text = await res.text();
+  return { data: JSON.parse(text), provenance, size: text.length };
 }

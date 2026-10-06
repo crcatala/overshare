@@ -46,6 +46,16 @@ resource references (`<image>`, `<use>`, `url()` in `fill`, `mask`, `cursor`, �
 removed. The CSP (checked against the real build by the tests) blocks scripts and remote
 requests as a second layer.
 
+## Loading
+
+While a share opens, the page shows a log with one line per step: `fetching` (the host, or the
+path on this site), `reading` (the format version and size) and `rendering N turns`. The current
+step has a spinner, and finished ones get a ✓ and their time, so a slow open shows whether it was
+the network or a long session. The first line is in `index.html`, so it shows before the script
+loads. The log waits 300ms before appearing, so fast loads go straight to the transcript, and the
+spinner only animates `transform`, so it keeps turning while a long session renders. If a step
+fails, it's marked ✗ above the error. Code: `viewer/src/boot.ts`.
+
 ## Layout
 
 It reads like a terminal transcript: a centered mono column (640–840px depending on the

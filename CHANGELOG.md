@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cost, any cache events and, for the turn chart, the prompt, a small chart of the turn's model calls
   and its tool calls. Model-call bars in the turn box now go to the step the call produced when
   clicked, and their card lists what the call did (thinking, reply, tool calls).
+- The viewer's loading screen is a short log of what it's doing (fetching from the share's host,
+  reading the format and size, rendering N turns), with a spinner on the current step and how long
+  each finished step took. It waits 300ms before showing, so fast loads don't flash it, and a failed
+  load marks the step that failed above the error.
 
 ### Removed
 
@@ -28,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Following a link to a different share in the viewer shows the loading screen instead of leaving
+  the previous session up until the new one renders. A slower earlier load no longer replaces the
+  newer one when it finishes last.
 - A share with a malformed tool group (its `calls` or `commands` not a list) no longer stops the
   whole session from showing: the transcript shows that turn as a placeholder, as it already did,
   and the token rail renders around it. A model-call card shows a step it can't read as

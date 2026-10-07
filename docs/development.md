@@ -99,13 +99,16 @@ npm run dev     # Vite dev server → http://localhost:3000/s/
 - **CSP:** dev only allows inline styles and the HMR WebSocket; builds keep the strict
   policy.
 - **File access:** Vite may only read `viewer/`, `src/` and the bundled prose font's
-  package (`server.fs.allow`), so the any-hostname setting cannot be used to read other
-  files in the checkout (raw transcripts, a secrets file) via `/@fs/`.
+  package (`server.fs.allow`), so whoever can reach the dev server cannot read other files
+  in the checkout (raw transcripts, a secrets file) via `/@fs/`.
 - **Network:** listens on localhost only; `npm run dev -- --host` exposes it on all
-  interfaces. Any hostname is accepted (VPS domain, Tailscale name, tunnel), which also
-  turns off Vite's DNS-rebinding protection: while it runs, a web page could read the shares
-  it serves, so keep real ones out of `OVERSHARE_DEV_SHARES` and use `overshare serve`
-  (which checks the host) for those.
+  interfaces. Vite's host check (DNS-rebinding protection) stays on: requests must be
+  addressed to `localhost` or an IP address. To use another name (VPS domain, Tailscale
+  name, tunnel), list it in `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` (comma-separated; a
+  leading dot allows subdomains), set in your shell since Vite doesn't read it from `.env`:
+  `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=my-box,.example.ts.net npm run dev -- --host`.
+  The dev server is still unauthenticated, so keep real shares out of
+  `OVERSHARE_DEV_SHARES` when exposing it and use `overshare serve` for those.
 - `npm run preview:cf` builds and runs the viewer in Cloudflare's local runtime
   (`wrangler dev`) to check `_headers`/`_redirects` exactly as deployed.
 

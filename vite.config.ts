@@ -39,15 +39,14 @@ export default defineConfig(({ command }) => {
     base: dev ? "/s/" : "./",
     publicDir: false,
     define: { __OVERSHARE_SOURCES__: JSON.stringify(sources) },
-    // Listens on localhost only unless you pass `npm run dev -- --host`. Any Host header is
-    // accepted (e.g. a VPS domain, Tailscale name or tunnel), which disables Vite's
-    // DNS-rebinding protection. To keep that safe, Vite may only read the viewer and the
-    // shared src/ modules: without fs.allow it would serve any file in the checkout via
-    // /@fs/ (raw fixture transcripts, a secrets file kept here, …). Local shares are served
-    // separately by the plugin below, and only the files it was given.
+    // Listens on localhost only unless you pass `npm run dev -- --host`. Vite's host check
+    // stays on; other hostnames go in $__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS (see
+    // docs/development.md). Vite may only read the viewer and the shared src/ modules:
+    // without fs.allow it would serve any file in the checkout via /@fs/ (raw fixture
+    // transcripts, a secrets file kept here, …). Local shares are served separately by the
+    // plugin below, and only the files it was given.
     server: {
       port: 3000,
-      allowedHosts: true,
       fs: { strict: true, allow: [viewerRoot, resolve(repo, "src")] },
     },
     build: { outDir: "dist/s", emptyOutDir: true, sourcemap: true, target: "es2022" },

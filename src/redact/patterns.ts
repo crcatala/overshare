@@ -123,10 +123,10 @@ export const SENSITIVE_KEY =
   /(pass(word|wd|phrase)?|pwd|psw|(^|[_.-])pw($|[_.-])|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|bearer|credential|session[_-]?token|^token$|[_-]token$)/i;
 
 // Quotes may be backslash-escaped, as in JSON held in a JSON string (`{\"password\":\"…\"}`, a log line or an API
-// response printed by a tool): the closing quote must be escaped the same way, and a backslash only ends the value
-// when it escapes a quote, so an unquoted value can still hold one.
+// response printed by a tool): the closing quote must be escaped the same way (`\2`), so the value gives the escape
+// back to it. The value itself may hold backslashes: a password ending in one is `…\\"` in JSON, `…\\\\\"` a level down.
 const ASSIGNMENT =
-  /\b((?:[A-Za-z_][\w.-]*?)?(?:pass(?:word|wd|phrase)?|pwd|psw|[_.-]pw(?![A-Za-z])|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|token|credential)[\w-]*)(?:\\{1,7})?["']?\s*(?:[:=]|=>)\s*((?:\\{1,7})?["'`]|)((?:[^\s"'`,;\\]|\\(?!\\*["'`])){8,})\2/gi;
+  /\b((?:[A-Za-z_][\w.-]*?)?(?:pass(?:word|wd|phrase)?|pwd|psw|[_.-]pw(?![A-Za-z])|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|token|credential)[\w-]*)(?:\\{1,7})?["']?\s*(?:[:=]|=>)\s*((?:\\{1,7})?["'`]|)([^\s"'`,;]{8,})\2/gi;
 const URL_CREDENTIALS = /\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@'"]+:([^\s@/'"]+)@/gi;
 // Header and header-like names that carry a credential: `Authorization`, `X-Api-Key`, `X-Amz-Security-Token`,
 // `Private-Token` (GitLab). Reached through curl's `-H`/`--header` as well, since the header text is what matches.
@@ -157,12 +157,13 @@ const PEM_TRUNCATED =
 const PEM_MIN_BODY = 40;
 // A JWT wrapped over lines (a terminal, a log): too broken up for the `jwt` rule. Header and payload may wrap anywhere,
 // even between the `e` and `y` that start them, since a `.` ends each; a line of the signature only continues it when
-// the line is token characters to its end.
+// the line is token characters to its end, or up to a delimiter that closes the token (`"eyJ…\n  …",`), so the next
+// line of prose is not taken, and holds a letter or digit, so a `----------` separator under it is not either.
 const JWT_PIECE = "[A-Za-z0-9_-]";
 const LINE_BREAK = "[ \\t]*\\r?\\n[ \\t]*";
 const JWT_PART = `e(?:${LINE_BREAK})?y${JWT_PIECE}*(?:${LINE_BREAK}${JWT_PIECE}+)*(?:${LINE_BREAK})?\\.(?:${LINE_BREAK})?`;
 const WRAPPED_JWT = new RegExp(
-  `(?<![A-Za-z0-9_-])${JWT_PART}${JWT_PART}${JWT_PIECE}+(?:${LINE_BREAK}${JWT_PIECE}+(?=[ \\t]*(?:\\r?\\n|$)))*`,
+  `(?<![A-Za-z0-9_-])${JWT_PART}${JWT_PART}${JWT_PIECE}+(?:${LINE_BREAK}(?=[_-]*[A-Za-z0-9])${JWT_PIECE}+(?=[ \\t]*(?:\\r?\\n|$)|["'\`,;)\\]}>]))*`,
   "g",
 );
 
@@ -199,8 +200,12 @@ function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] 
     const body = m[0].slice(m[0].indexOf("-----", 5) + 5).replace(/\\[rn]|[^A-Za-z0-9+/=]/g, "");
     if (body.length >= PEM_MIN_BODY) found.push({ rule: "private-key-truncated", start: m.index, end: m.index + m[0].length, confidence: "high" });
   }
-  for (const m of text.includes("\n") && text.includes(".") ? text.matchAll(WRAPPED_JWT) : []) {
+  // A rejected candidate resumes the search one character on, not after it: a stray `ey` on the line above a JWT starts
+  // a candidate that swallows the real token.
+  const jwt = new RegExp(WRAPPED_JWT.source, "g");
+  for (let m = text.includes("\n") && text.includes(".") ? jwt.exec(text) : null; m; m = jwt.exec(text)) {
     if (m[0].includes("\n") && isWrappedJwt(m[0].replace(/\s+/g, ""))) found.push({ rule: "jwt", start: m.index, end: m.index + m[0].length, confidence: "high" });
+    else jwt.lastIndex = m.index + 1;
   }
   for (const m of text.matchAll(ASSIGNMENT)) {
     const value = m[3] ?? "";
@@ -230,10 +235,11 @@ function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] 
   }
   found.push(...findTokenFormats(text), ...findAwsSecretKeys(text));
   return resolveOverlaps(
-    found.filter((f) => {
+    found.map((f) => trimSpan(text, f)).filter((f) => {
       const value = text.slice(f.start, f.end);
-      // Private keys legitimately contain long runs (e.g. "AAAAAAAA" in OpenSSH keys).
-      const fake = !/private-?key/.test(f.rule) && isObviouslyFake(value);
+      // Private keys legitimately contain long runs (e.g. "AAAAAAAA" in OpenSSH keys). A wrapped JWT (the only `jwt` match
+      // spanning lines) had its header decoded already, and a run in a line it took in does not make the token fake.
+      const fake = !/private-?key/.test(f.rule) && !(f.rule === "jwt" && value.includes("\n")) && isObviouslyFake(value);
       return !allow.has(value) && !fake && !insidePlaceholder(text, f.start);
     }),
   );
@@ -271,17 +277,52 @@ function findChunked(text: string, allow: ReadonlySet<string>): PatternMatch[] {
   return resolveOverlaps([...unique.values()]);
 }
 
+/**
+ * A match without the whitespace at its ends. Some rules of the scanner end on the delimiter after a token (a newline);
+ * redacting it protects nothing, and once overlapping matches are joined it would take the line break after a key.
+ */
+function trimSpan(text: string, m: PatternMatch): PatternMatch {
+  let { start, end } = m;
+  while (start < end && /\s/.test(text[start] ?? "")) start++;
+  while (end > start && /\s/.test(text[end - 1] ?? "")) end--;
+  return start === m.start && end === m.end ? m : { ...m, start, end };
+}
+
+/** Our placeholders: `[REDACTED]`, `[REDACTED:<label>]`, `[REDACTED:<label>#2]`. Labels are identifiers, never spaced. */
+const PLACEHOLDER = /\[REDACTED(?::[^\]\s]{1,100})?\]/y;
+
+/**
+ * Whether `index` falls inside one of our placeholders. Only a placeholder's own shape counts: a bare `[REDACTED` in the
+ * transcript (one that discusses redaction) would otherwise hide whatever follows it up to the next `]`.
+ */
 function insidePlaceholder(text: string, index: number): boolean {
   const open = text.lastIndexOf("[REDACTED", index);
-  return open !== -1 && text.indexOf("]", open) >= index;
+  if (open === -1) return false;
+  PLACEHOLDER.lastIndex = open;
+  return PLACEHOLDER.test(text) && PLACEHOLDER.lastIndex > index;
 }
 
 function resolveOverlaps(matches: PatternMatch[]): PatternMatch[] {
   // Longest wins; on a tie the higher confidence does, so a span two rules both find is reported (and blocks) as high.
+  // A match that only partly overlaps a kept one widens it instead of being dropped: dropping it would leave its other
+  // part in the text, too short for any rule to find again (a truncated key whose last line runs into a JWT header).
   const sorted = [...matches].sort((a, b) => b.end - b.start - (a.end - a.start) || Number(b.confidence === "high") - Number(a.confidence === "high"));
   const kept: PatternMatch[] = [];
   for (const m of sorted) {
-    if (kept.every((k) => m.end <= k.start || m.start >= k.end)) kept.push(m);
+    const overlapping = kept.filter((k) => m.start < k.end && m.end > k.start);
+    if (overlapping.length === 0) kept.push({ ...m });
+    else for (const k of overlapping) (k.start = Math.min(k.start, m.start)), (k.end = Math.max(k.end, m.end));
   }
-  return kept.sort((a, b) => a.start - b.start);
+  // Widening can make two kept spans overlap; join those too, the longer one naming the rule.
+  const joined: PatternMatch[] = [];
+  for (const k of kept.sort((a, b) => a.start - b.start)) {
+    const last = joined.at(-1);
+    if (!last || k.start >= last.end) {
+      joined.push(k);
+      continue;
+    }
+    if (k.end - k.start > last.end - last.start) Object.assign(last, { rule: k.rule, confidence: k.confidence });
+    last.end = Math.max(last.end, k.end);
+  }
+  return joined;
 }

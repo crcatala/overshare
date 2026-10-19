@@ -29,7 +29,8 @@ In order (see `src/redact/`):
    `END` line (`head id_rsa`) is redacted from its header through the base64 lines that follow.
    Documentation examples (`…EXAMPLE`, sequential runs) are ignored. Patterns run again on a string
    they changed, until nothing new is found: a token glued to the end of another is only
-   recognisable once the first is replaced.
+   recognisable once the first is replaced. When two matches overlap, the longer names the rule and
+   the redaction covers both, so no part of either is left behind.
 
    Two parts are hand-written rather than taken from that library (`src/redact/token-formats.ts`):
    a table of about 60 provider token formats recognised by their own prefix when printed bare

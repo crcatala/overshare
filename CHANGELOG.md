@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with a word like `true`, `null` or `string` (`Trueblue2024`), which used to be taken for a
   placeholder. A token glued straight onto another one is now redacted too, rather than left for
   the final re-scan to block.
+- Two matches that partly overlap are both redacted in full. Only the longer one used to be, leaving
+  the rest of the other in the share, too short for any rule (or the final re-scan) to recognise.
+- Text that merely mentions `[REDACTED` no longer hides a secret written after it, up to the next
+  `]`, from redaction and from the final re-scan.
 - `overshare browse` takes a paste in its search boxes: the session list's `/` search, the viewer's
   message search and the filter in dialogs such as Repo. A paste used to be dropped. Pasted line breaks
   and tabs become spaces.

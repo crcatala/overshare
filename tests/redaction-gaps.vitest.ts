@@ -37,6 +37,18 @@ const wrap = (token: string, width: number, indent = "  "): string[] => {
 const pemLines = (n: number, seed = 41): string[] => Array.from({ length: n }, (_, i) => randomish(64, seed + i, B64));
 const pemHeader = () => ["-----BEGIN ", "PRIVATE KEY-----"].join("");
 
+describe("placeholders", () => {
+  it("a bare `[REDACTED` in the transcript hides nothing after it (found by fast-check)", () => {
+    const aws = fake.aws();
+    const out = new Redactor(machine).redactText(`we print [REDACTED\nexport KEY_ID=${aws}\nwhen done]`, "test");
+    expect(out).not.toContain(aws);
+  });
+
+  it("text inside one of our placeholders is still left alone", () => {
+    expect(findSecretPatterns("[REDACTED:GITHUB_TOKEN] and [REDACTED:secret-assignment#2]")).toEqual([]);
+  });
+});
+
 describe("escaped JSON", () => {
   it.each([1, 2])("redacts a password assigned in JSON held in %i level(s) of string", (levels) => {
     const value = `Pw${randomish(16, 3)}`;
@@ -71,6 +83,13 @@ describe("escaped JSON", () => {
     expect(findSecretPatterns(`password = "${word}"`)).toEqual([]);
   });
 
+  it.each([0, 1])("redacts a password ending in a backslash, in JSON held in %i level(s) of string", (levels) => {
+    const value = `Pw7${randomish(14, 3)}\\`;
+    const out = new Redactor(machine).redactText(nested({ password: value }, levels), "test");
+    expect(out).toContain("[REDACTED:secret-assignment]");
+    expect(out).not.toContain(value.slice(0, -1));
+  });
+
   it("still takes an unquoted value with a backslash whole", () => {
     const value = `ab\\${randomish(12, 4)}`;
     const [m] = findSecretPatterns(`password=${value} next`);
@@ -101,6 +120,29 @@ describe("wrapped JWT", () => {
     const token = jwt(3);
     const out = new Redactor(machine).redactText(`${fake.age()}${wrap(token, 12).join("\n")}`, "test");
     expect(out).toBe("[REDACTED:age-secret-key][REDACTED:jwt]");
+  });
+
+  it.each([
+    ["near the start of the signature", 4, '";'],
+    ["further into the signature", 20, '",'],
+    ["in the payload", -1, '"'],
+  ])("redacts a quoted one wrapped %s", (_where, intoSignature, close) => {
+    const token = jwt(11);
+    const cut = intoSignature < 0 ? token.indexOf(".") + 10 : token.lastIndexOf(".") + 1 + intoSignature;
+    const out = new Redactor(machine).redactText(`token = "${token.slice(0, cut)}\n  ${token.slice(cut)}${close}\nnext line`, "test");
+    expect(out).toBe(`token = "[REDACTED:jwt]${close}\nnext line`);
+  });
+
+  it("redacts one under a stray `ey` line (found by fast-check)", () => {
+    const token = jwt(13);
+    const out = new Redactor(machine).redactText(`ey\n${wrap(token, 36).join("\n")}\nnext line`, "test");
+    expect(out).toBe("ey\n[REDACTED:jwt]\nnext line");
+  });
+
+  it("redacts one with a separator line under it (found by fast-check)", () => {
+    const token = jwt(17);
+    const out = new Redactor(machine).redactText(`${wrap(token, 36, "").join("\n")}\n----------\nnext line`, "test");
+    expect(out).toBe("[REDACTED:jwt]\n----------\nnext line");
   });
 
   it("leaves prose that only looks like one", () => {
@@ -134,6 +176,29 @@ describe("truncated private key", () => {
     const out = new Redactor(machine).redactText(`${pemHeader()}\n${body.join("\n")}\n${cut}… [output truncated]`, "test");
     expect(out).not.toContain(cut);
     expect(out).toBe("[REDACTED:private-key-truncated]… [output truncated]");
+  });
+
+  // A generic rule of the scanner (keyword `tru`, as in "truncated") can win an overlap against a trusted one; ours then
+  // drops it as not random-looking, and the trusted match is lost with it. Narrow (it needs the token to run into a path)
+  // and on main before these changes too; the final re-scan sees the key once the path rule has changed the text, and
+  // blocks (found by fast-check).
+  it("a key the scanner's overlap resolution hides is blocked by the final re-scan", () => {
+    const aws = fake.aws();
+    const r = new Redactor(machine);
+    const out = r.redactText(`[truncated]\n${aws}/home/tester/x`, "test");
+    expect(out).toContain(aws);
+    expect(rescanPayload(JSON.stringify({ text: out }), { homeDir: machine.homeDir }).issues.map((i) => i.rule)).toContain("aws-access_keys");
+  });
+
+  it("redacts both a key and a JWT its last line runs into (found by fast-check)", () => {
+    // The key's long last line takes the JWT's header; the JWT's match takes that line too. Keeping only the longer
+    // match (here the key's) used to leave the JWT's payload and signature, which no rule recognises without a header.
+    const body = pemLines(3);
+    const token = jwt(19);
+    const lines = wrap(token, 37, "");
+    const out = new Redactor(machine).redactText(`${pemHeader()}\n${body.join("\n")}\n${lines.join("\n")}\nnext line`, "test");
+    for (const piece of [...body, ...token.split(".")]) expect(out).not.toContain(piece);
+    expect(out.endsWith("]\nnext line")).toBe(true);
   });
 
   it("leaves a header with no key under it", () => {

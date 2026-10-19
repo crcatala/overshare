@@ -187,12 +187,46 @@ Additive changes (a new optional field) need nothing special. An incompatible ch
 schema version bump, a viewer migration and a frozen share; the steps are in
 [`tests/fixtures/shares/README.md`](../tests/fixtures/shares/README.md).
 
+## Betterleaks rules
+
+`vendor/betterleaks/` holds [Betterleaks](https://github.com/betterleaks/betterleaks)' rule file, copied
+unchanged from a pinned release (`upstream.json`: tag, commit, sha256), with its MIT license.
+`npm run update:betterleaks` converts it into `src/redact/betterleaks-rules.json`, one rule per line, and
+prints what it skipped and which rules lost part of their filtering. Detection doesn't use the table yet.
+
+- **Shapes only.** Each rule keeps its id, regex, flags, lowercased keywords, value group, confidence,
+  specificity and an entropy threshold. A rule's `validate`, `analyze` and `revoke` steps (which send a found
+  secret to the provider's API) are never converted; a test checks that none reaches the JSON.
+- **Regexes** are written for Go's engine and rewritten for JavaScript on Node 22, which has no `(?i:…)`:
+  case-insensitivity that covers only part of a pattern is spelled out letter by letter (`[a-z]` →
+  `[a-zA-Z]`), and syntax JavaScript reads differently is given Go's meaning (`.`, `\s`, `\z`,
+  `[[:alnum:]]`, multi-line `^` and `$`, a `]` first in a class). A rule that can't be rewritten faithfully is
+  skipped with the reason. Two small differences remain, both outside ASCII: JavaScript counts a character
+  outside the Basic Multilingual Plane (an emoji) as two in a repeat count, Go as one, and Go's
+  case-insensitive matching also folds a few non-ASCII letters (the Kelvin sign as `k`).
+- **Filters** are written in Betterleaks' expression language and aren't ported, except an entropy
+  threshold: a filter discards a finding when any of its `||` clauses holds, so its entropy clause can be
+  kept alone. What else a rule loses (`tokenRatio`, `matchesAny`, a required component) is listed under
+  its `dropped`.
+- Rules scoped to file paths (`.php`, `.tf`…) are skipped, since a transcript has none. Rules Betterleaks
+  reports only as part of another (`skipReport`) are kept, marked `componentOnly`.
+
+```bash
+npm run update:betterleaks                 # rewrite the JSON from the vendored file and print the summary
+npm run update:betterleaks -- --check      # fail unless the JSON matches the vendored file (CI runs this)
+```
+
+Never edit either file by hand: the converter checks the rule file's sha256 against `upstream.json`, and
+CI checks that the JSON is what the converter makes of it.
+
 ## Maintenance scripts
 
 - `npm run update:prices` regenerates `src/pricing-data.ts`, the model price table behind the
   viewer's estimated cost.
 - `npm run audit:usage` checks the usage and cost overshare computes against the sessions on your
   machine (Claude Code's own `cost-state` totals, pi's raw usage entries). Not run in CI.
+- `npm run update:betterleaks` converts the vendored Betterleaks rule file into a rule table (see
+  [Betterleaks rules](#betterleaks-rules)).
 - `npm run audit:redaction -- --base main` compares redaction between a ref and the working tree over the
   sessions on your machine (see [Setup](#setup)). Not run in CI.
 - Releases: see [RELEASING.md](../RELEASING.md).

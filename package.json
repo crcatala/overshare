@@ -58,6 +58,7 @@
     "audit:usage": "tsx scripts/audit-usage.ts",
     "audit:redaction": "tsx scripts/audit-redaction.ts",
     "update:prices": "node scripts/update-prices.mjs",
+    "update:betterleaks": "tsx scripts/update-betterleaks.ts",
     "test:package": "bash scripts/test-package.sh",
     "verify": "npm run typecheck && npm run build && npm test && npm run test:package",
     "release": "release-it",

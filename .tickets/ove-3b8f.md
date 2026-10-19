@@ -1,6 +1,6 @@
 ---
 id: ove-3b8f
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-10-19T16:56:49Z
@@ -27,3 +27,9 @@ Phase 1 of ove-2q2x. Copy `config/betterleaks.toml` from a pinned Betterleaks re
 
 Every converted rule compiles on Node 22 and 24 (CI runs both); the skipped-rule and lost-filter lists are in the PR; `--check` runs in CI; no converted rule has validate, analyze or revoke; LICENSE and provenance are vendored.
 
+
+## Notes
+
+**2026-10-19T19:52:23Z**
+
+Done: vendor/betterleaks/ pins v1.9.0 (81aff7a6, LICENSE, upstream.json with sha256); npm run update:betterleaks writes src/redact/betterleaks-rules.json (458 of 463 rules: 385 high, 70 medium, 3 low); --check runs in CI. For phase 2: (1) flags never include g; add it (or y/d) when compiling. (2) No valueGroup means Betterleaks takes the first non-empty capture group, else the whole match (detect.go). (3) entropy is [op, n]: keep the finding only when Shannon entropy of the value op n; Betterleaks divides by byte length, so it matches secret-scan's shannonEntropy for ASCII. (4) componentOnly marks skipReport rules (43): most are IDs/hosts, but aws-secret-access-key, polymarket-api-secret/passphrase, alibaba-sts-security-token and exoscale-api-secret are secrets; decide per rule in the enabled list. (5) dropped lists what each rule loses: tokenRatio (123), required components (35), matchesAny (16), whole filter (4 generic-* rules), containsAny (1); the 3 generic-* rules plus generic-username are the ones that most need Betterleaks' filters. (6) 5 rules skipped, all path-scoped or path-only; none for regex reasons. (7) The translation was checked against Go's regexp on ~460k generated samples per file (v1.9.0 and v2.0.0-rc.2, including \r and \v): no differences. (8) Keywords are lowercased; lowercase the text once and test includes().

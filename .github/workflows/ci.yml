@@ -37,6 +37,10 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
+      # The Betterleaks rule table is generated from the vendored rule file; check it wasn't edited or left stale.
+      - name: Betterleaks rule table is up to date
+        run: npm run update:betterleaks -- --check
+
       # Tests read the built viewer from viewer/dist, so build first.
       - name: Build
         run: npm run build

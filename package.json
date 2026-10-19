@@ -56,6 +56,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p viewer/tsconfig.json && tsc --noEmit -p site/tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "start": "tsx src/cli.ts",
     "audit:usage": "tsx scripts/audit-usage.ts",
+    "audit:redaction": "tsx scripts/audit-redaction.ts",
     "update:prices": "node scripts/update-prices.mjs",
     "test:package": "bash scripts/test-package.sh",
     "verify": "npm run typecheck && npm run build && npm test && npm run test:package",

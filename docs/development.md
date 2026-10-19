@@ -28,8 +28,38 @@ holds a real-looking credential in a source file.
 `tests/redact-properties.vitest.ts` holds property-based tests ([fast-check](https://fast-check.dev)) for
 redaction: invariants checked on generated input rather than hand-picked examples. Each runs 100
 cases in `npm test`; search longer locally with
-`FC_NUM_RUNS=20000 npx vitest run tests/redact-properties.vitest.ts`. A failure prints its seed and a
+`FC_NUM_RUNS=20000 npx vitest run tests/redact-properties.vitest.ts --testTimeout=0`. A failure prints its seed and a
 shrunk counterexample; pin what it found as an example test.
+
+`npm run audit:redaction -- --base main` shows what a change to redaction does to the sessions on your
+machine. It runs `prepareShare` in brief and full mode over every local Claude Code and pi session, once with
+the base ref's `src/` (checked out in a temporary git worktree) and once with the working tree's. Per mode it
+prints status changes, finding deltas by rule and redaction deltas by category (home paths, emails, the
+username and the hostname are only counted, never named by rule), each with the number of sessions, how many
+sessions the final re-scan blocks on other rules or leaves other suspicious values in, errors, and the time
+with any session that got much slower. Then the sessions where any of that changed, by file. No known values
+are read (env, `.env`), and nothing it prints or saves holds a value or the text around one: statuses, rule
+and category names, counts, times and file paths only.
+
+```bash
+npm run audit:redaction -- --base main                    # every session; takes a while
+npm run audit:redaction -- --base main --limit 50         # the 50 newest
+npm run audit:redaction -- --base main --mode full        # one mode
+npm run audit:redaction -- --base main --shape changed    # also describe what's new in each changed session
+npm run audit:redaction -- --from out/audit-redaction     # compare the saved results again, without rerunning
+```
+
+Each side's results are saved as JSON in `out/audit-redaction/` (`--out` to change it). `--shape <file>`
+(repeatable, or `changed`) lists each pattern match the working tree finds in that transcript and the base
+does not, by shape only: rule, length, lines, character classes, entropy, escaped quotes, a leading
+placeholder word, and the key it was assigned to when that is a known secret-key word (`password`, or
+`…_api_key` for a longer name ending in one; what precedes a match can be a URL's user or part of a value,
+so it is never printed as found). That is enough to tell a real credential from a false positive without
+printing it. Each session is read up to its size when the audit started, without a last line that isn't
+complete JSON, so the one being written meanwhile is compared on the same text on both sides; sessions that
+changed on disk are labelled `(live)`. Not run in
+CI: it needs your own sessions. Run it for every change to detection, and put its summary (counts, never
+session names) in the PR.
 
 ## How it fits together
 
@@ -163,4 +193,6 @@ schema version bump, a viewer migration and a frozen share; the steps are in
   viewer's estimated cost.
 - `npm run audit:usage` checks the usage and cost overshare computes against the sessions on your
   machine (Claude Code's own `cost-state` totals, pi's raw usage entries). Not run in CI.
+- `npm run audit:redaction -- --base main` compares redaction between a ref and the working tree over the
+  sessions on your machine (see [Setup](#setup)). Not run in CI.
 - Releases: see [RELEASING.md](../RELEASING.md).

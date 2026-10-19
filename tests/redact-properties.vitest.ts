@@ -4,7 +4,7 @@
  * is still a random-looking token rather than `aaaa…`, which `isObviouslyFake` rightly ignores.
  *
  * A failure prints the seed and the shrunk input; rerun it with `fc.assert(..., { seed, path })`. Each property runs 100
- * cases; set `FC_NUM_RUNS` for a longer local search (`FC_NUM_RUNS=20000 npx vitest run tests/redact-properties.vitest.ts`).
+ * cases; set `FC_NUM_RUNS` for a longer local search (`FC_NUM_RUNS=20000 npx vitest run tests/redact-properties.vitest.ts --testTimeout=0`).
  */
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";

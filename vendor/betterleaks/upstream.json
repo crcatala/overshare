@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/betterleaks/betterleaks",
+  "tag": "v1.9.0",
+  "commit": "81aff7a638638aae3a659845d089043e1d8fe9ac",
+  "file": "config/betterleaks.toml",
+  "sha256": "a8f553eb634ac3c5c1ca3f0dc95e2b8abdea7d14b622604c5af07f30ce7926ef",
+  "released": "2026-09-29",
+  "fetched": "2026-10-19"
+}

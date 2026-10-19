@@ -8,14 +8,18 @@
  * - `prepareShare` runs in brief and full mode over every session, once with the base ref's `src/` and once with the
  *   working tree's. The base is checked out in a temporary git worktree with this checkout's `node_modules` linked in, and
  *   both sides are run by this script (each in its own process), so only `src/` differs.
- * - No known values are read (env, `.env`, credential files) and the config is the default: what changes is what the
- *   pattern, path and email layers do. Only statuses, rule names, counts and times are recorded and printed, never a
- *   value or the text around one. Sessions are named by file.
+ * - No known values are read (env, `.env`, credential files) and the config is the default. Compared per session and
+ *   mode: the status, findings by rule, redactions by category (which is where home paths, emails, the username and the
+ *   hostname show up), and the rules the final re-scan blocks on or leaves as suspicious. Only statuses, rule and
+ *   category names, counts and times are recorded and printed, never a value or the text around one. Sessions are named
+ *   by file.
  * - Each side's results are saved as JSON (`out/audit-redaction/` by default, which git ignores).
- * - Session files are read up to their size when the audit started, on both sides, so the one being written while it
- *   runs (this session, say) is compared on the same text. Sessions that changed on disk meanwhile are labelled.
- * - `--shape <file>` (repeatable; `changed` for every session whose findings changed) describes each pattern match the
- *   working tree finds in that transcript and the base does not, by shape only: rule, key name when it is a plain word,
+ * - Session files are read up to their size when the audit started, cut by those bytes alone (see `readSnapshot`), so
+ *   the one being written while it runs (this session, say) is compared on the same text on both sides. Sessions that
+ *   changed on disk meanwhile are labelled.
+ * - `--shape <file>` (repeatable; `changed` for every session that changed) describes each pattern match the
+ *   working tree finds in that transcript and the base does not, by shape only: rule, the key it was assigned to when that
+ *   is a known secret-key word (`KEY_WORDS`),
  *   length, lines, character classes, entropy, whether its quotes were escaped, whether it starts with a placeholder word.
  */
 import { spawnSync } from "node:child_process";
@@ -43,6 +47,8 @@ export interface ModeResult {
   ms: number;
   /** Findings by rule, as the report names them (`github-pat (high)`). */
   rules: Record<string, number>;
+  /** Redactions by category (`home-path`, `email`, `secret-pattern`…): the layers that name no rule are only counted. */
+  counts?: Record<string, number>;
   /** Rules of what the final re-scan blocks on and of the suspicious values left. */
   rescan: string[];
   suspicious: string[];
@@ -72,18 +78,28 @@ export interface SideResults {
   sessions: Record<string, Partial<Record<Mode, ModeResult>>>;
 }
 
-/** The file as it was when the audit started: its first `size` bytes, up to the last complete line. */
+/**
+ * The file as it was when the audit started: its first `size` bytes, without a last line that is not complete JSON (one
+ * being written when the audit listed the file). The cut depends on those bytes alone, never on whether the file has grown
+ * since, so both sides read the same text.
+ */
 export function readSnapshot(path: string, size: number): string {
   const fd = openSync(path, "r");
+  let text: string;
   try {
     const buf = Buffer.alloc(size);
-    const n = readSync(fd, buf, 0, size, 0);
-    const text = buf.subarray(0, n).toString("utf8");
-    if (n === statSync(path).size) return text;
-    const cut = text.lastIndexOf("\n");
-    return cut < 0 ? "" : text.slice(0, cut + 1);
+    text = buf.subarray(0, readSync(fd, buf, 0, size, 0)).toString("utf8");
   } finally {
     closeSync(fd);
+  }
+  const cut = text.lastIndexOf("\n") + 1;
+  const tail = text.slice(cut);
+  if (!tail.trim()) return text;
+  try {
+    JSON.parse(tail);
+    return text;
+  } catch {
+    return text.slice(0, cut);
   }
 }
 
@@ -129,11 +145,12 @@ export async function runSide(src: string, label: string, manifest: Manifest, pr
           status: statusOf(report),
           ms: 0,
           rules: tally(report.findings.map((f) => f.rule)),
+          counts: { ...report.counts },
           rescan: [...new Set(report.rescan.map((i) => i.rule))].sort(),
           suspicious: [...new Set(report.suspicious.map((i) => i.rule))].sort(),
         };
       } catch (e) {
-        r = { status: "error", ms: 0, rules: {}, rescan: [], suspicious: [], error: errorName(e) };
+        r = { status: "error", ms: 0, rules: {}, counts: {}, rescan: [], suspicious: [], error: errorName(e) };
       }
       r.ms = Math.round(performance.now() - t);
       results.time[mode] = (results.time[mode] ?? 0) + r.ms;
@@ -147,10 +164,31 @@ export async function runSide(src: string, label: string, manifest: Manifest, pr
 
 const errorName = (e: unknown): string => (e instanceof Error && /^\w{1,40}$/.test(e.name) ? e.name : "Error");
 
-const sameRules = (a: Record<string, number>, b: Record<string, number>): boolean => {
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-  return [...keys].every((k) => (a[k] ?? 0) === (b[k] ?? 0));
-};
+/** The keys whose counts differ, with head minus base. */
+const deltas = (a: Record<string, number> = {}, b: Record<string, number> = {}): [string, number][] =>
+  [...new Set([...Object.keys(a), ...Object.keys(b)])].map((k): [string, number] => [k, (b[k] ?? 0) - (a[k] ?? 0)]).filter(([, d]) => d !== 0);
+
+const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((r, i) => r === b[i]);
+
+/** What differs for one session in one mode; undefined when nothing does. */
+export interface ModeDiff {
+  status?: [Status, Status];
+  rules: [string, number][];
+  categories: [string, number][];
+  rescan?: [string[], string[]];
+  suspicious?: [string[], string[]];
+}
+
+export function diffMode(x: ModeResult, y: ModeResult): ModeDiff | undefined {
+  const d: ModeDiff = { rules: deltas(x.rules, y.rules), categories: deltas(x.counts, y.counts) };
+  if (x.status !== y.status) d.status = [x.status, y.status];
+  if (!sameList(x.rescan, y.rescan)) d.rescan = [x.rescan, y.rescan];
+  if (!sameList(x.suspicious, y.suspicious)) d.suspicious = [x.suspicious, y.suspicious];
+  return d.status || d.rules.length || d.categories.length || d.rescan || d.suspicious ? d : undefined;
+}
+
+const signed = ([name, n]: [string, number]) => `${n > 0 ? "+" : ""}${n} ${name}`;
+const list = (rules: string[]) => (rules.length ? rules.join(", ") : "none");
 
 /** A path as printed: relative to the working directory when it is inside it. */
 const shown = (path: string): string => {
@@ -162,7 +200,7 @@ const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 const pct = (a: number, b: number) => (a > 0 ? ` (${b >= a ? "+" : ""}${(((b - a) / a) * 100).toFixed(1)}%)` : "");
 const STATUSES: Status[] = ["clean", "review", "confirm", "blocked", "error"];
 
-/** The paths of the sessions whose status or findings differ between the two sides, in any mode. */
+/** The paths of the sessions where anything `diffMode` compares differs between the two sides, in any mode. */
 export function changedSessions(manifest: Manifest, base: SideResults, head: SideResults): string[] {
   return manifest.sessions
     .map((s) => s.path)
@@ -170,7 +208,7 @@ export function changedSessions(manifest: Manifest, base: SideResults, head: Sid
       manifest.modes.some((m) => {
         const x = base.sessions[p]?.[m];
         const y = head.sessions[p]?.[m];
-        return !x || !y || x.status !== y.status || !sameRules(x.rules, y.rules);
+        return !x || !y || diffMode(x, y) !== undefined;
       }),
     );
 }
@@ -191,29 +229,43 @@ export function formatSummary(manifest: Manifest, base: SideResults, head: SideR
     const ch = counts(head);
     lines.push(`  status:      ${STATUSES.filter((st) => cb[st] || ch[st]).map((st) => `${st} ${cb[st] ?? 0} → ${ch[st] ?? 0}`).join(", ")}`);
     const changes: Record<string, number> = {};
-    const deltas: Record<string, { delta: number; sessions: number }> = {};
-    let fb = 0;
-    let fh = 0;
+    const byRule: Record<string, { delta: number; sessions: number }> = {};
+    const byCategory: Record<string, { delta: number; sessions: number }> = {};
+    const totals = { findings: [0, 0] as [number, number], categories: {} as Record<string, [number, number]> };
+    let rescanChanged = 0;
+    let suspiciousChanged = 0;
+    const add = (into: typeof byRule, [name, d]: [string, number]) => {
+      const e = (into[name] ??= { delta: 0, sessions: 0 });
+      e.delta += d;
+      e.sessions += 1;
+    };
     for (const s of manifest.sessions) {
       const x = base.sessions[s.path]?.[mode];
       const y = head.sessions[s.path]?.[mode];
       if (!x || !y) continue;
-      if (x.status !== y.status) changes[`${x.status} → ${y.status}`] = (changes[`${x.status} → ${y.status}`] ?? 0) + 1;
-      for (const r of new Set([...Object.keys(x.rules), ...Object.keys(y.rules)])) {
-        fb += x.rules[r] ?? 0;
-        fh += y.rules[r] ?? 0;
-        const d = (y.rules[r] ?? 0) - (x.rules[r] ?? 0);
-        if (!d) continue;
-        const e = (deltas[r] ??= { delta: 0, sessions: 0 });
-        e.delta += d;
-        e.sessions += 1;
-      }
+      for (const n of Object.values(x.rules)) totals.findings[0] += n;
+      for (const n of Object.values(y.rules)) totals.findings[1] += n;
+      for (const [c, n] of Object.entries(x.counts ?? {})) (totals.categories[c] ??= [0, 0])[0] += n;
+      for (const [c, n] of Object.entries(y.counts ?? {})) (totals.categories[c] ??= [0, 0])[1] += n;
+      const d = diffMode(x, y);
+      if (!d) continue;
+      if (d.status) changes[d.status.join(" → ")] = (changes[d.status.join(" → ")] ?? 0) + 1;
+      for (const r of d.rules) add(byRule, r);
+      for (const c of d.categories) add(byCategory, c);
+      if (d.rescan) rescanChanged += 1;
+      if (d.suspicious) suspiciousChanged += 1;
     }
+    const sessions = (n: number) => `${n} session${n === 1 ? "" : "s"}`;
+    const deltaLines = (into: typeof byRule) =>
+      Object.entries(into)
+        .sort((a, b) => Math.abs(b[1].delta) - Math.abs(a[1].delta) || a[0].localeCompare(b[0]))
+        .map(([name, d]) => `    ${signed([name, d.delta])} in ${sessions(d.sessions)}`);
     const changeText = Object.entries(changes).map(([k, n]) => `${k} ${n}`).join(", ");
     lines.push(`  changes:     ${changeText || "none"}`);
-    lines.push(`  findings:    ${fb} → ${fh}`);
-    const sorted = Object.entries(deltas).sort((a, b) => Math.abs(b[1].delta) - Math.abs(a[1].delta) || a[0].localeCompare(b[0]));
-    for (const [rule, d] of sorted) lines.push(`    ${d.delta > 0 ? "+" : ""}${d.delta} ${rule} in ${d.sessions} session${d.sessions === 1 ? "" : "s"}`);
+    lines.push(`  findings:    ${totals.findings[0]} → ${totals.findings[1]}`, ...deltaLines(byRule));
+    const categories = Object.entries(totals.categories).sort((a, b) => a[0].localeCompare(b[0]));
+    lines.push(`  redactions:  ${categories.map(([c, [a, b]]) => `${c} ${a} → ${b}`).join(", ") || "none"}`, ...deltaLines(byCategory));
+    lines.push(`  re-scan:     blocking rules differ in ${sessions(rescanChanged)}, suspicious rules in ${sessions(suspiciousChanged)}`);
     const tb = base.time[mode] ?? 0;
     const th = head.time[mode] ?? 0;
     const slowest = (side: SideResults) => Math.max(0, ...manifest.sessions.map((s) => side.sessions[s.path]?.[mode]?.ms ?? 0));
@@ -238,13 +290,15 @@ export function formatSummary(manifest: Manifest, base: SideResults, head: SideR
       const x = base.sessions[p]?.[m];
       const y = head.sessions[p]?.[m];
       if (!x || !y) return [`${m}: missing`];
-      const rules = [...new Set([...Object.keys(x.rules), ...Object.keys(y.rules)])]
-        .map((r) => [r, (y.rules[r] ?? 0) - (x.rules[r] ?? 0)] as const)
-        .filter(([, d]) => d)
-        .map(([r, d]) => `${d > 0 ? "+" : ""}${d} ${r}`);
-      if (x.status === y.status && !rules.length) return [];
-      const blocking = y.status === "blocked" ? ` [re-scan: ${y.rescan.join(", ")}]` : "";
-      return [`${m}: ${x.status === y.status ? x.status : `${x.status} → ${y.status}`}${blocking}${rules.length ? `; ${rules.join(", ")}` : ""}`];
+      const d = diffMode(x, y);
+      if (!d) return [];
+      const parts = [d.status ? d.status.join(" → ") : x.status];
+      if (d.rules.length) parts.push(d.rules.map(signed).join(", "));
+      if (d.categories.length) parts.push(`redactions ${d.categories.map(signed).join(", ")}`);
+      if (d.rescan) parts.push(`re-scan blocks on ${list(d.rescan[0])} → ${list(d.rescan[1])}`);
+      else if (y.status === "blocked") parts.push(`re-scan blocks on ${list(y.rescan)}`);
+      if (d.suspicious) parts.push(`suspicious ${list(d.suspicious[0])} → ${list(d.suspicious[1])}`);
+      return [`${m}: ${parts.join("; ")}`];
     });
     lines.push(`  ${live.has(p) ? "(live) " : ""}${shown(p)}`, ...parts.map((t) => `    ${t}`));
   }
@@ -259,7 +313,7 @@ export type Finder = (text: string) => PatternMatch[];
 export interface Shape {
   rule: string;
   confidence: string;
-  /** The key it was assigned to, only when that is a plain word (letters, `_`, `-`; a word with digits could be part of a value). */
+  /** The key it was assigned to, as one of `KEY_WORDS` (`password`, or `…_api_key` for a longer name ending in one). */
   key?: string;
   length: number;
   lines: number;
@@ -270,6 +324,26 @@ export interface Shape {
   placeholderPrefix: boolean;
   /** The base found something over part of it (a boundary moved) rather than nothing. */
   overlapsBase: boolean;
+}
+
+/**
+ * The key names `--shape` may print. What sits before a match is not always a key: in `https://<user>:<token>@` or
+ * `<a>=<b>=<token>` it is a username or part of a value. So a key is never printed as found, only as the fixed word from
+ * this list that it is, or ends with after a `_` or `-`.
+ */
+export const KEY_WORDS = [
+  "password", "passwd", "pass", "pwd", "passphrase", "secret", "client_secret", "secret_key", "secret_access_key",
+  "api_key", "apikey", "key", "access_key", "private_key", "token", "access_token", "refresh_token", "auth_token",
+  "id_token", "csrf_token", "xsrf_token", "bearer", "auth", "authorization", "credential", "credentials", "cookie",
+  "session", "signature", "salt", "dsn", "connection_string",
+];
+const BY_LENGTH = [...KEY_WORDS].sort((a, b) => b.length - a.length);
+
+/** The `KEY_WORDS` entry `name` is or ends with, as printed; undefined for any other name. */
+export function keyWord(name: string): string | undefined {
+  const k = name.toLowerCase().replace(/-/g, "_");
+  const w = BY_LENGTH.find((w) => k === w || k.endsWith(`_${w}`));
+  return w === undefined ? undefined : k === w ? w : `…_${w}`;
 }
 
 const PLACEHOLDER_WORD = /^(?:null|none|undefined|true|false|string|number|test|example|your|dummy|placeholder|changeme|redacted|xxx)/i;
@@ -290,8 +364,10 @@ export function newMatchShapes(text: string, base: Finder, head: Finder): Shape[
     .filter((m) => !spans.has(`${m.start}:${m.end}`))
     .map((m) => {
       const v = text.slice(m.start, m.end);
-      const before = text.slice(Math.max(0, m.start - 48), m.start);
-      const key = /(?:^|[^\w-])([A-Za-z_][A-Za-z_-]{0,31})\\*["']?\s*[:=]\s*\\*["'`]?$/.exec(before)?.[1];
+      const before = text.slice(Math.max(0, m.start - 80), m.start);
+      // A name must start after a boundary: the start of the text, or a character no name holds.
+      const name = /[^\w-]([A-Za-z_][\w-]{0,63})\\*["']?\s*[:=]\s*\\*["'`]?$/.exec(m.start > 80 ? before : ` ${before}`)?.[1];
+      const key = name === undefined ? undefined : keyWord(name);
       const classes = [/[a-z]/.test(v) && "lower", /[A-Z]/.test(v) && "upper", /\d/.test(v) && "digit", /[^A-Za-z0-9\s]/.test(v) && "symbol"].filter(Boolean).join("+");
       return {
         rule: m.rule,

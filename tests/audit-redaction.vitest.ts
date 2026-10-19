@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, stat
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { describeSession, formatSummary, readSnapshot, runSide, type Manifest, type SideResults } from "../scripts/audit-redaction.ts";
+import { changedSessions, describeSession, formatSummary, keyWord, newMatchShapes, readSnapshot, runSide, type Manifest, type ModeResult, type SideResults } from "../scripts/audit-redaction.ts";
 import { findSecretPatterns } from "../src/redact/patterns.js";
 import { ClaudeTranscript, PiTranscript, ccUsage, fake, randomish } from "./helpers.js";
 
@@ -73,20 +73,78 @@ describe("audit:redaction", { timeout: 60_000 }, () => {
     const shapes = manifest.sessions.flatMap((s) => describeSession(s, () => [], (t) => findSecretPatterns(t))).join("\n");
     expect(shapes).toMatch(/github\S* \(high\) key=token length 40, lower\+upper\+digit\+symbol/);
     expect(shapes).toMatch(/secret-assignment \(medium\) key=password length 24, lower\+upper\+digit, entropy [\d.]+, escaped quotes/);
-    expect(shapes).toMatch(/anthropic \(high\) key=ANTHROPIC_API_KEY length \d+/);
+    expect(shapes).toMatch(/anthropic \(high\) key=…_api_key length \d+/);
     expectNoFragments(shapes, f.secrets);
     // Nothing new against itself.
     expect(describeSession(manifest.sessions[0]!, (t) => findSecretPatterns(t), (t) => findSecretPatterns(t))).toEqual(["    nothing new from the pattern layer"]);
   });
 
-  it("reads a session as it was when the audit started, up to its last complete line", () => {
+  it("--shape prints a key only as a known secret-key word, never what precedes a match as found", () => {
+    const piece = randomish(12, 5, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
+    const token = fake.github();
+    const find = (t: string) => findSecretPatterns(t);
+    // A URL's user and a piece of a value sit where a key would.
+    for (const text of [`https://${piece}:${token}@example.com`, `auth=${piece}=${token}`, `${piece}: ${token}`]) {
+      const shapes = newMatchShapes(text, () => [], find);
+      expect(shapes.length).toBeGreaterThan(0);
+      expect(shapes.every((s) => s.key === undefined)).toBe(true);
+      expectNoFragments(JSON.stringify(shapes), [piece, token]);
+    }
+    expect(newMatchShapes(`token: ${token}`, () => [], find)[0]?.key).toBe("token");
+    expect(newMatchShapes(`MY_SERVICE_TOKEN=${token}`, () => [], find)[0]?.key).toBe("…_token");
+    expect(keyWord("Authorization")).toBe("authorization");
+    expect(keyWord("db-password")).toBe("…_password");
+    expect(keyWord(piece)).toBeUndefined();
+    expect(keyWord("monkey")).toBeUndefined();
+  });
+
+  it("reads a session as it was when the audit started, cut by those bytes alone", () => {
     const file = join(mkdtempSync(join(tmpdir(), "ovs-audit-test-")), "s.jsonl");
     writeFileSync(file, '{"a":1}\n{"b":2}\n');
     const size = statSync(file).size;
     appendFileSync(file, '{"c":3}\n{"d":');
     expect(readSnapshot(file, size)).toBe('{"a":1}\n{"b":2}\n');
     expect(readSnapshot(file, size + 3)).toBe('{"a":1}\n{"b":2}\n');
-    expect(readSnapshot(file, statSync(file).size)).toBe('{"a":1}\n{"b":2}\n{"c":3}\n{"d":');
+    expect(readSnapshot(file, statSync(file).size)).toBe('{"a":1}\n{"b":2}\n{"c":3}\n');
+    // A last line without a newline is kept when it is complete JSON.
+    writeFileSync(file, '{"a":1}\n{"b":2}');
+    expect(readSnapshot(file, statSync(file).size)).toBe('{"a":1}\n{"b":2}');
+
+    // Listed mid-write: the base side reads before the writer finishes the line, the head side after. Same text.
+    writeFileSync(file, '{"a":1}\n{"b":');
+    const listed = statSync(file).size;
+    const base = readSnapshot(file, listed);
+    appendFileSync(file, '2}\n');
+    expect(readSnapshot(file, listed)).toBe(base);
+    expect(base).toBe('{"a":1}\n');
+  });
+
+  it("counts a change in redactions by category, re-scan or suspicious rules as a change", () => {
+    const f = fakeSessions();
+    const manifest = { ...manifestFor(f), modes: ["full" as const] };
+    const result = (over: Partial<ModeResult> = {}): ModeResult => ({ status: "review", ms: 1, rules: { "github-pat (high)": 1 }, counts: { "secret-pattern": 1, "home-path": 2 }, rescan: [], suspicious: [], ...over });
+    const side = (label: string, claude: Partial<ModeResult>, pi: Partial<ModeResult>): SideResults => ({
+      label,
+      time: { full: 2 },
+      sessions: { [f.claude]: { full: result(claude) }, [f.pi]: { full: result(pi) } },
+    });
+    // Same status and findings: one more home path redacted in one session, the re-scan blocking on another rule in the other.
+    const base = side("main", {}, { status: "blocked", rescan: ["aws-access-key"] });
+    const head = side("working tree", { counts: { "secret-pattern": 1, "home-path": 3 } }, { status: "blocked", rescan: ["jwt"] });
+    expect(changedSessions(manifest, base, head)).toEqual([f.claude, f.pi]);
+    const summary = formatSummary(manifest, base, head).join("\n");
+    expect(summary).toContain("changes:     none");
+    expect(summary).toContain("redactions:  home-path 4 → 5, secret-pattern 2 → 2");
+    expect(summary).toContain("+1 home-path in 1 session");
+    expect(summary).toContain("re-scan:     blocking rules differ in 1 session, suspicious rules in 0 sessions");
+    expect(summary).toContain("full: review; redactions +1 home-path");
+    expect(summary).toContain("full: blocked; re-scan blocks on aws-access-key → jwt");
+
+    const suspicious = side("working tree", {}, { status: "blocked", rescan: ["aws-access-key"] });
+    suspicious.sessions[f.claude]!.full!.suspicious = ["generic-api-key"];
+    expect(changedSessions(manifest, base, suspicious)).toEqual([f.claude]);
+    expect(formatSummary(manifest, base, suspicious).join("\n")).toContain("full: review; suspicious none → generic-api-key");
+    expect(changedSessions(manifest, base, structuredClone(base))).toEqual([]);
   });
 
   it("runs end to end against a git ref, exits 0 and prints no value", () => {

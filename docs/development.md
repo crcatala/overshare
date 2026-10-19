@@ -33,11 +33,13 @@ shrunk counterexample; pin what it found as an example test.
 
 `npm run audit:redaction -- --base main` shows what a change to redaction does to the sessions on your
 machine. It runs `prepareShare` in brief and full mode over every local Claude Code and pi session, once with
-the base ref's `src/` (checked out in a temporary git worktree) and once with the working tree's, and prints
-status changes per mode, finding deltas by rule with the number of sessions, the sessions that changed (by
-file), errors, and the time per mode with any session that got much slower. No known values are read (env,
-`.env`), and nothing it prints or saves holds a value or the text around one: statuses, rule names, counts,
-times and file paths only.
+the base ref's `src/` (checked out in a temporary git worktree) and once with the working tree's. Per mode it
+prints status changes, finding deltas by rule and redaction deltas by category (home paths, emails, the
+username and the hostname are only counted, never named by rule), each with the number of sessions, how many
+sessions the final re-scan blocks on other rules or leaves other suspicious values in, errors, and the time
+with any session that got much slower. Then the sessions where any of that changed, by file. No known values
+are read (env, `.env`), and nothing it prints or saves holds a value or the text around one: statuses, rule
+and category names, counts, times and file paths only.
 
 ```bash
 npm run audit:redaction -- --base main                    # every session; takes a while
@@ -49,10 +51,13 @@ npm run audit:redaction -- --from out/audit-redaction     # compare the saved re
 
 Each side's results are saved as JSON in `out/audit-redaction/` (`--out` to change it). `--shape <file>`
 (repeatable, or `changed`) lists each pattern match the working tree finds in that transcript and the base
-does not, by shape only: rule, the key it was assigned to when that is a plain word, length, lines,
-character classes, entropy, escaped quotes, a leading placeholder word. That is enough to tell a real
-credential from a false positive without printing it. Sessions are read as they were when the audit
-started, so the one being written meanwhile is compared on the same text and labelled `(live)`. Not run in
+does not, by shape only: rule, length, lines, character classes, entropy, escaped quotes, a leading
+placeholder word, and the key it was assigned to when that is a known secret-key word (`password`, or
+`…_api_key` for a longer name ending in one; what precedes a match can be a URL's user or part of a value,
+so it is never printed as found). That is enough to tell a real credential from a false positive without
+printing it. Each session is read up to its size when the audit started, without a last line that isn't
+complete JSON, so the one being written meanwhile is compared on the same text on both sides; sessions that
+changed on disk are labelled `(live)`. Not run in
 CI: it needs your own sessions. Run it for every change to detection, and put its summary (counts, never
 session names) in the PR.
 

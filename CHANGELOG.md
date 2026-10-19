@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Redaction catches four kinds of secret it used to miss. A `password` assignment or an auth header
+  inside JSON that is itself held in a JSON string (`{\"password\":\"…\"}`, as in a log line or an
+  API response a tool printed). A JWT wrapped over several lines. A private key cut off before its
+  `END` line, as in `head id_rsa` or a truncated tool result. And a password that merely starts
+  with a word like `true`, `null` or `string` (`Trueblue2024`), which used to be taken for a
+  placeholder. A token glued straight onto another one is now redacted too, rather than left for
+  the final re-scan to block.
 - `overshare browse` takes a paste in its search boxes: the session list's `/` search, the viewer's
   message search and the filter in dialogs such as Repo. A paste used to be dropped. Pasted line breaks
   and tabs become spaces.

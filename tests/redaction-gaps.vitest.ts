@@ -1,0 +1,155 @@
+/**
+ * Shapes of secret the pattern layer used to miss, and what fast-check found around them:
+ *   - a credential assignment or auth header inside JSON that is itself held in a JSON string (`{\"password\":\"…\"}`),
+ *     as in a log line or an API response a tool printed;
+ *   - a JWT wrapped over lines, each piece too short for the `jwt` rule;
+ *   - a private key cut before its END line (`head id_rsa`, a truncated tool result).
+ * Only fakes, assembled at runtime.
+ */
+import { describe, expect, it } from "vitest";
+import { Redactor } from "../src/redact/index.js";
+import { findSecretPatterns } from "../src/redact/patterns.js";
+import { rescanPayload } from "../src/redact/rescan.js";
+import { fake, randomish } from "./helpers.js";
+
+const machine = { homeDir: "/home/tester", username: "tester" };
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/** `levels` rounds of JSON string encoding, without the outer quotes: text as it sits inside a string of that depth. */
+const nested = (value: unknown, levels: number): string => {
+  let text = JSON.stringify(value);
+  for (let i = 0; i < levels; i++) text = JSON.stringify(text).slice(1, -1);
+  return text;
+};
+
+const jwt = (seed = 5): string => {
+  const part = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64url");
+  return `${part({ alg: "HS256", typ: "JWT" })}.${part({ sub: `user-${randomish(8, seed)}`, exp: 1900000000 })}.${randomish(43, seed + 1, `${B64.slice(0, 62)}-_`)}`;
+};
+
+/** The token cut into lines of `width`, each continuation indented, as a terminal or a log prints it. */
+const wrap = (token: string, width: number, indent = "  "): string[] => {
+  const lines: string[] = [];
+  for (let i = 0; i < token.length; i += width) lines.push(token.slice(i, i + width));
+  return lines.map((l, i) => (i === 0 ? l : indent + l));
+};
+
+const pemLines = (n: number, seed = 41): string[] => Array.from({ length: n }, (_, i) => randomish(64, seed + i, B64));
+const pemHeader = () => ["-----BEGIN ", "PRIVATE KEY-----"].join("");
+
+describe("escaped JSON", () => {
+  it.each([1, 2])("redacts a password assigned in JSON held in %i level(s) of string", (levels) => {
+    const value = `Pw${randomish(16, 3)}`;
+    const r = new Redactor(machine);
+    const out = r.redactText(`response: ${nested({ user: "app", password: value }, levels)}`, "test");
+    expect(out).not.toContain(value);
+    expect(out).toContain("[REDACTED:secret-assignment]");
+    expect(rescanPayload(JSON.stringify({ text: out })).issues).toEqual([]);
+  });
+
+  it("keeps the escaped quotes around the value", () => {
+    const value = `Pw${randomish(16, 3)}`;
+    const out = new Redactor(machine).redactText(nested({ password: value }, 1), "test");
+    expect(out).toBe('{\\"password\\":\\"[REDACTED:secret-assignment]\\"}');
+  });
+
+  it("redacts an auth header in escaped JSON", () => {
+    const value = randomish(40, 9);
+    const out = new Redactor(machine).redactText(nested({ headers: { Authorization: `Bearer ${value}` } }, 1), "test");
+    expect(out).not.toContain(value);
+  });
+
+  it.each(["true", "False", "null", "none", "undefined", "string", "number"])(
+    "redacts a value that only starts with the keyword %s (found by fast-check)",
+    (word) => {
+      const value = `${word}${randomish(10, 21)}7`;
+      expect(new Redactor(machine).redactText(`{"password":"${value}"}`, "test")).not.toContain(value);
+    },
+  );
+
+  it.each(["true", "null", "undefined"])("still treats the bare keyword %s as a placeholder", (word) => {
+    expect(findSecretPatterns(`password = "${word}"`)).toEqual([]);
+  });
+
+  it("still takes an unquoted value with a backslash whole", () => {
+    const value = `ab\\${randomish(12, 4)}`;
+    const [m] = findSecretPatterns(`password=${value} next`);
+    expect(m).toMatchObject({ rule: "secret-assignment" });
+  });
+});
+
+describe("wrapped JWT", () => {
+  it.each([20, 40, 64])("redacts a JWT wrapped at %i columns, leaving the next line", (width) => {
+    const token = jwt(width);
+    const lines = wrap(token, width);
+    const r = new Redactor(machine);
+    const out = r.redactText(`Bearer token:\n${lines.join("\n")}\nNext line of prose`, "test");
+    expect(out).toContain("[REDACTED:jwt]");
+    for (const line of lines) expect(out).not.toContain(line.trim());
+    expect(out.endsWith("\nNext line of prose")).toBe(true);
+    expect(rescanPayload(JSON.stringify({ text: out })).issues).toEqual([]);
+  });
+
+  it("redacts one wrapped between the `e` and `y` of its payload", () => {
+    const token = jwt(7);
+    const dot = token.indexOf(".");
+    const out = new Redactor(machine).redactText(`${token.slice(0, dot + 2)}\n${token.slice(dot + 2)}`, "test");
+    expect(out).toBe("[REDACTED:jwt]");
+  });
+
+  it("redacts one glued to the end of another token (found by fast-check)", () => {
+    const token = jwt(3);
+    const out = new Redactor(machine).redactText(`${fake.age()}${wrap(token, 12).join("\n")}`, "test");
+    expect(out).toBe("[REDACTED:age-secret-key][REDACTED:jwt]");
+  });
+
+  it("leaves prose that only looks like one", () => {
+    expect(findSecretPatterns("eyes looked up at the sky.\neyelids drooping over everything.\nsomething else here")).toEqual([]);
+  });
+
+  it("is high confidence: the re-scan blocks one left in the payload", () => {
+    const wrapped = wrap(jwt(), 30).join("\n");
+    expect(rescanPayload(JSON.stringify({ text: wrapped })).issues.map((i) => i.rule)).toContain("jwt");
+  });
+});
+
+describe("truncated private key", () => {
+  it("redacts the header and body lines of `head id_rsa`, leaving the prose after it", () => {
+    const body = pemLines(3);
+    const r = new Redactor(machine);
+    const out = r.redactText(`$ head -4 id_rsa\n${pemHeader()}\n${body.join("\n")}\nthat was the key`, "test");
+    for (const line of body) expect(out).not.toContain(line);
+    expect(out).toBe("$ head -4 id_rsa\n[REDACTED:private-key-truncated]\nthat was the key");
+  });
+
+  it("redacts one with escaped line breaks", () => {
+    const body = pemLines(2);
+    const out = new Redactor(machine).redactText(nested({ key: `${pemHeader()}\n${body.join("\n")}` }, 0), "test");
+    for (const line of body) expect(out).not.toContain(line);
+  });
+
+  it("redacts a last line cut short with text after it (found by fast-check)", () => {
+    const body = pemLines(2);
+    const cut = randomish(30, 77, B64);
+    const out = new Redactor(machine).redactText(`${pemHeader()}\n${body.join("\n")}\n${cut}… [output truncated]`, "test");
+    expect(out).not.toContain(cut);
+    expect(out).toBe("[REDACTED:private-key-truncated]… [output truncated]");
+  });
+
+  it("leaves a header with no key under it", () => {
+    expect(findSecretPatterns(`if (line === "${pemHeader()}") {\n  start\n}`)).toEqual([]);
+  });
+
+  it("reports a complete key whole, not as truncated", () => {
+    const text = `key:\n${fake.pem()}\n`;
+    const matches = findSecretPatterns(text);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.rule).not.toBe("private-key-truncated");
+    expect(text.slice(matches[0]?.start, matches[0]?.end)).toBe(fake.pem());
+  });
+
+  it("is high confidence: the re-scan blocks one left in the payload", () => {
+    const text = `${pemHeader()}\n${pemLines(2).join("\n")}`;
+    expect(rescanPayload(JSON.stringify({ text })).issues.map((i) => i.rule)).toContain("private-key-truncated");
+  });
+});

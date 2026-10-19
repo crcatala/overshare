@@ -95,8 +95,9 @@ export function looksLikeCredential(value: string): boolean {
   return shannonEntropy(value) >= 2.75;
 }
 
+// Literal keywords (`null`, `true`, `string`…) only as the whole value: as a prefix they would pass `Trueblue2024`.
 const PLACEHOLDER_VALUE =
-  /^(\$|%|<|\{\{|\$\{|process\.env|os\.environ|env\.|secrets\.|\*{3,}|x{4,}|\.{3}|…|\[REDACTED|your[_-]|example|changeme|placeholder|dummy|test|null|none|undefined|true|false|string|number|redacted|<redacted>)/i;
+  /^(\$|%|<|\{\{|\$\{|process\.env|os\.environ|env\.|secrets\.|\*{3,}|x{4,}|\.{3}|…|\[REDACTED|your[_-]|example|changeme|placeholder|dummy|test|redacted|<redacted>|(?:null|none|undefined|true|false|string|number)$)/i;
 
 /** Values assigned to secret-looking keys that are clearly not literal secrets. */
 export function isPlaceholderValue(value: string): boolean {
@@ -121,12 +122,16 @@ export function isLiteralSecretValue(value: string): boolean {
 export const SENSITIVE_KEY =
   /(pass(word|wd|phrase)?|pwd|psw|(^|[_.-])pw($|[_.-])|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|bearer|credential|session[_-]?token|^token$|[_-]token$)/i;
 
+// Quotes may be backslash-escaped, as in JSON held in a JSON string (`{\"password\":\"…\"}`, a log line or an API
+// response printed by a tool): the closing quote must be escaped the same way, and a backslash only ends the value
+// when it escapes a quote, so an unquoted value can still hold one.
 const ASSIGNMENT =
-  /\b((?:[A-Za-z_][\w.-]*?)?(?:pass(?:word|wd|phrase)?|pwd|psw|[_.-]pw(?![A-Za-z])|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|token|credential)[\w-]*)["']?\s*(?:[:=]|=>)\s*(["'`]?)([^\s"'`,;]{8,})\2/gi;
+  /\b((?:[A-Za-z_][\w.-]*?)?(?:pass(?:word|wd|phrase)?|pwd|psw|[_.-]pw(?![A-Za-z])|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|token|credential)[\w-]*)(?:\\{1,7})?["']?\s*(?:[:=]|=>)\s*((?:\\{1,7})?["'`]|)((?:[^\s"'`,;\\]|\\(?!\\*["'`])){8,})\2/gi;
 const URL_CREDENTIALS = /\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@'"]+:([^\s@/'"]+)@/gi;
 // Header and header-like names that carry a credential: `Authorization`, `X-Api-Key`, `X-Amz-Security-Token`,
 // `Private-Token` (GitLab). Reached through curl's `-H`/`--header` as well, since the header text is what matches.
-const AUTH_HEADER = /\b(?:(?:proxy-)?authorization|x-[a-z0-9-]*(?:api-?key|auth-?token|access-?token|security-?token|secret|token|key)|api-?key|private-token)["']?\s*[:=]\s*["']?(?:bearer|basic|token)?\s*([A-Za-z0-9._~+/=-]{12,})/gi;
+// Quotes may be backslash-escaped, as in `ASSIGNMENT`.
+const AUTH_HEADER = /\b(?:(?:proxy-)?authorization|x-[a-z0-9-]*(?:api-?key|auth-?token|access-?token|security-?token|secret|token|key)|api-?key|private-token)(?:\\{1,7})?["']?\s*[:=]\s*(?:\\{1,7})?["']?(?:bearer|basic|token)?\s*([A-Za-z0-9._~+/=-]{12,})/gi;
 // curl's `-u`/`--user` (and `-U`/`--proxy-user`) `user:password`, in the forms a shell accepts:
 // - the flag as `--user x`, `--user=x`, `-u x`, attached `-ux`, or inside a cluster `-su x`;
 // - the value bare, or quoted when the password holds spaces or shell characters (`"user:pa ss"`, `'user:p&q'`),
@@ -141,6 +146,25 @@ const CURL_USER =
   /\bcurl\b(?:\\\r?\n|[^\n|;&]){0,1500}?(?<=\s)(?:-[A-Za-z]*[uU]|--(?:proxy-)?user)[ \t=]*(?:(?<=[ \t=])"[^\s":\\]*:((?:[^"\\]|\\.){1,200})"|(?<=[ \t=])'[^\s':]*:([^']{1,200})'|[^\s:"'`;|&<>)]*:(?:"((?:[^"\\]|\\.){1,200})"|'([^']{1,200})'|([^\s"'`;|&<>)]+)))/g;
 const AGE_SECRET_KEY = /AGE-SECRET-KEY-1[0-9A-Z]{58}/g;
 const PEM_BLOCK = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
+// A private key cut before its END line (`head id_rsa`, a tool result the harness truncated): the header and the lines
+// of base64 (or PEM headers like `Proc-Type:`) that follow it, with real or escaped (`\n`) line breaks. A short line must
+// be base64 to its end, so a word of the prose after the key is not taken; a line of 16 or more base64 characters is
+// key material even when something follows it on the line (the cut, a truncation marker), and ends the match. One blank
+// line may follow the PEM headers.
+const PEM_TRUNCATED =
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----(?:[ \t]*(?:\r?\n|(?:\\r)?\\n)(?:[ \t]*(?:\r?\n|(?:\\r)?\\n))?[ \t]*(?:[A-Za-z0-9+/=]{16,}|(?:[A-Za-z0-9+/=]+|(?:Proc-Type|DEK-Info|Comment):[^\r\n\\]*)(?=[ \t]*(?:\r?\n|\\[rn]|["'`]|$))))+/g;
+/** Base64 a truncated key must hold past its header, so a header quoted alone (or above a word) is not a finding. */
+const PEM_MIN_BODY = 40;
+// A JWT wrapped over lines (a terminal, a log): too broken up for the `jwt` rule. Header and payload may wrap anywhere,
+// even between the `e` and `y` that start them, since a `.` ends each; a line of the signature only continues it when
+// the line is token characters to its end.
+const JWT_PIECE = "[A-Za-z0-9_-]";
+const LINE_BREAK = "[ \\t]*\\r?\\n[ \\t]*";
+const JWT_PART = `e(?:${LINE_BREAK})?y${JWT_PIECE}*(?:${LINE_BREAK}${JWT_PIECE}+)*(?:${LINE_BREAK})?\\.(?:${LINE_BREAK})?`;
+const WRAPPED_JWT = new RegExp(
+  `(?<![A-Za-z0-9_-])${JWT_PART}${JWT_PART}${JWT_PIECE}+(?:${LINE_BREAK}${JWT_PIECE}+(?=[ \\t]*(?:\\r?\\n|$)))*`,
+  "g",
+);
 
 /**
  * Documentation/sample credentials (AWS's `AKIAIOSFODNN7EXAMPLE`, `ghp_1234567890abcdef...`)
@@ -170,6 +194,14 @@ function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] 
   }
   for (const m of text.matchAll(AGE_SECRET_KEY)) found.push({ rule: "age-secret-key", start: m.index, end: m.index + m[0].length, confidence: "high" });
   for (const m of text.matchAll(PEM_BLOCK)) found.push({ rule: "private-key-block", start: m.index, end: m.index + m[0].length, confidence: "high" });
+  // A complete block also matches here, as a shorter span without its END line; overlap resolution keeps the block.
+  for (const m of text.includes("PRIVATE KEY-----") ? text.matchAll(PEM_TRUNCATED) : []) {
+    const body = m[0].slice(m[0].indexOf("-----", 5) + 5).replace(/\\[rn]|[^A-Za-z0-9+/=]/g, "");
+    if (body.length >= PEM_MIN_BODY) found.push({ rule: "private-key-truncated", start: m.index, end: m.index + m[0].length, confidence: "high" });
+  }
+  for (const m of text.includes("\n") && text.includes(".") ? text.matchAll(WRAPPED_JWT) : []) {
+    if (m[0].includes("\n") && isWrappedJwt(m[0].replace(/\s+/g, ""))) found.push({ rule: "jwt", start: m.index, end: m.index + m[0].length, confidence: "high" });
+  }
   for (const m of text.matchAll(ASSIGNMENT)) {
     const value = m[3] ?? "";
     if (!isLiteralSecretValue(value)) continue;
@@ -205,6 +237,21 @@ function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] 
       return !allow.has(value) && !fake && !insidePlaceholder(text, f.start);
     }),
   );
+}
+
+/**
+ * A wrapped candidate, its whitespace removed, is a JWT when its header decodes to a JSON object naming an algorithm or a
+ * type: prose that happens to run `ey…`, `.`, `ey…`, `.` across lines does not.
+ */
+function isWrappedJwt(compact: string): boolean {
+  const [header, payload, signature] = compact.split(".");
+  if (!header || !payload || !signature || header.length < 19 || payload.length < 19 || signature.length < 10) return false;
+  try {
+    const decoded: unknown = JSON.parse(Buffer.from(header, "base64url").toString("utf8"));
+    return typeof decoded === "object" && decoded !== null && ("alg" in decoded || "typ" in decoded);
+  } catch {
+    return false;
+  }
 }
 
 const TOKEN_CHAR = /[A-Za-z0-9+/=_-]/;

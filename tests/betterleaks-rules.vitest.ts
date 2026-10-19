@@ -47,7 +47,13 @@ describe("the committed rule table", () => {
 describe("translateRegex", () => {
   it("hoists a leading (?i) to the i flag and leaves the rest as written", () => {
     expect(translateRegex("(?i)abc[a-f0-9]{3}")).toEqual({ source: "abc[a-f0-9]{3}", flags: "i" });
-    expect(translateRegex("(?im)^key")).toEqual({ source: "^key", flags: "im" });
+  });
+
+  it("gives multi-line ^ and $ Go's meaning, which breaks lines at \\n only", () => {
+    expect(translateRegex("(?im)^key$")).toEqual({ source: "(?<![^\\n])key(?![^\\n])", flags: "i" });
+    expect(matches("(?m)^ab$", "ab\r\nab\nab")).toEqual(["ab", "ab"]);
+    expect(matches("(?m)^ab$", "x\u2028ab")).toEqual([]);
+    expect(matches("(?m)[$^]", "a$^")).toEqual(["$", "^"]);
   });
 
   it("spells out a mid-pattern (?i) up to the end of its group, as Go scopes it", () => {
@@ -82,6 +88,12 @@ describe("translateRegex", () => {
     expect(matches("\\Aab", "ab ab")).toEqual(["ab"]);
     expect(matches("[[:alnum:]]+", "ab:12_c")).toEqual(["ab", "12", "c"]);
     expect(translateRegex("(?P<key>x)").source).toBe("(?<key>x)");
+  });
+
+  it("keeps a ] first in a class as a member, as Go does", () => {
+    expect(matches("x[]a]", "x] xa xb")).toEqual(["x]", "xa"]);
+    expect(matches("x[^]a]", "x] xa xb")).toEqual(["xb"]);
+    expect(matches("(?i)x[]a]", "X] XA")).toEqual(["X]", "XA"]);
   });
 
   it("keeps escapes JavaScript reads the same way as written", () => {

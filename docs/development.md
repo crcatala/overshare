@@ -200,10 +200,10 @@ prints what it skipped and which rules lost part of their filtering. Detection d
 - **Regexes** are written for Go's engine and rewritten for JavaScript on Node 22, which has no `(?i:…)`:
   case-insensitivity that covers only part of a pattern is spelled out letter by letter (`[a-z]` →
   `[a-zA-Z]`), and syntax JavaScript reads differently is given Go's meaning (`.`, `\s`, `\z`,
-  `[[:alnum:]]`). A rule that can't be rewritten faithfully is skipped with the reason. Two small differences
-  remain, both outside ASCII: JavaScript counts a character outside the Basic Multilingual Plane (an emoji)
-  as two in a repeat count, Go as one, and Go's case-insensitive matching also folds a few non-ASCII letters
-  (the Kelvin sign as `k`).
+  `[[:alnum:]]`, multi-line `^` and `$`, a `]` first in a class). A rule that can't be rewritten faithfully is
+  skipped with the reason. Two small differences remain, both outside ASCII: JavaScript counts a character
+  outside the Basic Multilingual Plane (an emoji) as two in a repeat count, Go as one, and Go's
+  case-insensitive matching also folds a few non-ASCII letters (the Kelvin sign as `k`).
 - **Filters** are written in Betterleaks' expression language and aren't ported, except an entropy
   threshold: a filter discards a finding when any of its `||` clauses holds, so its entropy clause can be
   kept alone. What else a rule loses (`tokenRatio`, `matchesAny`, a required component) is listed under

@@ -319,11 +319,13 @@ function otherCase(lo: number, hi: number): [number, number][] {
 /**
  * Rewrites a Go regex for JavaScript (no `u` flag, Node 22): `(?P<n>` → `(?<n>`; a leading `(?i)` → the `i` flag, or,
  * when case-insensitivity covers only part of the pattern (`p8e-(?i)[a-z]`, `(?i:…)`, `(?-i:…)`), the letters it
- * covers spelled out (`[a-z]` → `[a-zA-Z]`, `k` → `[kK]`); a leading `(?m)` → the `m` flag; `\z` and `\A` →
- * lookarounds; `[[:alnum:]]` → ranges; `\a` → `\x07`. Where both accept the same syntax with different meanings, Go's
- * is spelled out: `.` → `[^\n]` (`[\s\S]` under `(?s)`; JavaScript's `.` also stops at `\r`), `\s` → `[\t\n\f\r ]`
- * (JavaScript's also matches `\v` and Unicode spaces). Throws on anything without a faithful rewrite (`\p{…}`,
- * `\Q…\E`, ungreedy mode, multi-line mode set mid-pattern, `\S` mixed into a class, a code point above U+FFFF).
+ * covers spelled out (`[a-z]` → `[a-zA-Z]`, `k` → `[kK]`); `\z` and `\A` → lookarounds; `[[:alnum:]]` → ranges;
+ * `\a` → `\x07`. Where both accept the same syntax with different meanings, Go's is spelled out: `.` → `[^\n]`
+ * (`[\s\S]` under `(?s)`; JavaScript's `.` also stops at `\r`), `\s` → `[\t\n\f\r ]` (JavaScript's also matches `\v`
+ * and Unicode spaces), `^` and `$` under a leading `(?m)` → `(?<![^\n])` and `(?![^\n])` (the `m` flag also breaks
+ * lines at `\r`), and a `]` first in a class is escaped (JavaScript would close the class there). Throws on anything
+ * without a faithful rewrite (`\p{…}`, `\Q…\E`, ungreedy mode, multi-line mode set mid-pattern, `\S` mixed into a
+ * class, a code point above U+FFFF).
  */
 export function translateRegex(go: string): { source: string; flags: string } {
   const lead = /^\(\?([a-zA-Z]+)\)/.exec(go);
@@ -333,7 +335,7 @@ export function translateRegex(go: string): { source: string; flags: string } {
     start[f] = true;
   }
   const body = lead ? go.slice(lead[0].length) : go;
-  const flags = (byFlag: boolean) => (byFlag ? "i" : "") + (start.m ? "m" : "");
+  const flags = (byFlag: boolean) => (byFlag ? "i" : "");
   if (start.i) {
     try {
       return { source: rewrite(body, { i: true, s: start.s }, true, start.m), flags: flags(true) };
@@ -428,6 +430,8 @@ function rewrite(src: string, initial: Scope, byFlag: boolean, multiline: boolea
     };
     for (let first = true; first || src[pos] !== "]"; first = false) {
       if (pos >= src.length) unsupported("unterminated class");
+      // Go reads a `]` first in a class as a member; JavaScript would close the class there (`[]a]`, `[^]a]`).
+      if (first && src[pos] === "]") rebuild = true;
       const named = /^\[:(\^?)([a-z]+):\]/.exec(src.slice(pos, pos + 12));
       if (named) {
         if (named[1] || !(named[2]! in POSIX)) unsupported(`class [:${named[1]}${named[2]}:]`);
@@ -507,6 +511,9 @@ function rewrite(src: string, initial: Scope, byFlag: boolean, multiline: boolea
       out += ")";
       pos++;
     } else if (c === ".") (out += scope.s ? "[\\s\\S]" : "[^\\n]"), pos++;
+    // Go's multi-line `^` and `$` break lines at `\n` only; JavaScript's `m` flag also breaks at `\r`, U+2028 and U+2029.
+    else if (multiline && c === "^") (out += "(?<![^\\n])"), pos++;
+    else if (multiline && c === "$") (out += "(?![^\\n])"), pos++;
     else {
       const cp = src.codePointAt(pos)!;
       pos += cp > 0xffff ? 2 : 1;

@@ -72,6 +72,8 @@ export const OWN_SESSION_FIELDS: ReadonlySet<string> = new Set([
 
 /** Distinct pattern-matched values kept for the fragment check: each costs a scan of the payload. */
 const MAX_MATCHED = 200;
+/** Pattern passes over one string: a later pass runs only when the one before it redacted something. */
+const PATTERN_ROUNDS = 4;
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -195,8 +197,12 @@ export class Redactor {
         return "[REDACTED]";
       });
     }
-    const matches = findSecretPatterns(out, this.allow);
-    if (matches.length) {
+    // A redaction can expose a match its neighbour hid: a token glued to the end of another starts after a token
+    // character, which the rules refuse, until the first is replaced and it starts after `]`. Scan again until nothing
+    // new is found; the final re-scan, which would block it, stays the backstop past the last round.
+    for (let round = 0; round < PATTERN_ROUNDS; round++) {
+      const matches = findSecretPatterns(out, this.allow);
+      if (!matches.length) break;
       // One pass over the matches, which are ordered and disjoint, with the pieces joined once: splicing the string
       // per match is quadratic when a large string has thousands of them (ass-7x3c measured 21 s for 15k in 5 MB).
       const pieces: string[] = [];

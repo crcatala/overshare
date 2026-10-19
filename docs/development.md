@@ -25,6 +25,12 @@ npm run test:package             # pack the npm tarball, install it, and run the
 Fixtures are generated in code and fake secrets are assembled at runtime, so the test suite never
 holds a real-looking credential in a source file.
 
+`tests/redact-properties.vitest.ts` holds property-based tests ([fast-check](https://fast-check.dev)) for
+redaction: invariants checked on generated input rather than hand-picked examples. Each runs 100
+cases in `npm test`; search longer locally with
+`FC_NUM_RUNS=20000 npx vitest run tests/redact-properties.vitest.ts`. A failure prints its seed and a
+shrunk counterexample; pin what it found as an example test.
+
 ## How it fits together
 
 Transcripts are normalized into one harness-agnostic format (`overshare/1`), projected to a share

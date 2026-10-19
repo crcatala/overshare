@@ -23,7 +23,14 @@ In order (see `src/redact/`):
    not a fragment of a longer token). Plus own rules: `password=`-style assignments
    (including `psw` and `_pw` names), URL credentials, auth headers (`Authorization`, `X-Api-Key`,
    `Private-Token`, …), `curl -u user:password`, sensitive JSON keys, age secret keys, PEM blocks.
-   Documentation examples (`…EXAMPLE`, sequential runs) are ignored.
+   Assignments and auth headers are also found in JSON held in a JSON string, where their quotes are
+   escaped (`{\"password\":\"…\"}`). A JWT wrapped over lines is put back together to be recognised
+   (its header must decode to JSON naming an algorithm or type), and a private key cut before its
+   `END` line (`head id_rsa`) is redacted from its header through the base64 lines that follow.
+   Documentation examples (`…EXAMPLE`, sequential runs) are ignored. Patterns run again on a string
+   they changed, until nothing new is found: a token glued to the end of another is only
+   recognisable once the first is replaced. When two matches overlap, the longer names the rule and
+   the redaction covers both, so no part of either is left behind.
 
    Two parts are hand-written rather than taken from that library (`src/redact/token-formats.ts`):
    a table of about 60 provider token formats recognised by their own prefix when printed bare

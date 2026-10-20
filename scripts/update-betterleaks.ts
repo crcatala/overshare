@@ -323,7 +323,8 @@ function otherCase(lo: number, hi: number): [number, number][] {
  * `\a` → `\x07`. Where both accept the same syntax with different meanings, Go's is spelled out: `.` → `[^\n]`
  * (`[\s\S]` under `(?s)`; JavaScript's `.` also stops at `\r`), `\s` → `[\t\n\f\r ]` (JavaScript's also matches `\v`
  * and Unicode spaces), `^` and `$` under a leading `(?m)` → `(?<![^\n])` and `(?![^\n])` (the `m` flag also breaks
- * lines at `\r`), and a `]` first in a class is escaped (JavaScript would close the class there). Throws on anything
+ * lines at `\r`), and a `]` first in a class is escaped (JavaScript would close the class there). Go's any-character idiom
+ * `(?:.|[\n\r])` becomes `[\s\S]`: its branches overlap at `\r`, which backtracks badly in JavaScript. Throws on anything
  * without a faithful rewrite (`\p{…}`, `\Q…\E`, ungreedy mode, multi-line mode set mid-pattern, `\S` mixed into a
  * class, a code point above U+FFFF).
  */
@@ -346,6 +347,8 @@ export function translateRegex(go: string): { source: string; flags: string } {
   return { source: rewrite(body, { i: start.i, s: start.s }, false, start.m), flags: flags(false) };
 }
 
+const ANY_CHAR = /\(\?:(?:\.\|\[(?:\\n\\r|\\r\\n)\]|\[(?:\\n\\r|\\r\\n)\]\|\.)\)/y;
+
 /** `byFlag`: the `i` flag carries case-insensitivity, so letters are left alone and turning it off is not possible. */
 function rewrite(src: string, initial: Scope, byFlag: boolean, multiline: boolean): string {
   let pos = 0;
@@ -353,6 +356,7 @@ function rewrite(src: string, initial: Scope, byFlag: boolean, multiline: boolea
   const stack: Scope[] = [];
   let out = "";
   const expand = (s: Scope) => s.i && !byFlag;
+  const anyChar = () => ((ANY_CHAR.lastIndex = pos), ANY_CHAR.test(src));
 
   const setFlags = (on: string, off: string, target: Scope): Scope => {
     const next = { ...target };
@@ -504,6 +508,9 @@ function rewrite(src: string, initial: Scope, byFlag: boolean, multiline: boolea
         out += cp !== undefined && expand(scope) && isLetter(cp) ? `[${literal(cp, true)}${literal(cp ^ 32, true)}]` : text;
       }
     } else if (c === "[") charClass();
+    // Go's idiom for any character, `(?:.|[\n\r])`: both branches match `\r`, which costs Go nothing and JavaScript a
+    // backtracking step per `\r`, exponential under a repeat (`{0,32}?`). One class matches the same and cannot.
+    else if (anyChar()) (pos = ANY_CHAR.lastIndex), (out += "[\\s\\S]");
     else if (c === "(") group();
     else if (c === ")") {
       if (stack.length === 0) unsupported("unbalanced )");

@@ -83,6 +83,17 @@ describe("translateRegex", () => {
     expect(matches("a\\Sb", "a\vb a b")).toEqual(["a\vb"]);
   });
 
+  it("writes Go's any-character idiom (?:.|[\\n\\r]) as one class, which cannot backtrack on \\r", () => {
+    expect(translateRegex("(?i)ab(?:.|[\\n\\r]){0,32}?c")).toEqual({ source: "ab[\\s\\S]{0,32}?c", flags: "i" });
+    expect(translateRegex("a(?:[\\r\\n]|.)b").source).toBe("a[\\s\\S]b");
+    expect(translateRegex("a(?:.|[\\r])b").source).toBe("a(?:[^\\n]|[\\r])b");
+    expect(matches("a(?:.|[\\n\\r]){0,3}b", "a\r\nxb")).toEqual(["a\r\nxb"]);
+    // 28 `\r` and no match: the two-branch form takes seconds here (it doubles with each one).
+    const start = performance.now();
+    expect(matches("x(?:.|[\\n\\r]){0,32}?y", `x${"\r".repeat(28)}`)).toEqual([]);
+    expect(performance.now() - start).toBeLessThan(100);
+  });
+
   it("rewrites what JavaScript would read differently: \\z, \\A, POSIX classes, (?P<name>", () => {
     expect(matches("ab\\z", "ab\nab")).toEqual(["ab"]);
     expect(matches("\\Aab", "ab ab")).toEqual(["ab"]);

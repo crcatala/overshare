@@ -1,4 +1,5 @@
-import { scan, shannonEntropy } from "@sanity-labs/secret-scan";
+import { scan } from "@sanity-labs/secret-scan";
+import { shannonEntropy } from "./entropy.js";
 import { findBetterleaks } from "./betterleaks.js";
 import { findAwsSecretKeys, findTokenFormats } from "./token-formats.js";
 

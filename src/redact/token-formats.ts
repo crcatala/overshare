@@ -1,4 +1,4 @@
-import { shannonEntropy } from "@sanity-labs/secret-scan";
+import { shannonEntropy } from "./entropy.js";
 import type { PatternMatch } from "./patterns.js";
 
 /**

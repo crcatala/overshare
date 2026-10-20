@@ -1,5 +1,5 @@
 import { inspect } from "node:util";
-import { shannonEntropy } from "@sanity-labs/secret-scan";
+import { shannonEntropy } from "./entropy.js";
 
 const MASK = "[redacted]";
 

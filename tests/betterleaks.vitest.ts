@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { RULES, findBetterleaks, rulesFor } from "../src/redact/betterleaks.js";
+import { RULES, findBetterleaks, firstGroupHoldsAll, rulesFor } from "../src/redact/betterleaks.js";
 import enabled from "../src/redact/betterleaks-enabled.json" with { type: "json" };
 import table from "../src/redact/betterleaks-rules.json" with { type: "json" };
 import { Redactor } from "../src/redact/index.js";
@@ -14,6 +14,8 @@ let seed = 101;
 const body = (n: number, alphabet = ALNUM) => randomish(n, (seed += 7), alphabet);
 
 const rulesOf = (text: string) => findBetterleaks(text).map((m) => m.rule);
+const b64url = (json: object) => Buffer.from(JSON.stringify(json)).toString("base64url");
+const uuid = () => [8, 4, 4, 4, 12].map((n) => body(n, LOWER_DIGITS)).join("-");
 
 describe("the enabled list", () => {
   const high = table.rules.filter((r) => r.confidence === "high").map((r) => r.id);
@@ -97,6 +99,25 @@ describe("Betterleaks detection", () => {
     const text = `sonar_token = ${secret}\n`;
     const [m] = findBetterleaks(text).filter((f) => f.rule === "sonar-api-token");
     expect(text.slice(m?.start, m?.end)).toBe(secret);
+  });
+
+  // Their first group is one of the alternatives a base64-encoded JWT header starts with, and one UUID segment.
+  it.each([
+    ["jwt-base64", () => Buffer.from(`${b64url({ alg: "HS256", typ: "JWT" })}.${b64url({ sub: body(16) })}.${body(43)}`).toString("base64").replace(/=+$/, "")],
+    ["microsoft-teams-webhook", () => `https://${body(8, LOWER_DIGITS)}.${["web", "hook"].join("")}.office.com/webhookb2/${uuid()}@${uuid()}/IncomingWebhook/${body(32, LOWER_DIGITS)}/${uuid()}`],
+  ])("redacts the whole of a %s, whose first group is only a piece of it", (rule, token) => {
+    const value = token();
+    expect(new Redactor().redactText(`value: ${value}\n`)).toBe(`value: [REDACTED:${rule}]\n`);
+  });
+
+  it("redacts the whole match only where the first group does not hold the others", () => {
+    const groups = (r: (typeof RULES)[number]) => new RegExp(`${r.re.source}|`).exec("")!.length - 1;
+    expect(RULES.filter((r) => r.group === undefined && groups(r) > 0).map((r) => r.id)).toEqual(["jwt-base64", "microsoft-teams-webhook"]);
+    expect(firstGroupHoldsAll("((a)(?<n>b))")).toBe(true);
+    expect(firstGroupHoldsAll("(?:x)(a)[(]\\((?<=y)")).toBe(true);
+    expect(firstGroupHoldsAll("(a)(b)")).toBe(false);
+    expect(firstGroupHoldsAll("(?:(a)|(b))")).toBe(false);
+    expect(firstGroupHoldsAll("abc")).toBe(false);
   });
 
   it("drops a match under the rule's entropy threshold", () => {

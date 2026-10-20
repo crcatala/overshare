@@ -217,6 +217,10 @@ high-confidence rules that `src/redact/betterleaks-enabled.json` enables.
   release that brings a new high-confidence rule leaves it off: `update:betterleaks` lists it as not yet
   decided and `tests/betterleaks.vitest.ts` fails until it is added to one of the two. Medium- and
   low-confidence rules aren't used.
+- **What is redacted** is the rule's value group. Where a rule names none, Betterleaks reports its first
+  group that matched; overshare uses group 1 only when it holds every other group, and otherwise redacts the
+  whole match, since in a few rules (`jwt-base64`, `microsoft-teams-webhook`) the first group is only a piece
+  of the token.
 - **Backtracking.** The rules were written for Go's regex engine, which runs in linear time; JavaScript's
   backtracks. `tests/betterleaks-backtracking.vitest.ts` times every enabled rule on long adversarial strings
   built from its own keywords and character classes, and fails a rule over budget. It found two: Go's

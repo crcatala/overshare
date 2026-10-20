@@ -16,7 +16,7 @@ interface Rule {
   id: string;
   re: RegExp;
   keywords: readonly string[];
-  /** The capture group that holds the secret; without one, the first group that matched, else the whole match. */
+  /** The capture group that holds the secret; without one, the whole match. */
   group?: number;
   /** Keep a finding only when the value's Shannon entropy is above (`>`) or at least (`>=`) the threshold. */
   entropy?: readonly [string, number];
@@ -33,6 +33,30 @@ interface TableRule {
 
 const ENABLED = new Set(enabled.enabled);
 
+/**
+ * Whether a regex's first capture group holds every other one, so that it spans the whole value. Where a rule names no
+ * value group, Betterleaks reports its first group that matched, but in a few rules that is only a piece of the token:
+ * one of the alternatives jwt-base64 starts with, or one of microsoft-teams-webhook's UUID segments. Redacting that
+ * piece would publish the rest, so such a rule redacts its whole match instead.
+ */
+export function firstGroupHoldsAll(source: string): boolean {
+  const open: boolean[] = []; // per open parenthesis: whether it is group 1 or inside it
+  let groups = 0;
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i];
+    if (c === "\\") i++;
+    else if (c === "[") {
+      for (i++; i < source.length && source[i] !== "]"; i++) if (source[i] === "\\") i++;
+    } else if (c === "(") {
+      const capturing = source[i + 1] !== "?" || (source[i + 2] === "<" && source[i + 3] !== "=" && source[i + 3] !== "!");
+      const inFirst = open.at(-1) ?? false;
+      if (capturing && ++groups > 1 && !inFirst) return false;
+      open.push(inFirst || (capturing && groups === 1));
+    } else if (c === ")") open.pop();
+  }
+  return groups > 0;
+}
+
 // `d` for the value group's offsets; compiled once, and `matchAll` copies the regex, so no `lastIndex` is shared.
 export const RULES: readonly Rule[] = (table.rules as TableRule[])
   .filter((r) => ENABLED.has(r.id))
@@ -40,7 +64,7 @@ export const RULES: readonly Rule[] = (table.rules as TableRule[])
     id: r.id,
     re: new RegExp(r.regex, `${r.flags}gd`),
     keywords: r.keywords,
-    ...(r.valueGroup ? { group: r.valueGroup } : {}),
+    ...(r.valueGroup ? { group: r.valueGroup } : firstGroupHoldsAll(r.regex) ? { group: 1 } : {}),
     ...(r.entropy ? { entropy: [String(r.entropy[0]), Number(r.entropy[1])] as const } : {}),
   }));
 
@@ -92,19 +116,13 @@ export function rulesFor(text: string): number[] {
   return [...hit].sort((x, y) => x - y);
 }
 
-/** The span of the secret in a match: Betterleaks' value group, or its first non-empty group, or the whole match. */
+/** The span of the secret in a match: the rule's value group (none if it matched nothing), or the whole match. */
 function valueSpan(m: RegExpExecArray, group: number | undefined): [number, number] | undefined {
   const indices = m.indices;
   if (!indices) return undefined;
-  if (group !== undefined) {
-    const span = indices[group];
-    return span && span[1] > span[0] ? span : undefined;
-  }
-  for (let i = 1; i < indices.length; i++) {
-    const span = indices[i];
-    if (span && span[1] > span[0]) return span;
-  }
-  return indices[0];
+  if (group === undefined) return indices[0];
+  const span = indices[group];
+  return span && span[1] > span[0] ? span : undefined;
 }
 
 function entropyHolds(value: string, [op, n]: readonly [string, number]): boolean {

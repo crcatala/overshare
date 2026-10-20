@@ -303,7 +303,6 @@
     "tailscale-api-key.1",
     "telegram-bot-api-token",
     "telnyx-api-v2-key.1",
-    "temporal-cloud-api-key.1",
     "thunderstore-api-token.1",
     "togetherai-api-key",
     "twilio-api-key",
@@ -387,6 +386,7 @@
     "supabase-project-url": "an identifier Betterleaks reports only beside the secret it belongs to (componentOnly), not a secret",
     "tableau-personal-access-token-name.1": "an identifier Betterleaks reports only beside the secret it belongs to (componentOnly), not a secret",
     "tableau-server-host.1": "an identifier Betterleaks reports only beside the secret it belongs to (componentOnly), not a secret",
-    "upstash-redis-rest-url.1": "an identifier Betterleaks reports only beside the secret it belongs to (componentOnly), not a secret"
+    "upstash-redis-rest-url.1": "an identifier Betterleaks reports only beside the secret it belongs to (componentOnly), not a secret",
+    "temporal-cloud-api-key.1": "jwt covers a Temporal Cloud API key, which is a JWT; this rule's three [A-Za-z0-9_-]* runs around literal pieces backtrack polynomially in JavaScript (about 380 ms on 8 KB, close to a minute on a full window)"
   }
 }

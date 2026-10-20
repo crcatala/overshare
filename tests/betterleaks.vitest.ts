@@ -120,6 +120,14 @@ describe("Betterleaks detection", () => {
     expect(firstGroupHoldsAll("abc")).toBe(false);
   });
 
+  it("still finds a Temporal Cloud API key, with its own rule excluded", () => {
+    expect(enabled.excluded).toHaveProperty(["temporal-cloud-api-key.1"]);
+    const header = b64url({ alg: "ES256", kid: body(8) });
+    const claims = b64url({ account_id: body(5, LOWER_DIGITS), aud: ["temporal.io"], exp: 1_900_000_000, iss: "temporal.io", key_id: body(24) });
+    const key = `${header}.${claims}.${body(86, `${ALNUM}_-`)}`;
+    expect(new Redactor().redactText(`TEMPORAL_API_KEY=${key}\n`)).toMatch(/^TEMPORAL_API_KEY=\[REDACTED:[\w.-]+\]\n$/);
+  });
+
   it("drops a match under the rule's entropy threshold", () => {
     // Not the obviously-fake check's kind of placeholder (no run, no sequence): three characters repeated, entropy 1.6.
     expect(rulesOf(`${["dd", "p_"].join("")}${"aB7".repeat(12)} `)).toEqual([]);

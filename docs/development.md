@@ -218,6 +218,11 @@ high-confidence rules that `src/redact/betterleaks-enabled.json` enables.
   release that brings a new high-confidence rule leaves it off: `update:betterleaks` lists it as not yet
   decided and `tests/betterleaks.vitest.ts` fails until it is added to one of the two. Medium- and
   low-confidence rules aren't used.
+- **Hand-written formats** (`src/redact/token-formats.ts`) overlap Betterleaks' rules for most providers. An
+  entry stays while it finds a token Betterleaks misses, which `tests/token-formats.vitest.ts` checks for
+  each one on its test cases, lengthened and placed before `)`, `,`, `.` and `&`. After a sync that makes an
+  entry redundant that test fails: remove the entry and mark its cases `coveredBy` the Betterleaks rule,
+  which a test then checks names the finding.
 - **What is redacted** is the rule's value group. Where a rule names none, Betterleaks reports its first
   group that matched; overshare uses group 1 only when it holds every other group, and otherwise redacts the
   whole match, since in a few rules (`jwt-base64`, `microsoft-teams-webhook`) the first group is only a piece

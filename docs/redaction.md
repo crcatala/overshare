@@ -42,10 +42,13 @@ In order (see `src/redact/`):
    the placeholder (`[REDACTED:github-pat]`).
 
    Two parts are hand-written rather than taken from that library (`src/redact/token-formats.ts`):
-   a table of about 60 provider token formats recognised by their own prefix when printed bare
-   (GitLab, Vercel, Supabase, Neon, Notion, OpenRouter, Perplexity, Google API keys, Slack `xapp-`, …),
+   a table of about 55 provider token formats recognised by their own prefix when printed bare
+   (GitLab, Vercel, Supabase, Neon, Notion, OpenRouter, Perplexity, Google API keys, …),
    and an AWS secret access key found within a few lines of its access key id, whatever the
-   variable is called. Lengths in the table are lower bounds, a body must look random, and
+   variable is called. Betterleaks knows most of the table's providers too, but mostly at the
+   provider's exact length and only before whitespace, a quote or `;`, so the table still finds a
+   token that is longer, or followed by `,`, `)`, `.` or `&`, whole; an entry is removed once a
+   Betterleaks rule finds all of it. Lengths in the table are lower bounds, a body must look random, and
    prefixes short enough to occur in ordinary text (`re_`, `rnd_`, `SK…`) are reported at medium
    confidence. Values in an auth header or `curl -u` get a lower randomness bar than values in
    free text, since the position already says "credential", but identifiers (`csrfTokenValue`)

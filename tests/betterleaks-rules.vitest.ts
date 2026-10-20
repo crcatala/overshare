@@ -6,7 +6,7 @@ import { convertFilter, convertRules, formatEnabledCheck, formatJson, parseToml,
 const root = join(import.meta.dirname, "..");
 const vendor = join(root, "vendor/betterleaks");
 const committed = readFileSync(join(root, "src/redact/betterleaks-rules.json"), "utf8");
-const table = JSON.parse(committed) as { rules: { id: string; regex: string; flags: string }[]; skipped: { id: string; reason: string }[] };
+const table = JSON.parse(committed) as { license: string; rules: { id: string; regex: string; flags: string }[]; skipped: { id: string; reason: string }[] };
 const upstream = JSON.parse(readFileSync(join(vendor, "upstream.json"), "utf8")) as Upstream;
 
 /** Every match of a translated Go regex in `text`. */
@@ -32,7 +32,7 @@ describe("the committed rule table", () => {
 
   it("is what converting the vendored file gives (update:betterleaks --check)", () => {
     const conversion = convertRules(parseToml(readFileSync(join(vendor, "betterleaks.toml"), "utf8")));
-    expect(formatJson(upstream, conversion)).toBe(committed);
+    expect(formatJson(upstream, conversion, readFileSync(join(vendor, "LICENSE"), "utf8"))).toBe(committed);
   });
 
   it("vendors the rule file unchanged, with its license and provenance", () => {
@@ -41,6 +41,11 @@ describe("the committed rule table", () => {
     expect(upstream.tag).toMatch(/^v\d+\.\d+\.\d+$/);
     expect(upstream.commit).toMatch(/^[0-9a-f]{40}$/);
     expect(readFileSync(join(vendor, "LICENSE"), "utf8")).toMatch(/^MIT License/);
+  });
+
+  it("carries Betterleaks' license, since the table is what ships in the package", () => {
+    expect(table.license).toBe(readFileSync(join(vendor, "LICENSE"), "utf8"));
+    expect(table.license).toMatch(/^MIT License\n\nCopyright \(c\) \d{4} \S/);
   });
 });
 

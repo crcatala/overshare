@@ -190,7 +190,8 @@ schema version bump, a viewer migration and a frozen share; the steps are in
 ## Betterleaks rules
 
 `vendor/betterleaks/` holds [Betterleaks](https://github.com/betterleaks/betterleaks)' rule file, copied
-unchanged from a pinned release (`upstream.json`: tag, commit, sha256), with its MIT license.
+unchanged from a pinned release (`upstream.json`: tag, commit, sha256), with its MIT license, which the
+converter also writes into the JSON it makes (the JSON is what ships in the package).
 `npm run update:betterleaks` converts it into `src/redact/betterleaks-rules.json`, one rule per line, and
 prints what it skipped and which rules lost part of their filtering. `src/redact/betterleaks.ts` detects with the
 high-confidence rules that `src/redact/betterleaks-enabled.json` enables.

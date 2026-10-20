@@ -697,14 +697,19 @@ export function convertRules(config: TomlTable): Conversion {
   return conversion;
 }
 
-/** The JSON file: provenance, one rule per line (each sync is a readable diff), then the skipped rules. */
-export function formatJson(upstream: Upstream, conversion: Conversion): string {
+/**
+ * The JSON file: provenance and Betterleaks' license, one rule per line (each sync is a readable diff), then the
+ * skipped rules. The license goes in the file itself because the file is what ships in the package: the MIT terms
+ * ask for the notice in every copy of a substantial portion.
+ */
+export function formatJson(upstream: Upstream, conversion: Conversion, license: string): string {
   const { repository, tag, commit, sha256 } = upstream;
   const lines = (items: unknown[]) => items.map((x, i) => `    ${JSON.stringify(x)}${i < items.length - 1 ? "," : ""}`).join("\n");
   return [
     "{",
     `  "generated": ${JSON.stringify("by scripts/update-betterleaks.ts from vendor/betterleaks/betterleaks.toml; do not edit by hand")},`,
     `  "upstream": ${JSON.stringify({ repository, tag, commit, sha256 })},`,
+    `  "license": ${JSON.stringify(license)},`,
     `  "rules": [`,
     lines(conversion.rules),
     "  ],",
@@ -765,7 +770,7 @@ function main(): void {
   const config = parseToml(readFileSync(toml, "utf8"));
   const total = Array.isArray(config.rules) ? config.rules.length : 0;
   const conversion = convertRules(config);
-  const json = formatJson(upstream, conversion);
+  const json = formatJson(upstream, conversion, readFileSync(resolve(VENDOR, "LICENSE"), "utf8"));
   if (values.check) {
     let committed = "";
     try {

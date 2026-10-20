@@ -26,6 +26,9 @@ for f in viewer/dist/s/index.html viewer/dist/standalone.html viewer/dist/s/exam
   integrations/claude-code/share-session/SKILL.md integrations/pi/overshare.ts LICENSE README.md; do
   test -f "$pkg/$f" || { echo "missing from package: $f" >&2; exit 1; }
 done
+# Betterleaks' rule table ships with Betterleaks' MIT notice in it.
+node -e 'const t = require(process.argv[1]); if (!/^MIT License\n\nCopyright \(c\)/.test(t.license)) process.exit(1)' "$pkg/dist/redact/betterleaks-rules.json" ||
+  { echo "dist/redact/betterleaks-rules.json lacks Betterleaks' license" >&2; exit 1; }
 # Nothing else ships: every compiled file (or JSON table) has a source file, and only the viewer build's own
 # files are under viewer/dist (no source maps, no landing page).
 stray=$(cd "$pkg" && find . -type f -not -path './node_modules/*' | sed 's#^\./##' | grep -vxE \

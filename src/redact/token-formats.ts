@@ -26,8 +26,9 @@ import type { PatternMatch } from "./patterns.js";
  * recognisable format; none of its code or regexes is copied. Its rules now run beside this table (`betterleaks.ts`)
  * and find most of these providers too, but mostly at the provider's exact length and only when the token is followed
  * by whitespace, a quote or `;`: an entry here still finds a longer token whole, and one followed by `,`, `)`, `.` or
- * `&`. An entry goes once an enabled Betterleaks rule finds everything it does (Slack's `xapp-` did, as
- * `slack-app-token`); a test fails when a sync makes one redundant.
+ * `&`. Where a Betterleaks rule runs on into text glued to the token (Slack's `xapp-`), the wider match can be dropped
+ * as obviously fake (`…xxxxxxxx`), while an entry here ends with the token. A test fails when a sync makes an entry
+ * redundant.
  */
 interface TokenFormat {
   rule: string;
@@ -115,6 +116,7 @@ export const TOKEN_FORMATS: readonly TokenFormat[] = [
   fmt("figma-token", "figd_", r`figd_[A-Za-z0-9_-]{40,}`),
   fmt("posthog-personal-key", "phx_", r`phx_[A-Za-z0-9]{40,}`),
   fmt("pypi-token", "pypi-AgE", r`pypi-AgE[A-Za-z0-9_-]{70,}`),
+  fmt("slack-app-token", "xapp-", r`xapp-\d-[A-Z0-9]{8,}-\d{8,}-[0-9a-f]{32,}`),
   fmt("slack-config-token", "xoxe", r`xoxe(?:\.xox[bp])?-\d-[A-Za-z0-9]{80,}`),
   fmt("slack-session-token", "xox", r`xoxc-\d+-\d+-\d+-[0-9a-f]{32,}|xoxd-[A-Za-z0-9%+/=_-]{40,}`),
   fmt("resend-key", "re_", r`re_[A-Za-z0-9]{6,12}_[A-Za-z0-9]{20,}`, { ambiguous: true }),

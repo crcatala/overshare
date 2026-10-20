@@ -31,8 +31,6 @@ interface Case {
   ambiguous?: boolean;
   /** The token ends in a fixed-size piece (a UUID, `=` padding): extending it is not a longer token of this format. */
   fixedEnd?: boolean;
-  /** Removed from the table: the enabled Betterleaks rule that finds all of it, which names the finding. */
-  coveredBy?: string;
 }
 
 const cases: Case[] = [
@@ -98,7 +96,7 @@ const cases: Case[] = [
   { rule: "pypi-token", token: () => `pypi-AgEIcHlwaS5vcmc${body(150, URL64)}` },
   // TestPyPI: Betterleaks' rule only knows pypi.org's prefix.
   { rule: "pypi-token", token: () => `pypi-AgENdGVzdC5weXBpLm9yZw${body(150, URL64)}` },
-  { rule: "slack-app-token", token: () => `xapp-1-A${body(9, UPPER)}-${body(13, "0123456789")}-${body(64, HEX)}`, coveredBy: "slack-app-token" },
+  { rule: "slack-app-token", token: () => `xapp-1-A${body(9, UPPER)}-${body(13, "0123456789")}-${body(64, HEX)}` },
   { rule: "slack-config-token", token: () => `xoxe-1-${body(150)}` },
   { rule: "slack-session-token", token: () => `xoxd-${body(60, `${ALNUM}%+`)}` },
   { rule: "resend-key", token: () => `re_${body(8)}_${body(24)}`, ambiguous: true },
@@ -116,29 +114,34 @@ function lengthened(token: string): string {
   return token + body(8, /^[0-9a-f]+$/.test(tail) ? HEX : /^[a-z0-9]+$/.test(tail) ? LOWER : ALNUM);
 }
 
-/** Whether a match in `matches` covers all of `text[start, end)`. */
-const covers = (matches: Iterable<{ start: number; end: number }>, start: number, end: number) => [...matches].some((m) => m.start <= start && m.end >= end);
+/** Whether a match in `matches` is exactly `text[start, end)`. */
+const isSpan = (matches: Iterable<{ start: number; end: number }>, start: number, end: number) => [...matches].some((m) => m.start === start && m.end === end);
 
-/** Where a token is put to see whether Betterleaks' rules find it: after a space, before `)`, `,`, `.` and `&`. */
+/**
+ * Where a token is put to see whether Betterleaks' rules find it: after a space, before `)`, `,`, `.` and `&`, and glued
+ * to a placeholder run, where a rule that takes the run in has its match dropped as obviously fake.
+ */
 const PLACES: Array<(t: string) => string> = [
   (t) => `out: ${t} end`,
   (t) => `(${t})`,
   (t) => `${t}, next`,
   (t) => `token ${t}.`,
   (t) => `https://api.example-corp.io/v1?key=${t}&x=1`,
+  (t) => `out: ${t}xxxxxxxx end`,
 ];
 
 describe("provider token formats", () => {
   it("has a test case for every rule in the table", () => {
-    const tested = new Set(cases.filter((c) => !c.coveredBy).map((c) => c.rule));
+    const tested = new Set(cases.map((c) => c.rule));
     for (const f of TOKEN_FORMATS) expect(tested, f.rule).toContain(f.rule);
   });
 
-  // An entry is worth keeping while it finds a token Betterleaks' rules do not: a longer one (theirs mostly have the
-  // provider's exact length), one before punctuation (theirs mostly end at whitespace, a quote or `;`), or a variant
-  // they don't know. After a sync that makes one redundant, remove it and mark its cases `coveredBy`.
+  // An entry is worth keeping while it finds a token Betterleaks' rules do not find exactly: a longer one (theirs mostly
+  // have the provider's exact length), one before punctuation (theirs mostly end at whitespace, a quote or `;`), one
+  // glued to other text (a wider match is judged on the other text too), or a variant they don't know. After a sync that
+  // makes one redundant, check it through the pipeline (`findSecretPatterns`), then remove it.
   it.each(TOKEN_FORMATS.map((f, i) => [`${f.rule} (#${i})`, f] as const))("%s finds a token Betterleaks' rules miss", (_name, f) => {
-    const own = cases.filter((c) => c.rule === f.rule && !c.coveredBy);
+    const own = cases.filter((c) => c.rule === f.rule);
     let mine = 0;
     let missed = 0;
     for (const c of own) {
@@ -148,31 +151,25 @@ describe("provider token formats", () => {
           const text = place((c.wrap ?? ((v: string) => v))(t));
           const start = text.indexOf(t);
           const spans = [...text.matchAll(f.re)].map((m) => ({ start: m.index, end: m.index + m[0].length }));
-          if (!covers(spans, start, start + t.length)) continue;
+          if (!isSpan(spans, start, start + t.length)) continue;
           mine++;
-          if (!covers(findBetterleaks(text), start, start + t.length)) missed++;
+          if (!isSpan(findBetterleaks(text), start, start + t.length)) missed++;
         }
       }
     }
     expect(mine, "no test case is this entry's").toBeGreaterThan(0);
-    expect(missed, "every test case is found whole by a Betterleaks rule: remove the entry").toBeGreaterThan(0);
+    expect(missed, "a Betterleaks rule finds every test case exactly: remove the entry").toBeGreaterThan(0);
   });
 
-  it.each(cases.filter((c) => c.coveredBy).map((c) => [c.rule, c] as const))("%s, removed from the table, is found by Betterleaks' rule", (_name, c) => {
-    expect(TOKEN_FORMATS.map((f) => f.rule)).not.toContain(c.rule);
-    for (let i = 0; i < 20; i++) {
-      const token = c.token();
-      for (const t of c.fixedEnd ? [token] : [token, lengthened(token)]) {
-        for (const place of PLACES) {
-          const text = place((c.wrap ?? ((v: string) => v))(t));
-          const start = text.indexOf(t);
-          expect(findTokenFormats(text).filter((m) => covers([m], start, start + t.length))).toEqual([]);
-          const found = findSecretPatterns(text).filter((m) => covers([m], start, start + t.length));
-          expect(found.map((m) => [m.rule, m.confidence]), text.slice(0, 12)).toEqual([[c.coveredBy, "high"]]);
-        }
-      }
+  // Betterleaks' `xapp-` rule runs on into the glued run, and the whole match is then dropped as obviously fake.
+  it("redacts a Slack app token glued to a placeholder run", () => {
+    const token = `xapp-1-A${body(9, UPPER)}-${body(13, "0123456789")}-${body(64, HEX)}`;
+    for (const run of ["xxxxxxxx", "EXAMPLE", "zzzzzzzz"]) {
+      const out = new Redactor().redactText(`out: ${token}${run} end`);
+      expect(out, run).toBe(`out: [REDACTED:slack-app-token]${run} end`);
     }
   });
+
 
   it.each(cases.map((c) => [`${c.rule} (${c.token().slice(0, 6)}…)`, c] as const))("finds %s bare and after `=`", (_name, c) => {
     const token = c.token();

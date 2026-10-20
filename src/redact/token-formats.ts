@@ -88,6 +88,9 @@ export const TOKEN_FORMATS: readonly TokenFormat[] = [
   fmt("heroku-token", "HRKU-", r`HRKU-[A-Za-z0-9_-]{30,}`),
   fmt("doppler-token", "dp.", r`dp\.(?:pt|st|sa|ct|scim|audit)\.(?:[a-z0-9_-]{1,40}\.)?[A-Za-z0-9]{40,}`),
   fmt("atlassian-token", "ATATT3", r`ATATT3[A-Za-z0-9_=-]{50,}`),
+  // An AWS access key id has a fixed length, and no entropy bar: Betterleaks' rule drops one whose 16 characters repeat
+  // enough to score 3 bits or less.
+  fmt("aws-access-key-id", "", r`(?:AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16}(?![A-Za-z0-9])`, { plain: true }),
   fmt("aws-bedrock-key", "ABSK", r`ABSK[A-Za-z0-9+/=]{80,}`, { plain: true }),
   fmt("aws-bedrock-key", "bedrock-api-key-", r`bedrock-api-key-[A-Za-z0-9+/=_-]{24,}`, { plain: true }),
   fmt("azure-storage-key", "AccountKey=", r`(?<=AccountKey=)[A-Za-z0-9+/]{80,}={0,2}`, { anchored: true, plain: true }),

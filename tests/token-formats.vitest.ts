@@ -66,6 +66,8 @@ const cases: Case[] = [
   { rule: "heroku-token", token: () => `HRKU-${body(40, URL64)}` },
   { rule: "doppler-token", token: () => `dp.st.prod.${body(44)}` },
   { rule: "atlassian-token", token: () => `ATATT3${body(180, `${URL64}=`)}` },
+  // Few distinct characters, under Betterleaks' entropy bar for the rule.
+  { rule: "aws-access-key-id", token: () => `AKIA${body(16, "ABHIJW")}`, fixedEnd: true },
   { rule: "aws-bedrock-key", token: () => `ABSK${body(120, B64)}` },
   { rule: "aws-bedrock-key", token: () => `bedrock-api-key-${body(60, B64)}` },
   {

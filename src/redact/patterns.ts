@@ -158,14 +158,15 @@ const PEM_TRUNCATED =
   /-----BEGIN [A-Z ]*PRIVATE KEY-----(?:[ \t]*(?:\r?\n|(?:\\r)?\\n)(?:[ \t]*(?:\r?\n|(?:\\r)?\\n))?[ \t]*(?:[A-Za-z0-9+/=]{16,}|(?:[A-Za-z0-9+/=]+|(?:Proc-Type|DEK-Info|Comment):[^\r\n\\]*)(?=[ \t]*(?:\r?\n|\\[rn]|["'`]|$))))+/g;
 /** Base64 a truncated key must hold past its header, so a header quoted alone (or above a word) is not a finding. */
 const PEM_MIN_BODY = 40;
-// A JWT wrapped over lines (a terminal, a log): too broken up for the `jwt` rule. Header and payload may wrap anywhere,
-// even between the `e` and `y` that start them, since a `.` ends each; a line of the signature only continues it when
-// the line is token characters to its end, or up to a delimiter that closes the token (`"eyJ…\n  …",`), so the next
-// line of prose is not taken, and holds a letter or digit, so a `----------` separator under it is not either.
+// A JWT on one line, or wrapped over lines (a terminal, a log). Betterleaks' `jwt` rule finds one only on one line and
+// before whitespace, a quote or `;`, not before `,` `.` `)` or `&`. Header and payload may wrap anywhere, even between
+// the `e` and `y` that start them, since a `.` ends each; a line of the signature only continues it when the line is
+// token characters to its end, or up to a delimiter that closes the token (`"eyJ…\n  …",`), so the next line of prose
+// is not taken, and holds a letter or digit, so a `----------` separator under it is not either.
 const JWT_PIECE = "[A-Za-z0-9_-]";
 const LINE_BREAK = "[ \\t]*\\r?\\n[ \\t]*";
 const JWT_PART = `e(?:${LINE_BREAK})?y${JWT_PIECE}*(?:${LINE_BREAK}${JWT_PIECE}+)*(?:${LINE_BREAK})?\\.(?:${LINE_BREAK})?`;
-const WRAPPED_JWT = new RegExp(
+const JWT = new RegExp(
   `(?<![A-Za-z0-9_-])${JWT_PART}${JWT_PART}${JWT_PIECE}+(?:${LINE_BREAK}(?=[_-]*[A-Za-z0-9])${JWT_PIECE}+(?=[ \\t]*(?:\\r?\\n|$)|["'\`,;)\\]}>]))*`,
   "g",
 );
@@ -206,9 +207,9 @@ function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] 
   }
   // A rejected candidate resumes the search one character on, not after it: a stray `ey` on the line above a JWT starts
   // a candidate that swallows the real token.
-  const jwt = new RegExp(WRAPPED_JWT.source, "g");
-  for (let m = text.includes("\n") && text.includes(".") ? jwt.exec(text) : null; m; m = jwt.exec(text)) {
-    if (m[0].includes("\n") && isWrappedJwt(m[0].replace(/\s+/g, ""))) found.push({ rule: "jwt", start: m.index, end: m.index + m[0].length, confidence: "high" });
+  const jwt = new RegExp(JWT.source, "g");
+  for (let m = text.includes(".") && (text.includes("ey") || text.includes("\n")) ? jwt.exec(text) : null; m; m = jwt.exec(text)) {
+    if (isJwt(m[0].replace(/\s+/g, ""))) found.push({ rule: "jwt", start: m.index, end: m.index + m[0].length, confidence: "high" });
     else jwt.lastIndex = m.index + 1;
   }
   for (const m of text.matchAll(ASSIGNMENT)) {
@@ -250,10 +251,10 @@ function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] 
 }
 
 /**
- * A wrapped candidate, its whitespace removed, is a JWT when its header decodes to a JSON object naming an algorithm or a
- * type: prose that happens to run `ey…`, `.`, `ey…`, `.` across lines does not.
+ * A candidate, its whitespace removed, is a JWT when its header decodes to a JSON object naming an algorithm or a type:
+ * prose that happens to run `ey…`, `.`, `ey…`, `.` (across lines, say) does not.
  */
-function isWrappedJwt(compact: string): boolean {
+function isJwt(compact: string): boolean {
   const [header, payload, signature] = compact.split(".");
   if (!header || !payload || !signature || header.length < 19 || payload.length < 19 || signature.length < 10) return false;
   try {

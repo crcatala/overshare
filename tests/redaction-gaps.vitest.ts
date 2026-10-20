@@ -2,7 +2,7 @@
  * Shapes of secret the pattern layer used to miss, and what fast-check found around them:
  *   - a credential assignment or auth header inside JSON that is itself held in a JSON string (`{\"password\":\"…\"}`),
  *     as in a log line or an API response a tool printed;
- *   - a JWT wrapped over lines, each piece too short for the `jwt` rule;
+ *   - a JWT wrapped over lines, each piece too short for the `jwt` rule, or on one line before `,` `.` `)` or `&`;
  *   - a private key cut before its END line (`head id_rsa`, a truncated tool result).
  * Only fakes, assembled at runtime.
  */
@@ -97,7 +97,7 @@ describe("escaped JSON", () => {
   });
 });
 
-describe("wrapped JWT", () => {
+describe("JWT", () => {
   it.each([20, 40, 64])("redacts a JWT wrapped at %i columns, leaving the next line", (width) => {
     const token = jwt(width);
     const lines = wrap(token, width);
@@ -145,8 +145,21 @@ describe("wrapped JWT", () => {
     expect(out).toBe("[REDACTED:jwt]\n----------\nnext line");
   });
 
+  // Betterleaks' `jwt` rule ends at whitespace, a quote or `;`.
+  it.each([
+    ["a comma", (t: string) => `tokens: ${t}, then more`],
+    ["a full stop", (t: string) => `The token is ${t}.`],
+    ["a parenthesis", (t: string) => `verify(${t})`],
+    ["an ampersand", (t: string) => `https://app.example.test/cb?v=${t}&state=1`],
+  ])("redacts one on a single line before %s", (_before, place) => {
+    const token = jwt(23);
+    const out = new Redactor(machine).redactText(place(token), "test");
+    expect(out).toBe(place("[REDACTED:jwt]"));
+  });
+
   it("leaves prose that only looks like one", () => {
     expect(findSecretPatterns("eyes looked up at the sky.\neyelids drooping over everything.\nsomething else here")).toEqual([]);
+    expect(findSecretPatterns("see eyeglassesAndMoreThings.eyebrowsAndOtherThings.somethingElseHere, then")).toEqual([]);
   });
 
   it("is high confidence: the re-scan blocks one left in the payload", () => {

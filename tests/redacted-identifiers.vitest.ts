@@ -37,25 +37,25 @@ describe("Redactor.redactIdentifier surrogates", () => {
     const redactor = r();
     const [a, b, c] = [ghp(1), ghp(2), ghp(3)];
     const first = redactor.redactIdentifier(a);
-    expect(first).toBe("[REDACTED:github-v2]");
-    expect(redactor.redactIdentifier(b)).toBe("[REDACTED:github-v2#2]");
-    expect(redactor.redactIdentifier(c)).toBe("[REDACTED:github-v2#3]");
+    expect(first).toBe("[REDACTED:github-pat]");
+    expect(redactor.redactIdentifier(b)).toBe("[REDACTED:github-pat#2]");
+    expect(redactor.redactIdentifier(c)).toBe("[REDACTED:github-pat#3]");
     // Stable: asked again, in any order, from any field, a value keeps its token.
-    expect(redactor.redactIdentifier(b)).toBe("[REDACTED:github-v2#2]");
+    expect(redactor.redactIdentifier(b)).toBe("[REDACTED:github-pat#2]");
     expect(redactor.redactIdentifier(a)).toBe(first);
   });
 
   it("numbers per rule, and keeps the text around the secret", () => {
     const redactor = r();
-    expect(redactor.redactIdentifier(`msg:${ghp(1)}`)).toBe("msg:[REDACTED:github-v2]");
-    expect(redactor.redactIdentifier(`msg:${ghp(2)}`)).toBe("msg:[REDACTED:github-v2#2]");
-    expect(redactor.redactIdentifier(fake.aws())).toBe("[REDACTED:aws-access_keys]");
+    expect(redactor.redactIdentifier(`msg:${ghp(1)}`)).toBe("msg:[REDACTED:github-pat]");
+    expect(redactor.redactIdentifier(`msg:${ghp(2)}`)).toBe("msg:[REDACTED:github-pat#2]");
+    expect(redactor.redactIdentifier(fake.aws())).toBe("[REDACTED:aws-access-token]");
   });
 
   it("leaves ordinary ids alone and never numbers them", () => {
     const redactor = r();
     for (const id of ["claude-opus-5-5", "msg_01plain", "toolu_01abc", "aaaaaaaa-0000-0000-0000-000000000000", ""]) expect(redactor.redactIdentifier(id)).toBe(id);
-    expect(redactor.redactIdentifier(ghp(1))).toBe("[REDACTED:github-v2]"); // the first redacted value is still the first
+    expect(redactor.redactIdentifier(ghp(1))).toBe("[REDACTED:github-pat]"); // the first redacted value is still the first
   });
 
   it("the token says nothing about the value: no part of it, only the count of values seen", () => {
@@ -68,9 +68,9 @@ describe("Redactor.redactIdentifier surrogates", () => {
   it("redactIdentifierKeys redacts keys with the same surrogates as values and never merges two entries", () => {
     const redactor = r();
     const [a, b] = [ghp(1), ghp(2)];
-    expect(redactor.redactIdentifier(b)).toBe("[REDACTED:github-v2]"); // b was seen first, as a value
+    expect(redactor.redactIdentifier(b)).toBe("[REDACTED:github-pat]"); // b was seen first, as a value
     const out = redactor.redactIdentifierKeys({ [a]: 1, [b]: 2, "claude-opus-5-5": 3 });
-    expect(out).toEqual({ "[REDACTED:github-v2#2]": 1, "[REDACTED:github-v2]": 2, "claude-opus-5-5": 3 });
+    expect(out).toEqual({ "[REDACTED:github-pat#2]": 1, "[REDACTED:github-pat]": 2, "claude-opus-5-5": 3 });
   });
 
   it("a key that is an own `__proto__` stays an own key", () => {
@@ -82,7 +82,7 @@ describe("Redactor.redactIdentifier surrogates", () => {
   });
 
   describe("an id that is already shaped like a token (a transcript that was redacted before)", () => {
-    const literals = ["[REDACTED:github-v2]", "[REDACTED:github-v2#2]", "[REDACTED:identifier]"];
+    const literals = ["[REDACTED:github-pat]", "[REDACTED:github-pat#2]", "[REDACTED:identifier]"];
 
     it("never equals the surrogate of a secret, whichever comes first", () => {
       for (const literal of literals) {
@@ -100,14 +100,14 @@ describe("Redactor.redactIdentifier surrogates", () => {
 
     it("is replaced by a token of ours, and a second different one by another", () => {
       const redactor = r();
-      expect(redactor.redactIdentifier("[REDACTED:github-v2#2]")).toBe("[REDACTED:identifier]");
+      expect(redactor.redactIdentifier("[REDACTED:github-pat#2]")).toBe("[REDACTED:identifier]");
       expect(redactor.redactIdentifier("[REDACTED:aws]")).toBe("[REDACTED:identifier#2]");
     });
 
     it("keys and values agree: the same raw id is the same token as a key and as a value", () => {
       const redactor = r();
       const [a, b] = [ghp(1), ghp(2)];
-      const raw = ["[REDACTED:github-v2]", a, b];
+      const raw = ["[REDACTED:github-pat]", a, b];
       const values = raw.map((id) => redactor.redactIdentifier(id));
       const keys = Object.keys(redactor.redactIdentifierKeys(Object.fromEntries(raw.map((id, i) => [id, i]))));
       expect(keys).toEqual(values);
@@ -116,7 +116,7 @@ describe("Redactor.redactIdentifier surrogates", () => {
 
     it("does not count as a finding: it is not a secret", () => {
       const redactor = r();
-      redactor.redactIdentifier("[REDACTED:github-v2]");
+      redactor.redactIdentifier("[REDACTED:github-pat]");
       expect(redactor.findings).toEqual([]);
       expect(redactor.secretCount).toBe(0);
     });
@@ -165,7 +165,7 @@ describe("two secret-shaped response ids (ass-lka8)", () => {
         expect(p.report.blocked).toBe(false);
 
         const ids = p.session.responses.map((r) => r.id);
-        expect(ids).toEqual(["[REDACTED:github-v2]", "[REDACTED:github-v2#2]"]);
+        expect(ids).toEqual(["[REDACTED:github-pat]", "[REDACTED:github-pat#2]"]);
 
         // The steps carry the same two tokens, whichever way the mode shapes them.
         const stepIds = p.session.turns.flatMap((t) => t.steps.flatMap((s) => (s.kind === "toolGroup" ? s.responseIds : s.responseId ? [s.responseId] : [])));
@@ -196,13 +196,13 @@ describe("two secret-shaped response ids (ass-lka8)", () => {
       .toolResult("b1", "ok")
       .toJsonl();
     const p = prepare(raw);
-    expect(p.session.responses.map((r) => r.id)).toEqual(["[REDACTED:github-v2]"]);
+    expect(p.session.responses.map((r) => r.id)).toEqual(["[REDACTED:github-pat]"]);
     const stepIds = p.session.turns.flatMap((t) => t.steps.map((s) => s.responseId).filter(Boolean));
-    expect(new Set(stepIds)).toEqual(new Set(["[REDACTED:github-v2]"]));
+    expect(new Set(stepIds)).toEqual(new Set(["[REDACTED:github-pat]"]));
   });
 
   it("a response id that is already a token cannot take another response's place, whichever comes first", () => {
-    const literal = "[REDACTED:github-v2#2]";
+    const literal = "[REDACTED:github-pat#2]";
     for (const ids of [[literal, one, two], [one, two, literal]]) {
       const t = new ClaudeTranscript("aaaaaaaa-0000-0000-0000-000000000000", "/home/tester/work/demo").user("go");
       ids.forEach((id, i) => t.assistant(id, [{ type: "text", text: `reply ${i}` }], ccUsage(10 + i, 1)));
@@ -258,7 +258,7 @@ describe("model ids (ass-gmih)", () => {
           expect(p.json).not.toContain(secret.slice(8, 20));
           for (const text of [formatReport(p.report, { maxFindings: Infinity }), JSON.stringify(p.report)]) expect(text).not.toContain(secret.slice(8, 20));
         }
-        expect(p.session.models).toEqual(["[REDACTED:aws-access_keys]", "[REDACTED:github-v2]"]);
+        expect(p.session.models).toEqual(["[REDACTED:aws-access-token]", "[REDACTED:github-pat]"]);
         expect(p.session.responses.map((r) => r.model)).toEqual(p.session.models);
         expect(p.report.blocked).toBe(false); // redacted at the source, not caught by the re-scan
         expect(p.report.rescan).toEqual([]);
@@ -269,14 +269,14 @@ describe("model ids (ass-gmih)", () => {
 
   it("pi: the keys of the per-model rates are redacted in the payload, one entry per model", () => {
     const p = prepare(pi(m1, ghp(22)));
-    expect(Object.keys(p.session.stats.rates ?? {}).sort()).toEqual(["[REDACTED:aws-access_keys]", "[REDACTED:github-v2]"]);
+    expect(Object.keys(p.session.stats.rates ?? {}).sort()).toEqual(["[REDACTED:aws-access-token]", "[REDACTED:github-pat]"]);
     expect(p.json).not.toContain(m1);
   });
 
   it("two models of the same shape stay two keys and two values", () => {
     const p = prepare(pi(ghp(23), ghp(24)));
-    expect(p.session.models).toEqual(["[REDACTED:github-v2]", "[REDACTED:github-v2#2]"]);
-    expect(Object.keys(p.session.stats.rates ?? {}).sort()).toEqual(["[REDACTED:github-v2#2]", "[REDACTED:github-v2]"].sort());
+    expect(p.session.models).toEqual(["[REDACTED:github-pat]", "[REDACTED:github-pat#2]"]);
+    expect(Object.keys(p.session.stats.rates ?? {}).sort()).toEqual(["[REDACTED:github-pat#2]", "[REDACTED:github-pat]"].sort());
   });
 
   it("ordinary model ids are unchanged, in the values and in the keys", () => {
@@ -304,10 +304,10 @@ describe("model ids (ass-gmih)", () => {
       },
     ];
     const out = redactSession(session, new Redactor({ ...machine }));
-    expect(out.models).toEqual(["[REDACTED:aws-access_keys]"]);
+    expect(out.models).toEqual(["[REDACTED:aws-access-token]"]);
     const [text, sub] = out.turns[0]!.steps;
-    expect(text).toMatchObject({ model: "[REDACTED:aws-access_keys]" });
-    expect(sub).toMatchObject({ usage: { models: ["[REDACTED:github-v2]", "[REDACTED:aws-access_keys]"] } });
+    expect(text).toMatchObject({ model: "[REDACTED:aws-access-token]" });
+    expect(sub).toMatchObject({ usage: { models: ["[REDACTED:github-pat]", "[REDACTED:aws-access-token]"] } });
     expect(JSON.stringify(out)).not.toContain(m1);
     expect(JSON.stringify(out)).not.toContain(m2);
   });
@@ -323,8 +323,8 @@ describe("model ids (ass-gmih)", () => {
     const u = { responses: 1, tokens: session.stats.tokens };
     session.stats.subagentUsage = { ...totals({ [m1]: u, [m2]: u, "claude-opus-5-5": u }), unlinked: totals({ [m1]: u }) };
     const out = redactSession(session, new Redactor({ ...machine }));
-    expect(Object.keys(out.stats.subagentUsage!.byModel)).toEqual(["[REDACTED:aws-access_keys]", "[REDACTED:github-v2]", "claude-opus-5-5"]);
-    expect(Object.keys(out.stats.subagentUsage!.unlinked!.byModel)).toEqual(["[REDACTED:aws-access_keys]"]);
+    expect(Object.keys(out.stats.subagentUsage!.byModel)).toEqual(["[REDACTED:aws-access-token]", "[REDACTED:github-pat]", "claude-opus-5-5"]);
+    expect(Object.keys(out.stats.subagentUsage!.unlinked!.byModel)).toEqual(["[REDACTED:aws-access-token]"]);
     expect(JSON.stringify(out)).not.toContain(m1);
     expect(JSON.stringify(out)).not.toContain(m2);
   });

@@ -107,7 +107,7 @@ describe("suspicious tier", () => {
     const secret = fake.github();
     const prepared = prepare(transcript({ command: "ls", [secret]: 1 }));
     expect(prepared.report.blocked).toBe(true);
-    expect(prepared.report.rescan[0]).toMatchObject({ rule: "github-v2", location: "turn 3 · Bash · input (object key)" });
+    expect(prepared.report.rescan[0]).toMatchObject({ rule: "github-pat", location: "turn 3 · Bash · input (object key)" });
     expect(prepared.report.suspicious).toEqual([]);
   });
 

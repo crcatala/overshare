@@ -30,6 +30,7 @@ const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = resolve(SCRIPT, "../..");
 const VENDOR = resolve(REPO, "vendor/betterleaks");
 const OUT = resolve(REPO, "src/redact/betterleaks-rules.json");
+const ENABLED = resolve(REPO, "src/redact/betterleaks-enabled.json");
 
 export interface Upstream {
   repository: string;
@@ -323,7 +324,9 @@ function otherCase(lo: number, hi: number): [number, number][] {
  * `\a` → `\x07`. Where both accept the same syntax with different meanings, Go's is spelled out: `.` → `[^\n]`
  * (`[\s\S]` under `(?s)`; JavaScript's `.` also stops at `\r`), `\s` → `[\t\n\f\r ]` (JavaScript's also matches `\v`
  * and Unicode spaces), `^` and `$` under a leading `(?m)` → `(?<![^\n])` and `(?![^\n])` (the `m` flag also breaks
- * lines at `\r`), and a `]` first in a class is escaped (JavaScript would close the class there). Throws on anything
+ * lines at `\r`), and a `]` first in a class is escaped (JavaScript would close the class there). Go's any-character idiom
+ * `(?:.|[\n\r])` becomes `[\s\S]`: its branches overlap at `\r`, which backtracks badly in JavaScript; for the same reason
+ * two adjacent repeats of one class become one (`mergeRepeats`). Throws on anything
  * without a faithful rewrite (`\p{…}`, `\Q…\E`, ungreedy mode, multi-line mode set mid-pattern, `\S` mixed into a
  * class, a code point above U+FFFF).
  */
@@ -338,13 +341,58 @@ export function translateRegex(go: string): { source: string; flags: string } {
   const flags = (byFlag: boolean) => (byFlag ? "i" : "");
   if (start.i) {
     try {
-      return { source: rewrite(body, { i: true, s: start.s }, true, start.m), flags: flags(true) };
+      return { source: mergeRepeats(rewrite(body, { i: true, s: start.s }, true, start.m)), flags: flags(true) };
     } catch (e) {
       if (!(e instanceof NeedsExpansion)) throw e;
     }
   }
-  return { source: rewrite(body, { i: start.i, s: start.s }, false, start.m), flags: flags(false) };
+  return { source: mergeRepeats(rewrite(body, { i: start.i, s: start.s }, false, start.m)), flags: flags(false) };
 }
+
+const CLASS = /\[(?:\\.|[^\]\\])*\]/y;
+const GREEDY = /(?:\*|\+|\?|\{(\d+)(?:(,)(\d*))?\})(?![?+*{])/y;
+
+/**
+ * Merges two adjacent greedy repeats of the same class into one (`[a-z]{20,1000}[a-z]{0,24}` → `[a-z]{20,1024}`). They
+ * match the same strings, but before failing, JavaScript tries every split between the two (in alibaba-sts-security-token
+ * about 24,000 at each start position, 1.3 s on a window of repeated `key=CAIS`), where one repeat has nothing to split.
+ */
+export function mergeRepeats(source: string): string {
+  let out = "";
+  let prev: { cls: string; min: number; max: number; at: number } | undefined;
+  for (let i = 0; i < source.length; ) {
+    CLASS.lastIndex = i;
+    const cls = source[i] === "[" ? CLASS.exec(source)?.[0] : undefined;
+    if (!cls) {
+      const n = source[i] === "\\" ? 2 : 1;
+      out += source.slice(i, i + n);
+      i += n;
+      prev = undefined;
+      continue;
+    }
+    i += cls.length;
+    GREEDY.lastIndex = i;
+    const q = GREEDY.exec(source);
+    if (!q) {
+      out += cls;
+      prev = undefined;
+      continue;
+    }
+    i += q[0].length;
+    const [min, max] = q[0] === "*" ? [0, Infinity] : q[0] === "+" ? [1, Infinity] : q[0] === "?" ? [0, 1] : [Number(q[1]), q[2] ? (q[3] ? Number(q[3]) : Infinity) : Number(q[1])];
+    if (prev?.cls === cls) {
+      prev.min += min;
+      prev.max += max;
+      out = out.slice(0, prev.at) + cls + (prev.max === Infinity ? `{${prev.min},}` : prev.min === prev.max ? `{${prev.min}}` : `{${prev.min},${prev.max}}`);
+    } else {
+      prev = { cls, min, max, at: out.length };
+      out += cls + q[0];
+    }
+  }
+  return out;
+}
+
+const ANY_CHAR = /\(\?:(?:\.\|\[(?:\\n\\r|\\r\\n)\]|\[(?:\\n\\r|\\r\\n)\]\|\.)\)/y;
 
 /** `byFlag`: the `i` flag carries case-insensitivity, so letters are left alone and turning it off is not possible. */
 function rewrite(src: string, initial: Scope, byFlag: boolean, multiline: boolean): string {
@@ -353,6 +401,7 @@ function rewrite(src: string, initial: Scope, byFlag: boolean, multiline: boolea
   const stack: Scope[] = [];
   let out = "";
   const expand = (s: Scope) => s.i && !byFlag;
+  const anyChar = () => ((ANY_CHAR.lastIndex = pos), ANY_CHAR.test(src));
 
   const setFlags = (on: string, off: string, target: Scope): Scope => {
     const next = { ...target };
@@ -504,6 +553,9 @@ function rewrite(src: string, initial: Scope, byFlag: boolean, multiline: boolea
         out += cp !== undefined && expand(scope) && isLetter(cp) ? `[${literal(cp, true)}${literal(cp ^ 32, true)}]` : text;
       }
     } else if (c === "[") charClass();
+    // Go's idiom for any character, `(?:.|[\n\r])`: both branches match `\r`, which costs Go nothing and JavaScript a
+    // backtracking step per `\r`, exponential under a repeat (`{0,32}?`). One class matches the same and cannot.
+    else if (anyChar()) (pos = ANY_CHAR.lastIndex), (out += "[\\s\\S]");
     else if (c === "(") group();
     else if (c === ")") {
       if (stack.length === 0) unsupported("unbalanced )");
@@ -689,14 +741,19 @@ export function convertRules(config: TomlTable): Conversion {
   return conversion;
 }
 
-/** The JSON file: provenance, one rule per line (each sync is a readable diff), then the skipped rules. */
-export function formatJson(upstream: Upstream, conversion: Conversion): string {
+/**
+ * The JSON file: provenance and Betterleaks' license, one rule per line (each sync is a readable diff), then the
+ * skipped rules. The license goes in the file itself because the file is what ships in the package: the MIT terms
+ * ask for the notice in every copy of a substantial portion.
+ */
+export function formatJson(upstream: Upstream, conversion: Conversion, license: string): string {
   const { repository, tag, commit, sha256 } = upstream;
   const lines = (items: unknown[]) => items.map((x, i) => `    ${JSON.stringify(x)}${i < items.length - 1 ? "," : ""}`).join("\n");
   return [
     "{",
     `  "generated": ${JSON.stringify("by scripts/update-betterleaks.ts from vendor/betterleaks/betterleaks.toml; do not edit by hand")},`,
     `  "upstream": ${JSON.stringify({ repository, tag, commit, sha256 })},`,
+    `  "license": ${JSON.stringify(license)},`,
     `  "rules": [`,
     lines(conversion.rules),
     "  ],",
@@ -729,6 +786,21 @@ export function formatReport(upstream: Upstream, total: number, conversion: Conv
   return lines;
 }
 
+/**
+ * What `betterleaks-enabled.json` has not caught up with: high-confidence rules it neither enables nor excludes (new in
+ * this release, so off until decided), and ids it names that the table no longer has or no longer rates high.
+ */
+export function formatEnabledCheck(conversion: Conversion, list: { enabled: string[]; excluded: Record<string, string> }): string[] {
+  const high = new Set(conversion.rules.filter((r) => r.confidence === "high").map((r) => r.id));
+  const listed = [...list.enabled, ...Object.keys(list.excluded)];
+  const undecided = [...high].filter((id) => !listed.includes(id));
+  const gone = listed.filter((id) => !high.has(id));
+  const lines: string[] = [];
+  if (undecided.length) lines.push(`  not yet enabled or excluded in ${relative(REPO, ENABLED)} (${undecided.length}): ${undecided.join(", ")}`);
+  if (gone.length) lines.push(`  listed in ${relative(REPO, ENABLED)} but not a high-confidence rule here (${gone.length}): ${gone.join(", ")}`);
+  return lines;
+}
+
 export function sha256(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
@@ -742,7 +814,7 @@ function main(): void {
   const config = parseToml(readFileSync(toml, "utf8"));
   const total = Array.isArray(config.rules) ? config.rules.length : 0;
   const conversion = convertRules(config);
-  const json = formatJson(upstream, conversion);
+  const json = formatJson(upstream, conversion, readFileSync(resolve(VENDOR, "LICENSE"), "utf8"));
   if (values.check) {
     let committed = "";
     try {
@@ -754,6 +826,7 @@ function main(): void {
   }
   writeFileSync(OUT, json);
   for (const line of formatReport(upstream, total, conversion)) console.log(line);
+  for (const line of formatEnabledCheck(conversion, JSON.parse(readFileSync(ENABLED, "utf8")))) console.log(line);
   console.log(`Wrote ${conversion.rules.length} rules to ${relative(REPO, OUT)}`);
 }
 

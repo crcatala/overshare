@@ -1,4 +1,5 @@
 import { scan, shannonEntropy } from "@sanity-labs/secret-scan";
+import { findBetterleaks } from "./betterleaks.js";
 import { findAwsSecretKeys, findTokenFormats } from "./token-formats.js";
 
 /**
@@ -10,9 +11,10 @@ import { findAwsSecretKeys, findTokenFormats } from "./token-formats.js";
  * (e.g. `100644` as a GitHub App key, `merge` as a DockerHub token). We trust the
  * anchored rules outright and require everything else to look like a real secret.
  *
- * Two things sit beside that scanner: `token-formats.ts` (provider formats recognised by their prefix, plus an AWS
- * secret key found next to its key id) and the strong-context rules below (an auth header, `curl -u`, `password=`),
- * where the position alone says "credential" and the value only has to be plausible, not statistically random.
+ * Three things sit beside that scanner: Betterleaks' high-confidence rules (`betterleaks.ts`), `token-formats.ts`
+ * (provider formats recognised by their prefix, plus an AWS secret key found next to its key id) and the strong-context
+ * rules below (an auth header, `curl -u`, `password=`), where the position alone says "credential" and the value only
+ * has to be plausible, not statistically random.
  */
 
 export interface PatternMatch {
@@ -182,7 +184,8 @@ export function findSecretPatterns(text: string, allow: ReadonlySet<string> = ne
 }
 
 function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] {
-  const found: PatternMatch[] = [];
+  // Betterleaks' matches first: on a tie (same span, same confidence) the first one names the placeholder.
+  const found: PatternMatch[] = findBetterleaks(text);
   for (const s of scan(text)) {
     const trusted = TRUSTED_RULES.has(s.rule) || TRUSTED_RULES.has(s.rule.replace(/-\d+$/, ""));
     if (!trusted) {

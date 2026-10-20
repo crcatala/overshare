@@ -16,8 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   typed `/skill:name`, and a `read` of a `SKILL.md`.
 - The session viewer and exported HTML pages show the overshare logo as their browser tab icon. The
   landing page adds a `favicon.ico` fallback and an Apple touch icon for iOS home screens.
+- Redaction also uses the high-confidence rules of
+  [Betterleaks](https://github.com/betterleaks/betterleaks), about 340 provider token formats, next
+  to the existing detectors. Formats those missed are now caught (Aikido, Canva, Devin, MongoDB Atlas
+  service accounts, Zuplo and others), and some they found only at medium confidence (Deno, Ramp)
+  are now high. Only the rules' patterns are used: nothing is sent to a provider to check a value.
 
 ### Changed
+
+- Redaction placeholders and report findings are named after the Betterleaks rule when one finds
+  the token, so `[REDACTED:github-v2]` becomes `[REDACTED:github-pat]` and `aws-access_keys` becomes
+  `aws-access-token`. Shares already published keep their old labels, and the allowlist is
+  unaffected (it matches values, not rule names).
 
 - Opening the viewer with no share in the link shows a start page instead of an error: what
   overshare is, a box to open a pasted gist URL or share link, the example session, and how to

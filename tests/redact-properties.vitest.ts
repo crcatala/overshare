@@ -50,6 +50,11 @@ const planted: fc.Arbitrary<Planted> = fc.oneof(
   seed.map((s) => flat(["sk", "-ant-", "api03-", randomish(93, s, URL64), "AA"].join(""))),
   seed.map((s) => flat(["AK", "IA", randomish(16, s, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")].join(""))),
   seed.map((s) => flat(["AGE-SECRET-KEY-", "1", randomish(58, s, "QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L")].join(""))),
+  // Formats only Betterleaks' rules recognise.
+  seed.map((s) => flat(["AIK_", "CI_", randomish(40, s)].join(""))),
+  seed.map((s) => flat(["mdb_sa", "_sk_", randomish(40, s, URL64)].join(""))),
+  seed.map((s) => flat(["co", "g_", randomish(52, s, "abcdefghijklmnopqrstuvwxyz234567")].join(""))),
+  seed.map((s) => flat(["zpk", "a_", randomish(32, s, "abcdefghijklmnopqrstuvwxyz0123456789"), "_", randomish(8, s + 1, "0123456789abcdef")].join(""))),
   fc.record({ s: seed, width: fc.integer({ min: 8, max: 80 }), indent: fc.constantFrom("", "  ", "\t"), eol: fc.constantFrom("\n", "\r\n") }).map(({ s, width, indent, eol }) => {
     const token = jwtOf(s);
     return { text: wrapAt(token, width, indent, eol), pieces: token.split(".") };

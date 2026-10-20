@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { convertFilter, convertRules, formatJson, parseToml, sha256, translateRegex, type Upstream } from "../scripts/update-betterleaks.ts";
+import { convertFilter, convertRules, formatEnabledCheck, formatJson, mergeRepeats, parseToml, sha256, translateRegex, type Upstream } from "../scripts/update-betterleaks.ts";
 
 const root = join(import.meta.dirname, "..");
 const vendor = join(root, "vendor/betterleaks");
 const committed = readFileSync(join(root, "src/redact/betterleaks-rules.json"), "utf8");
-const table = JSON.parse(committed) as { rules: { id: string; regex: string; flags: string }[]; skipped: { id: string; reason: string }[] };
+const table = JSON.parse(committed) as { license: string; rules: { id: string; regex: string; flags: string }[]; skipped: { id: string; reason: string }[] };
 const upstream = JSON.parse(readFileSync(join(vendor, "upstream.json"), "utf8")) as Upstream;
 
 /** Every match of a translated Go regex in `text`. */
@@ -32,7 +32,7 @@ describe("the committed rule table", () => {
 
   it("is what converting the vendored file gives (update:betterleaks --check)", () => {
     const conversion = convertRules(parseToml(readFileSync(join(vendor, "betterleaks.toml"), "utf8")));
-    expect(formatJson(upstream, conversion)).toBe(committed);
+    expect(formatJson(upstream, conversion, readFileSync(join(vendor, "LICENSE"), "utf8"))).toBe(committed);
   });
 
   it("vendors the rule file unchanged, with its license and provenance", () => {
@@ -41,6 +41,11 @@ describe("the committed rule table", () => {
     expect(upstream.tag).toMatch(/^v\d+\.\d+\.\d+$/);
     expect(upstream.commit).toMatch(/^[0-9a-f]{40}$/);
     expect(readFileSync(join(vendor, "LICENSE"), "utf8")).toMatch(/^MIT License/);
+  });
+
+  it("carries Betterleaks' license, since the table is what ships in the package", () => {
+    expect(table.license).toBe(readFileSync(join(vendor, "LICENSE"), "utf8"));
+    expect(table.license).toMatch(/^MIT License\n\nCopyright \(c\) \d{4} \S/);
   });
 });
 
@@ -81,6 +86,31 @@ describe("translateRegex", () => {
     expect(matches("a\\sb", "a\vb a b a\tb")).toEqual(["a\tb"]);
     expect(matches("a[^\\s]b", "a\vb a b")).toEqual(["a\vb"]);
     expect(matches("a\\Sb", "a\vb a b")).toEqual(["a\vb"]);
+  });
+
+  it("writes Go's any-character idiom (?:.|[\\n\\r]) as one class, which cannot backtrack on \\r", () => {
+    expect(translateRegex("(?i)ab(?:.|[\\n\\r]){0,32}?c")).toEqual({ source: "ab[\\s\\S]{0,32}?c", flags: "i" });
+    expect(translateRegex("a(?:[\\r\\n]|.)b").source).toBe("a[\\s\\S]b");
+    expect(translateRegex("a(?:.|[\\r])b").source).toBe("a(?:[^\\n]|[\\r])b");
+    expect(matches("a(?:.|[\\n\\r]){0,3}b", "a\r\nxb")).toEqual(["a\r\nxb"]);
+    // 28 `\r` and no match: the two-branch form takes seconds here (it doubles with each one).
+    const start = performance.now();
+    expect(matches("x(?:.|[\\n\\r]){0,32}?y", `x${"\r".repeat(28)}`)).toEqual([]);
+    expect(performance.now() - start).toBeLessThan(100);
+  });
+
+  it("merges two adjacent greedy repeats of one class, which match the same with nothing to split", () => {
+    expect(translateRegex("(CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24})").source).toBe("(CAIS[A-Za-z0-9+/_=-]{20,1024})");
+    expect(mergeRepeats("[a-z]{2}[a-z]{7}[a-z]+[a-z]?x")).toBe("[a-z]{10,}x");
+    expect(mergeRepeats("[a-z]*[a-z]{3}")).toBe("[a-z]{3,}");
+    // Left alone: different classes, a lazy repeat, a group or an escape between, an escaped bracket.
+    for (const src of ["[a-z]{2}[a-f]{2}", "[a-z]{2}?[a-z]{2}", "[a-z]{2}[a-z]{2}?", "([a-z]{2})[a-z]{2}", "[a-z]+\\.[a-z]+", "\\[a-z]{2}[a-z]{2}"])
+      expect(mergeRepeats(src), src).toBe(src);
+    expect(matches("k=[a-z0-9]{2,6}[a-z0-9]{0,2};", "k=ab; k=abcdefgh; k=abcdefghi;")).toEqual(["k=ab;", "k=abcdefgh;"]);
+    // 2,048 `key=CAIS` and no `;`, so no match: the two-repeat form takes about half a second here.
+    const start = performance.now();
+    expect(matches("(?i)key=(CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24});", "key=CAIS".repeat(2_048))).toEqual([]);
+    expect(performance.now() - start).toBeLessThan(100);
   });
 
   it("rewrites what JavaScript would read differently: \\z, \\A, POSIX classes, (?P<name>", () => {
@@ -194,5 +224,17 @@ describe("convertFilter", () => {
     expect(convertFilter('let x = entropy(finding["secret"]);\nx < 3')).toEqual({ dropped: ["filter"] });
     expect(convertFilter('entropy(finding["secret"]) < 3 || a ? b : c')).toEqual({ dropped: ["filter"] });
     expect(convertFilter('// note\nentropy(finding["secret"]) < 3')).toEqual({ dropped: ["filter"] });
+  });
+});
+
+describe("formatEnabledCheck", () => {
+  it("names high-confidence rules the enabled list has not decided on, and ids it lists that are gone", () => {
+    const toml = (id: string, confidence: string) => `[[rules]]\nid = "${id}"\nregex = '''${id}'''\nconfidence = "${confidence}"`;
+    const conversion = convertRules(parseToml([toml("new", "high"), toml("on", "high"), toml("low", "low")].join("\n")));
+    expect(formatEnabledCheck(conversion, { enabled: ["on", "low"], excluded: { old: "a rule a later release dropped" } })).toEqual([
+      "  not yet enabled or excluded in src/redact/betterleaks-enabled.json (1): new",
+      "  listed in src/redact/betterleaks-enabled.json but not a high-confidence rule here (2): low, old",
+    ]);
+    expect(formatEnabledCheck(conversion, { enabled: ["on"], excluded: { new: "a reason" } })).toEqual([]);
   });
 });

@@ -6,8 +6,7 @@
  *   node --import tsx tests/betterleaks-adversarial.ts sweep       # every enabled rule on fixed adversarial strings
  *   node --import tsx tests/betterleaks-adversarial.ts property    # FC_NUM_RUNS random ones
  *
- * Prints `rule <id>` before timing a rule, then `slow <json>` (rule id → what was over budget) and exits 0, or exits
- * non-zero on a failed property.
+ * Prints `rule <id>` before timing a rule, then `slow <json>`: rule id → what was over budget.
  */
 import fc from "fast-check";
 import { pathToFileURL } from "node:url";
@@ -110,8 +109,9 @@ function sweep(): Record<string, string> {
   return Object.fromEntries(slow);
 }
 
-/** Random strings built from a rule's keywords, separators and classes; throws on the first over budget. */
-function property(): void {
+/** Random strings built from a rule's keywords, separators and classes: the smallest one found over budget, if any. */
+function property(): Record<string, string> {
+  let slow: Record<string, string> = {};
   const rule = fc.integer({ min: 0, max: RULES.length - 1 }).map((i) => RULES[i]!);
   const input = rule.chain((r) => {
     const keywords = keywordsOf(r);
@@ -124,21 +124,27 @@ function property(): void {
     // A short unit repeated to a long string: what makes a regex that retries every start position pay for it.
     return fc.record({ rule: fc.constant(r), unit: fc.array(piece, { minLength: 1, maxLength: 8 }).map((p) => p.join("")), size: fc.integer({ min: 1_024, max: 16_384 }) });
   });
-  fc.assert(
-    fc.property(input, ({ rule: r, unit, size }) => {
-      progress(r.id);
-      const ms = timeMatches(r.re, fill(unit, size));
-      if (ms >= budgetFor(size)) throw new Error(`${r.id} took ${Math.round(ms)} ms on ${size} characters`);
-    }),
-    { numRuns: Number(process.env.FC_NUM_RUNS) || 100 },
-  );
+  try {
+    fc.assert(
+      fc.property(input, ({ rule: r, unit, size }) => {
+        progress(r.id);
+        const ms = timeMatches(r.re, fill(unit, size));
+        if (ms < budgetFor(size)) return;
+        // Shrinking runs the property again on smaller inputs, so the last failure recorded is the smallest.
+        slow = { [r.id]: `${Math.round(ms)} ms on ${size} characters of ${JSON.stringify(unit.slice(0, 60))} repeated` };
+        throw new Error(slow[r.id]);
+      }),
+      { numRuns: Number(process.env.FC_NUM_RUNS) || 100 },
+    );
+  } catch (e) {
+    if (!Object.keys(slow).length) throw e;
+  }
+  return slow;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const mode = process.argv[2];
   if (mode === "sweep") process.stdout.write(`slow ${JSON.stringify(sweep())}\n`);
-  else if (mode === "property") {
-    property();
-    process.stdout.write("slow {}\n");
-  } else throw new Error(`unknown mode ${mode}`);
+  else if (mode === "property") process.stdout.write(`slow ${JSON.stringify(property())}\n`);
+  else throw new Error(`unknown mode ${mode}`);
 }

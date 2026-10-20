@@ -226,7 +226,8 @@ high-confidence rules that `src/redact/betterleaks-enabled.json` enables.
   backtracks. `tests/betterleaks-backtracking.vitest.ts` times every enabled rule on long adversarial strings
   built from its own keywords and character classes, and fails a rule over budget. The timing runs in a child
   process killed after a timeout, so a rule that never returns fails the test, named, rather than hanging it.
-  It found two: Go's any-character idiom `(?:.|[\n\r])`, which the converter now writes as `[\s\S]`, and
+  It found three: Go's any-character idiom `(?:.|[\n\r])`, which the converter now writes as `[\s\S]`, two
+  adjacent repeats of one class (`alibaba-sts-security-token`), which it merges into one, and
   `curl-auth-header`, which is excluded. Strings built that way don't reach a slow part behind a prefix that
   must match first, so the test also checks each regex for the shape that made `temporal-cloud-api-key.1`
   take close to a minute (excluded too): two overlapping unbounded runs around a literal both match. Run it

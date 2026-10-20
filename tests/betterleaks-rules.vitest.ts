@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { convertFilter, convertRules, formatEnabledCheck, formatJson, parseToml, sha256, translateRegex, type Upstream } from "../scripts/update-betterleaks.ts";
+import { convertFilter, convertRules, formatEnabledCheck, formatJson, mergeRepeats, parseToml, sha256, translateRegex, type Upstream } from "../scripts/update-betterleaks.ts";
 
 const root = join(import.meta.dirname, "..");
 const vendor = join(root, "vendor/betterleaks");
@@ -96,6 +96,20 @@ describe("translateRegex", () => {
     // 28 `\r` and no match: the two-branch form takes seconds here (it doubles with each one).
     const start = performance.now();
     expect(matches("x(?:.|[\\n\\r]){0,32}?y", `x${"\r".repeat(28)}`)).toEqual([]);
+    expect(performance.now() - start).toBeLessThan(100);
+  });
+
+  it("merges two adjacent greedy repeats of one class, which match the same with nothing to split", () => {
+    expect(translateRegex("(CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24})").source).toBe("(CAIS[A-Za-z0-9+/_=-]{20,1024})");
+    expect(mergeRepeats("[a-z]{2}[a-z]{7}[a-z]+[a-z]?x")).toBe("[a-z]{10,}x");
+    expect(mergeRepeats("[a-z]*[a-z]{3}")).toBe("[a-z]{3,}");
+    // Left alone: different classes, a lazy repeat, a group or an escape between, an escaped bracket.
+    for (const src of ["[a-z]{2}[a-f]{2}", "[a-z]{2}?[a-z]{2}", "[a-z]{2}[a-z]{2}?", "([a-z]{2})[a-z]{2}", "[a-z]+\\.[a-z]+", "\\[a-z]{2}[a-z]{2}"])
+      expect(mergeRepeats(src), src).toBe(src);
+    expect(matches("k=[a-z0-9]{2,6}[a-z0-9]{0,2};", "k=ab; k=abcdefgh; k=abcdefghi;")).toEqual(["k=ab;", "k=abcdefgh;"]);
+    // 2,048 `key=CAIS` and no `;`, so no match: the two-repeat form takes about half a second here.
+    const start = performance.now();
+    expect(matches("(?i)key=(CAIS[A-Za-z0-9+/_=-]{20,1000}[A-Za-z0-9+/_=-]{0,24});", "key=CAIS".repeat(2_048))).toEqual([]);
     expect(performance.now() - start).toBeLessThan(100);
   });
 

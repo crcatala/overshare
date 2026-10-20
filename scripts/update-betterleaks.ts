@@ -325,7 +325,8 @@ function otherCase(lo: number, hi: number): [number, number][] {
  * (`[\s\S]` under `(?s)`; JavaScript's `.` also stops at `\r`), `\s` → `[\t\n\f\r ]` (JavaScript's also matches `\v`
  * and Unicode spaces), `^` and `$` under a leading `(?m)` → `(?<![^\n])` and `(?![^\n])` (the `m` flag also breaks
  * lines at `\r`), and a `]` first in a class is escaped (JavaScript would close the class there). Go's any-character idiom
- * `(?:.|[\n\r])` becomes `[\s\S]`: its branches overlap at `\r`, which backtracks badly in JavaScript. Throws on anything
+ * `(?:.|[\n\r])` becomes `[\s\S]`: its branches overlap at `\r`, which backtracks badly in JavaScript; for the same reason
+ * two adjacent repeats of one class become one (`mergeRepeats`). Throws on anything
  * without a faithful rewrite (`\p{…}`, `\Q…\E`, ungreedy mode, multi-line mode set mid-pattern, `\S` mixed into a
  * class, a code point above U+FFFF).
  */
@@ -340,12 +341,55 @@ export function translateRegex(go: string): { source: string; flags: string } {
   const flags = (byFlag: boolean) => (byFlag ? "i" : "");
   if (start.i) {
     try {
-      return { source: rewrite(body, { i: true, s: start.s }, true, start.m), flags: flags(true) };
+      return { source: mergeRepeats(rewrite(body, { i: true, s: start.s }, true, start.m)), flags: flags(true) };
     } catch (e) {
       if (!(e instanceof NeedsExpansion)) throw e;
     }
   }
-  return { source: rewrite(body, { i: start.i, s: start.s }, false, start.m), flags: flags(false) };
+  return { source: mergeRepeats(rewrite(body, { i: start.i, s: start.s }, false, start.m)), flags: flags(false) };
+}
+
+const CLASS = /\[(?:\\.|[^\]\\])*\]/y;
+const GREEDY = /(?:\*|\+|\?|\{(\d+)(?:(,)(\d*))?\})(?![?+*{])/y;
+
+/**
+ * Merges two adjacent greedy repeats of the same class into one (`[a-z]{20,1000}[a-z]{0,24}` → `[a-z]{20,1024}`). They
+ * match the same strings, but before failing, JavaScript tries every split between the two (in alibaba-sts-security-token
+ * about 24,000 at each start position, 1.3 s on a window of repeated `key=CAIS`), where one repeat has nothing to split.
+ */
+export function mergeRepeats(source: string): string {
+  let out = "";
+  let prev: { cls: string; min: number; max: number; at: number } | undefined;
+  for (let i = 0; i < source.length; ) {
+    CLASS.lastIndex = i;
+    const cls = source[i] === "[" ? CLASS.exec(source)?.[0] : undefined;
+    if (!cls) {
+      const n = source[i] === "\\" ? 2 : 1;
+      out += source.slice(i, i + n);
+      i += n;
+      prev = undefined;
+      continue;
+    }
+    i += cls.length;
+    GREEDY.lastIndex = i;
+    const q = GREEDY.exec(source);
+    if (!q) {
+      out += cls;
+      prev = undefined;
+      continue;
+    }
+    i += q[0].length;
+    const [min, max] = q[0] === "*" ? [0, Infinity] : q[0] === "+" ? [1, Infinity] : q[0] === "?" ? [0, 1] : [Number(q[1]), q[2] ? (q[3] ? Number(q[3]) : Infinity) : Number(q[1])];
+    if (prev?.cls === cls) {
+      prev.min += min;
+      prev.max += max;
+      out = out.slice(0, prev.at) + cls + (prev.max === Infinity ? `{${prev.min},}` : prev.min === prev.max ? `{${prev.min}}` : `{${prev.min},${prev.max}}`);
+    } else {
+      prev = { cls, min, max, at: out.length };
+      out += cls + q[0];
+    }
+  }
+  return out;
 }
 
 const ANY_CHAR = /\(\?:(?:\.\|\[(?:\\n\\r|\\r\\n)\]|\[(?:\\n\\r|\\r\\n)\]\|\.)\)/y;

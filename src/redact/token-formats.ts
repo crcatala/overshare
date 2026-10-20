@@ -23,7 +23,12 @@ import type { PatternMatch } from "./patterns.js";
  *   keys) are not.
  *
  * Betterleaks (MIT, https://github.com/betterleaks/betterleaks) was used as a checklist of which providers have a
- * recognisable format; none of its code or regexes is copied.
+ * recognisable format; none of its code or regexes is copied. Its rules now run beside this table (`betterleaks.ts`)
+ * and find most of these providers too, but mostly at the provider's exact length and only when the token is followed
+ * by whitespace, a quote or `;`: an entry here still finds a longer token whole, and one followed by `,`, `)`, `.` or
+ * `&`. Where a Betterleaks rule runs on into text glued to the token (Slack's `xapp-`), the wider match can be dropped
+ * as obviously fake (`…xxxxxxxx`), while an entry here ends with the token. A test fails when a sync makes an entry
+ * redundant.
  */
 interface TokenFormat {
   rule: string;

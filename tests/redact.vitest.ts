@@ -131,7 +131,7 @@ describe("rescanPayload", () => {
     const known = fake.envValue();
     const payload = JSON.stringify({ a: `x ${known}`, b: `y ${fake.github()}`, c: "/home/tester/secret-project" });
     const { issues } = rescanPayload(payload, { knownSecrets: [knownSecret(known, "K", "env")], homeDir: "/home/tester" });
-    expect(issues.map((i) => i.rule)).toEqual(["known-secret:K", "github-v2", "home-path"]);
+    expect(issues.map((i) => i.rule)).toEqual(["known-secret:K", "github-pat", "home-path"]);
     expect(issues.map((i) => i.length)).toEqual([known.length, expect.any(Number), undefined]);
     expect(JSON.stringify(issues)).not.toContain(known.slice(0, 4));
   });

@@ -32,6 +32,15 @@ In order (see `src/redact/`):
    recognisable once the first is replaced. When two matches overlap, the longer names the rule and
    the redaction covers both, so no part of either is left behind.
 
+   Next to that library run the high-confidence rules of [Betterleaks](https://github.com/betterleaks/betterleaks)
+   (`src/redact/betterleaks.ts`), the maintained successor to Gitleaks: about 340 provider formats, taken from its rule
+   file and evaluated by overshare's own code (the Betterleaks tool never runs, and nothing is sent to a provider to
+   check a value). A rule runs only when one of its keywords is in the text, keeps its entropy threshold, and redacts
+   the part of the match that holds the secret, not the key name in front of it. Which rules run is a committed list
+   (`src/redact/betterleaks-enabled.json`); rules for public identifiers (client ids, publishable keys) are left out,
+   as are a few our own rules cover better. When a Betterleaks rule finds the same span as another rule, its id names
+   the placeholder (`[REDACTED:github-pat]`).
+
    Two parts are hand-written rather than taken from that library (`src/redact/token-formats.ts`):
    a table of about 60 provider token formats recognised by their own prefix when printed bare
    (GitLab, Vercel, Supabase, Neon, Notion, OpenRouter, Perplexity, Google API keys, Slack `xapp-`, …),

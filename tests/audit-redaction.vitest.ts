@@ -73,7 +73,7 @@ describe("audit:redaction", { timeout: 60_000 }, () => {
     const shapes = manifest.sessions.flatMap((s) => describeSession(s, () => [], (t) => findSecretPatterns(t))).join("\n");
     expect(shapes).toMatch(/github\S* \(high\) key=token length 40, lower\+upper\+digit\+symbol/);
     expect(shapes).toMatch(/secret-assignment \(medium\) key=password length 24, lower\+upper\+digit, entropy [\d.]+, escaped quotes/);
-    expect(shapes).toMatch(/anthropic \(high\) key=…_api_key length \d+/);
+    expect(shapes).toMatch(/anthropic\S* \(high\) key=…_api_key length \d+/);
     expectNoFragments(shapes, f.secrets);
     // Nothing new against itself.
     expect(describeSession(manifest.sessions[0]!, (t) => findSecretPatterns(t), (t) => findSecretPatterns(t))).toEqual(["    nothing new from the pattern layer"]);

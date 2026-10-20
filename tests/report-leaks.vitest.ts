@@ -57,7 +57,7 @@ describe("final re-scan issues carry no secret content", () => {
     const raw = transcript({ command: "run", [secret]: 1 });
     const prepared = prepare(raw);
     expect(prepared.report.blocked).toBe(true);
-    expect(prepared.report.rescan[0]).toMatchObject({ rule: "github-v2", length: secret.length });
+    expect(prepared.report.rescan[0]).toMatchObject({ rule: "github-pat", length: secret.length });
 
     const baseline = Object.values(surfaces(prepare(transcript({ command: "run" })))).join("\n");
     for (const [name, text] of Object.entries(surfaces(prepared))) {

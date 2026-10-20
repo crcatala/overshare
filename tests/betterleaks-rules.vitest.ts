@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { convertFilter, convertRules, formatJson, parseToml, sha256, translateRegex, type Upstream } from "../scripts/update-betterleaks.ts";
+import { convertFilter, convertRules, formatEnabledCheck, formatJson, parseToml, sha256, translateRegex, type Upstream } from "../scripts/update-betterleaks.ts";
 
 const root = join(import.meta.dirname, "..");
 const vendor = join(root, "vendor/betterleaks");
@@ -205,5 +205,17 @@ describe("convertFilter", () => {
     expect(convertFilter('let x = entropy(finding["secret"]);\nx < 3')).toEqual({ dropped: ["filter"] });
     expect(convertFilter('entropy(finding["secret"]) < 3 || a ? b : c')).toEqual({ dropped: ["filter"] });
     expect(convertFilter('// note\nentropy(finding["secret"]) < 3')).toEqual({ dropped: ["filter"] });
+  });
+});
+
+describe("formatEnabledCheck", () => {
+  it("names high-confidence rules the enabled list has not decided on, and ids it lists that are gone", () => {
+    const toml = (id: string, confidence: string) => `[[rules]]\nid = "${id}"\nregex = '''${id}'''\nconfidence = "${confidence}"`;
+    const conversion = convertRules(parseToml([toml("new", "high"), toml("on", "high"), toml("low", "low")].join("\n")));
+    expect(formatEnabledCheck(conversion, { enabled: ["on", "low"], excluded: { old: "a rule a later release dropped" } })).toEqual([
+      "  not yet enabled or excluded in src/redact/betterleaks-enabled.json (1): new",
+      "  listed in src/redact/betterleaks-enabled.json but not a high-confidence rule here (2): low, old",
+    ]);
+    expect(formatEnabledCheck(conversion, { enabled: ["on"], excluded: { new: "a reason" } })).toEqual([]);
   });
 });

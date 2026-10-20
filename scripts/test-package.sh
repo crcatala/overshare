@@ -26,13 +26,15 @@ for f in viewer/dist/s/index.html viewer/dist/standalone.html viewer/dist/s/exam
   integrations/claude-code/share-session/SKILL.md integrations/pi/overshare.ts LICENSE README.md; do
   test -f "$pkg/$f" || { echo "missing from package: $f" >&2; exit 1; }
 done
-# Nothing else ships: every compiled file has a source file, and only the viewer build's own
+# Nothing else ships: every compiled file (or JSON table) has a source file, and only the viewer build's own
 # files are under viewer/dist (no source maps, no landing page).
 stray=$(cd "$pkg" && find . -type f -not -path './node_modules/*' | sed 's#^\./##' | grep -vxE \
-  'package\.json|README\.md|LICENSE|dist/.+\.js|integrations/claude-code/share-session/SKILL\.md|integrations/pi/overshare\.ts|viewer/dist/standalone\.html|viewer/dist/s/index\.html|viewer/dist/s/examples/session\.json|viewer/dist/s/font-licenses\.txt|viewer/dist/s/assets/[A-Za-z0-9_-]+\.(js|css|woff2|svg)' || true)
+  'package\.json|README\.md|LICENSE|dist/.+\.js|dist/.+\.json|integrations/claude-code/share-session/SKILL\.md|integrations/pi/overshare\.ts|viewer/dist/standalone\.html|viewer/dist/s/index\.html|viewer/dist/s/examples/session\.json|viewer/dist/s/font-licenses\.txt|viewer/dist/s/assets/[A-Za-z0-9_-]+\.(js|css|woff2|svg)' || true)
 for f in $(cd "$pkg" && find dist -type f); do
   src="src/${f#dist/}"
-  test -f "${src%.js}.ts" || stray+=$'\n'"$f (no source file)"
+  # A compiled module has its .ts source; a JSON table it imports is copied as it is.
+  [[ $f == *.json ]] || src="${src%.js}.ts"
+  test -f "$src" || stray+=$'\n'"$f (no source file)"
 done
 if [[ -n "${stray//[$'\n']/}" ]]; then
   echo "unexpected files in package:$stray" >&2

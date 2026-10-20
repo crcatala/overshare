@@ -30,6 +30,7 @@ const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = resolve(SCRIPT, "../..");
 const VENDOR = resolve(REPO, "vendor/betterleaks");
 const OUT = resolve(REPO, "src/redact/betterleaks-rules.json");
+const ENABLED = resolve(REPO, "src/redact/betterleaks-enabled.json");
 
 export interface Upstream {
   repository: string;
@@ -736,6 +737,21 @@ export function formatReport(upstream: Upstream, total: number, conversion: Conv
   return lines;
 }
 
+/**
+ * What `betterleaks-enabled.json` has not caught up with: high-confidence rules it neither enables nor excludes (new in
+ * this release, so off until decided), and ids it names that the table no longer has or no longer rates high.
+ */
+export function formatEnabledCheck(conversion: Conversion, list: { enabled: string[]; excluded: Record<string, string> }): string[] {
+  const high = new Set(conversion.rules.filter((r) => r.confidence === "high").map((r) => r.id));
+  const listed = [...list.enabled, ...Object.keys(list.excluded)];
+  const undecided = [...high].filter((id) => !listed.includes(id));
+  const gone = listed.filter((id) => !high.has(id));
+  const lines: string[] = [];
+  if (undecided.length) lines.push(`  not yet enabled or excluded in ${relative(REPO, ENABLED)} (${undecided.length}): ${undecided.join(", ")}`);
+  if (gone.length) lines.push(`  listed in ${relative(REPO, ENABLED)} but not a high-confidence rule here (${gone.length}): ${gone.join(", ")}`);
+  return lines;
+}
+
 export function sha256(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
@@ -761,6 +777,7 @@ function main(): void {
   }
   writeFileSync(OUT, json);
   for (const line of formatReport(upstream, total, conversion)) console.log(line);
+  for (const line of formatEnabledCheck(conversion, JSON.parse(readFileSync(ENABLED, "utf8")))) console.log(line);
   console.log(`Wrote ${conversion.rules.length} rules to ${relative(REPO, OUT)}`);
 }
 

@@ -179,15 +179,15 @@ describe("truncated private key", () => {
   });
 
   // A generic rule of the scanner (keyword `tru`, as in "truncated") can win an overlap against a trusted one; ours then
-  // drops it as not random-looking, and the trusted match is lost with it. Narrow (it needs the token to run into a path)
-  // and on main before these changes too; the final re-scan sees the key once the path rule has changed the text, and
-  // blocks (found by fast-check).
-  it("a key the scanner's overlap resolution hides is blocked by the final re-scan", () => {
+  // drops it as not random-looking, and the trusted match is lost with it (found by fast-check). The final re-scan used
+  // to be what stopped it, once the path rule had changed the text; Betterleaks' `aws-access-token` now finds the key in
+  // the first place.
+  it("a key the scanner's overlap resolution hides is redacted by Betterleaks' rule", () => {
     const aws = fake.aws();
     const r = new Redactor(machine);
     const out = r.redactText(`[truncated]\n${aws}/home/tester/x`, "test");
-    expect(out).toContain(aws);
-    expect(rescanPayload(JSON.stringify({ text: out }), { homeDir: machine.homeDir }).issues.map((i) => i.rule)).toContain("aws-access_keys");
+    expect(out).not.toContain(aws);
+    expect(out).toContain("[REDACTED:aws-access-token]");
   });
 
   it("redacts both a key and a JWT its last line runs into (found by fast-check)", () => {

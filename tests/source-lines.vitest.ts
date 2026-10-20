@@ -177,9 +177,9 @@ describe("Claude Code", () => {
     const secret = fake.github();
     const p = prepare(transcript({ command: "ls", [secret]: 1 }));
     expect(p.report.blocked).toBe(true);
-    expect(p.report.rescan[0]).toMatchObject({ rule: "github-v2", location: "turn 3 · Bash · input (object key)", source: { hits: [{ line: TOOL_LINE }], total: 1 } });
-    expect(formatReport(p.report)).toContain(`✗ github-v2 (${secret.length} chars) @ turn 3 · Bash · input (object key) · line 8`);
-    expect(summarizeShare(p).issues).toEqual([{ rule: "github-v2", length: secret.length, location: "turn 3 · Bash · input (object key)", lines: "line 8" }]);
+    expect(p.report.rescan[0]).toMatchObject({ rule: "github-pat", location: "turn 3 · Bash · input (object key)", source: { hits: [{ line: TOOL_LINE }], total: 1 } });
+    expect(formatReport(p.report)).toContain(`✗ github-pat (${secret.length} chars) @ turn 3 · Bash · input (object key) · line 8`);
+    expect(summarizeShare(p).issues).toEqual([{ rule: "github-pat", length: secret.length, location: "turn 3 · Bash · input (object key)", lines: "line 8" }]);
   });
 
   it("a known secret that reached the payload is located too (it had no location before)", () => {
@@ -255,7 +255,7 @@ describe("Claude Code", () => {
     it(`${mode} mode: a blocked and a suspicious finding both carry the line`, () => {
       const secret = fake.github();
       const blocked = prepare(withVersion(secret), mode);
-      expect(blocked.report.rescan).toEqual([{ rule: "github-v2", length: secret.length, location: "session · harness.version", source: { hits: [{ line: 4 }], total: 1 } }]);
+      expect(blocked.report.rescan).toEqual([{ rule: "github-pat", length: secret.length, location: "session · harness.version", source: { hits: [{ line: 4 }], total: 1 } }]);
       const value = randomish(16, 41);
       const suspicious = prepare(withVersion(mediumKey(value)), mode);
       expect(suspicious.report.suspicious).toEqual([{ rule: "secret-assignment", length: value.length, location: "session · harness.version", occurrences: 1, source: { hits: [{ line: 4 }], total: 1 } }]);
@@ -283,7 +283,7 @@ describe("pi", () => {
     it(`${mode} mode: a blocked finding carries the line`, () => {
       const secret = fake.aws();
       const blocked = prepare(transcript(secret), mode);
-      expect(blocked.report.rescan).toEqual([{ rule: "aws-access_keys", length: secret.length, location: "session · source.sessionId", source: { hits: [{ line: 1 }], total: 1 } }]);
+      expect(blocked.report.rescan).toEqual([{ rule: "aws-access-token", length: secret.length, location: "session · source.sessionId", source: { hits: [{ line: 1 }], total: 1 } }]);
     });
   }
 

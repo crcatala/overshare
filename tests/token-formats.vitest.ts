@@ -4,7 +4,7 @@ import { prepareShare } from "../src/pipeline.js";
 import { Redactor } from "../src/redact/index.js";
 import { findSecretPatterns, looksLikeCredential } from "../src/redact/patterns.js";
 import { rescanPayload } from "../src/redact/rescan.js";
-import { TOKEN_FORMATS, findAwsSecretKeys } from "../src/redact/token-formats.js";
+import { TOKEN_FORMATS, findAwsSecretKeys, findTokenFormats } from "../src/redact/token-formats.js";
 import { ccUsage, ClaudeTranscript, randomish } from "./helpers.js";
 
 /**
@@ -163,11 +163,17 @@ describe("provider token formats", () => {
     ["too short", `AIza${body(20, URL64)} ghost_${body(8)}`],
     ["a prefix word in prose", "The pat is on the dapi side, and the pplx-ish naming of hvs is odd; see vc_ docs, xapp- tokens, ya29. style"],
     ["telegram-like with a short body", `12345678:AA${body(10, URL64)}`],
-    ["a prefix glued to letters", `aaaaglrt-${body(26, URL64)} xvcp_${body(40)}`],
   ])("leaves %s alone", (_name, text) => {
     const r = new Redactor();
     expect(r.redactText(text)).toBe(text);
     expect(r.findings).toEqual([]);
+  });
+
+  // The table's own boundary; Betterleaks' `glrt-` rule has none (as upstream, in Go), so the pipeline still redacts it.
+  it("leaves a prefix glued to letters alone", () => {
+    const text = `aaaaglrt-${body(26, URL64)} xvcp_${body(40)}`;
+    expect(findTokenFormats(text)).toEqual([]);
+    expect(findSecretPatterns(text).map((m) => m.rule)).toEqual(["gitlab-runner-authentication-token"]);
   });
 
   it("does not match inside a longer identifier for ambiguous prefixes", () => {
@@ -179,7 +185,7 @@ describe("provider token formats", () => {
   it("keeps surrounding text and redacts only the token", () => {
     const token = `sk-or-v1-${body(64, HEX)}`;
     const r = new Redactor();
-    expect(r.redactText(`before ${token} after`)).toBe("before [REDACTED:openrouter-key] after");
+    expect(r.redactText(`before ${token} after`)).toBe("before [REDACTED:openrouter-api-key] after");
   });
 });
 
@@ -392,7 +398,9 @@ describe("through the real pipeline", () => {
     expect(report.blocked).toBe(false);
     expect(report.clean).toBe(false);
     const rules = new Set(report.findings.filter((f) => f.category === "secret-pattern").map((f) => f.rule.replace(/ \((high|medium)\)$/, "")));
-    for (const rule of ["vercel-token", "openrouter-key", "google-api-key", "gitlab-token", "slack-app-token", "auth-header", "curl-user-password", "aws-secret-key"]) {
+    // Betterleaks' rules name a token when they find the same span (or a longer one); the table's when it runs further.
+    const named = ["vercel-personal-access-token", "openrouter-api-key", "gcp-api-key", "gitlab-token", "slack-app-token", "auth-header", "curl-user-password", "aws-access-token", "aws-secret-key"];
+    for (const rule of named) {
       expect(rules, rule).toContain(rule);
     }
     // The log's structure survives around the redactions.

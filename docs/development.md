@@ -192,7 +192,8 @@ schema version bump, a viewer migration and a frozen share; the steps are in
 `vendor/betterleaks/` holds [Betterleaks](https://github.com/betterleaks/betterleaks)' rule file, copied
 unchanged from a pinned release (`upstream.json`: tag, commit, sha256), with its MIT license.
 `npm run update:betterleaks` converts it into `src/redact/betterleaks-rules.json`, one rule per line, and
-prints what it skipped and which rules lost part of their filtering. Detection doesn't use the table yet.
+prints what it skipped and which rules lost part of their filtering. `src/redact/betterleaks.ts` detects with the
+high-confidence rules that `src/redact/betterleaks-enabled.json` enables.
 
 - **Shapes only.** Each rule keeps its id, regex, flags, lowercased keywords, value group, confidence,
   specificity and an entropy threshold. A rule's `validate`, `analyze` and `revoke` steps (which send a found
@@ -210,6 +211,17 @@ prints what it skipped and which rules lost part of their filtering. Detection d
   its `dropped`.
 - Rules scoped to file paths (`.php`, `.tf`…) are skipped, since a transcript has none. Rules Betterleaks
   reports only as part of another (`skipReport`) are kept, marked `componentOnly`.
+- **Which rules detect** is decided by hand in `betterleaks-enabled.json`: every high-confidence rule is under
+  `enabled` or under `excluded` with the reason (an identifier rather than a secret, a rule that is generic
+  without the component Betterleaks pairs it with, one our own rules cover better, one that backtracks). A
+  release that brings a new high-confidence rule leaves it off: `update:betterleaks` lists it as not yet
+  decided and `tests/betterleaks.vitest.ts` fails until it is added to one of the two. Medium- and
+  low-confidence rules aren't used.
+- **Backtracking.** The rules were written for Go's regex engine, which runs in linear time; JavaScript's
+  backtracks. `tests/betterleaks-backtracking.vitest.ts` times every enabled rule on long adversarial strings
+  built from its own keywords and character classes, and fails a rule over budget. It found two: Go's
+  any-character idiom `(?:.|[\n\r])`, which the converter now writes as `[\s\S]`, and `curl-auth-header`,
+  which is excluded. Run it after a sync.
 
 ```bash
 npm run update:betterleaks                 # rewrite the JSON from the vendored file and print the summary

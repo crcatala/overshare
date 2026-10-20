@@ -67,7 +67,7 @@ describe("keywords", () => {
 });
 
 describe("Betterleaks detection", () => {
-  // Formats nothing else recognises: secret-scan has no rule for them and token-formats.ts no entry.
+  // Formats nothing else recognises: token-formats.ts has no entry for them.
   it.each([
     ["aikido-ci-token", () => ["AIK_", "CI_", body(40)].join("")],
     ["mongodb-atlas-service-account-secret", () => ["mdb_sa", "_sk_", body(40, `${ALNUM}_-`)].join("")],
@@ -80,7 +80,13 @@ describe("Betterleaks detection", () => {
     expect(new Redactor().redactText(`printed ${value} here`)).toBe(`printed [REDACTED:${rule}] here`);
   });
 
-  it("wins a tie with secret-scan, so a GitHub token is [REDACTED:github-pat]", () => {
+  it("wins a tie with token-formats.ts, so an Anthropic key is [REDACTED:anthropic-api-key]", () => {
+    const token = ["sk", "-ant-", "api03-", body(93, `${ALNUM}_-`), "AA"].join("");
+    expect(findSecretPatterns(`key ${token}`).map((m) => m.rule)).toEqual(["anthropic-api-key"]);
+    expect(new Redactor().redactText(`key ${token}`)).toBe("key [REDACTED:anthropic-api-key]");
+  });
+
+  it("names a GitHub token after its rule: [REDACTED:github-pat]", () => {
     const token = ["gh", "p_", body(36)].join("");
     expect(new Redactor().redactText(`token ${token}`)).toBe("token [REDACTED:github-pat]");
   });

@@ -231,11 +231,9 @@ describe("truncated private key", () => {
     expect(out).toBe("[REDACTED:private-key-truncated]… [output truncated]");
   });
 
-  // A generic rule of the scanner (keyword `tru`, as in "truncated") can win an overlap against a trusted one; ours then
-  // drops it as not random-looking, and the trusted match is lost with it (found by fast-check). The final re-scan used
-  // to be what stopped it, once the path rule had changed the text; Betterleaks' `aws-access-token` now finds the key in
-  // the first place.
-  it("a key the scanner's overlap resolution hides is redacted by Betterleaks' rule", () => {
+  // A generic rule of secret-scan, since removed (keyword `tru`, as in "truncated"), once won an overlap against the
+  // key's rule and was then dropped as not random-looking, losing the key with it (found by fast-check).
+  it("redacts a key after a `[truncated]` marker, with a path glued to it", () => {
     const aws = fake.aws();
     const r = new Redactor(machine);
     const out = r.redactText(`[truncated]\n${aws}/home/tester/x`, "test");

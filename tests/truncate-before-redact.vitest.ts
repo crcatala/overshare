@@ -228,7 +228,7 @@ describe("a secret that straddles a cut that used to run before redaction", () =
   });
 
   it("a token that ends exactly at the cut is kept whole", () => {
-    const marker = "[REDACTED:github-v2]";
+    const marker = "[REDACTED:github-pat]";
     expect(capRedacted(`${"a".repeat(SUMMARY_MAX - 1 - marker.length)}${marker}tail beyond the cut`, SUMMARY_MAX)).toBe(`${"a".repeat(SUMMARY_MAX - 1 - marker.length)}${marker}…`);
     const text = `${"a".repeat(MAX - marker.length)}${marker}${"b".repeat(50)}`;
     expect(cutPoint(text, MAX)).toBe(MAX);

@@ -16,23 +16,7 @@ In order (see `src/redact/`):
    (`*KEY*|*TOKEN*|*SECRET*|*PASSWORD*…`) and the session project's `.env*` files, plus anything
    you opt in to or declare (see [What this tool reads and why](#what-this-tool-reads-and-why)).
    Replaced with `[REDACTED:<NAME>]`. Catches secrets in any format.
-3. **Patterns** — [`@sanity-labs/secret-scan`](https://github.com/sanity-labs/secret-scan)
-   (~1,100 TruffleHog-derived rules). Prefix-anchored rules (GitHub, Anthropic, OpenAI,
-   AWS, Stripe, Slack, JWT, private keys, connection strings…) are trusted; generic
-   keyword rules must also look random (entropy, mixed letters/digits, not a hash/UUID,
-   not a fragment of a longer token). Plus own rules: `password=`-style assignments
-   (including `psw` and `_pw` names), URL credentials, auth headers (`Authorization`, `X-Api-Key`,
-   `Private-Token`, …), `curl -u user:password`, sensitive JSON keys, age secret keys, PEM blocks.
-   Assignments and auth headers are also found in JSON held in a JSON string, where their quotes are
-   escaped (`{\"password\":\"…\"}`). A JWT wrapped over lines is put back together to be recognised
-   (its header must decode to JSON naming an algorithm or type), and a private key cut before its
-   `END` line (`head id_rsa`) is redacted from its header through the base64 lines that follow.
-   Documentation examples (`…EXAMPLE`, sequential runs) are ignored. Patterns run again on a string
-   they changed, until nothing new is found: a token glued to the end of another is only
-   recognisable once the first is replaced. When two matches overlap, the longer names the rule and
-   the redaction covers both, so no part of either is left behind.
-
-   Next to that library run the high-confidence rules of [Betterleaks](https://github.com/betterleaks/betterleaks)
+3. **Patterns** — the high-confidence rules of [Betterleaks](https://github.com/betterleaks/betterleaks)
    (`src/redact/betterleaks.ts`), the maintained successor to Gitleaks: about 340 provider formats, taken from its rule
    file and evaluated by overshare's own code (the Betterleaks tool never runs, and nothing is sent to a provider to
    check a value). A rule runs only when one of its keywords is in the text, keeps its entropy threshold, and redacts
@@ -41,18 +25,26 @@ In order (see `src/redact/`):
    as are a few our own rules cover better. When a Betterleaks rule finds the same span as another rule, its id names
    the placeholder (`[REDACTED:github-pat]`).
 
-   Two parts are hand-written rather than taken from that library (`src/redact/token-formats.ts`):
-   a table of about 55 provider token formats recognised by their own prefix when printed bare
-   (GitLab, Vercel, Supabase, Neon, Notion, OpenRouter, Perplexity, Google API keys, Slack `xapp-`, …),
-   and an AWS secret access key found within a few lines of its access key id, whatever the
-   variable is called. Betterleaks knows most of the table's providers too, but mostly at the
-   provider's exact length and only before whitespace, a quote or `;`, so the table still finds a
-   token that is longer, or followed by `,`, `)`, `.` or `&`, whole; an entry is removed once a
-   Betterleaks rule finds all of it exactly. Lengths in the table are lower bounds, a body must look random, and
-   prefixes short enough to occur in ordinary text (`re_`, `rnd_`, `SK…`) are reported at medium
-   confidence. Values in an auth header or `curl -u` get a lower randomness bar than values in
-   free text, since the position already says "credential", but identifiers (`csrfTokenValue`)
-   and readable words are still left alone.
+   Next to those, overshare's own rules: `password=`-style assignments (including `psw` and `_pw` names), URL
+   credentials, auth headers (`Authorization`, `X-Api-Key`, `Private-Token`, …), `curl -u user:password`, sensitive
+   JSON keys, age secret keys, PEM blocks and JWTs. Assignments and auth headers are also found in JSON held in a JSON
+   string, where their quotes are escaped (`{\"password\":\"…\"}`). A JWT is recognised on one line or wrapped over
+   lines (put back together; its header must decode to JSON naming an algorithm or type), and a private key cut before
+   its `END` line (`head id_rsa`) is redacted from its header through the base64 lines that follow. Documentation
+   examples (`…EXAMPLE`, sequential runs) are ignored. Patterns run again on a string they changed, until nothing new
+   is found: a token glued to the end of another is only recognisable once the first is replaced. When two matches
+   overlap, the longer names the rule and the redaction covers both, so no part of either is left behind.
+
+   Two more parts are hand-written (`src/redact/token-formats.ts`): a table of about 65 provider token formats
+   recognised by their own prefix when printed bare (Anthropic, OpenAI, GitLab, Vercel, Supabase, Stripe, Notion,
+   Google API keys, Slack `xapp-`, …), and an AWS secret access key found within a few lines of its access key id,
+   whatever the variable is called. Betterleaks knows most of the table's providers too, but mostly at the provider's
+   exact length and only before whitespace, a quote or `;`, so the table still finds a token that is longer, or
+   followed by `,`, `)`, `.` or `&`, whole; an entry is removed once a Betterleaks rule finds all of it exactly.
+   Lengths in the table are lower bounds, a body must look random, and prefixes short enough to occur in ordinary text
+   (`re_`, `rnd_`, `SK…`) are reported at medium confidence. Values in an auth header or `curl -u` get a lower
+   randomness bar than values in free text, since the position already says "credential", but identifiers
+   (`csrfTokenValue`) and readable words are still left alone.
 4. **Paths/PII** — home directory → `~` (also path slugs like `-home-<user>-…`),
    username → `[user]`, emails → `[email]` (no-reply/example addresses kept). Repo and
    project names are kept. Hostname redaction is opt-in.

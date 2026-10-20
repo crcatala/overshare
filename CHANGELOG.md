@@ -28,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the token, so `[REDACTED:github-v2]` becomes `[REDACTED:github-pat]` and `aws-access_keys` becomes
   `aws-access-token`. Shares already published keep their old labels, and the allowlist is
   unaffected (it matches values, not rule names).
+- Fewer sessions are marked *needs review* for no reason. Redaction no longer uses the
+  `@sanity-labs/secret-scan` library: Betterleaks' rules and overshare's own find secret shapes
+  alone. That library's generic keyword rules mostly matched things that are not secrets (tool-call
+  and message ids, code, JSON). The provider formats it was relied on for are still caught, including a
+  token followed by `,`, `)`, `.` or `&` (Anthropic, OpenAI, Stripe, Groq, Hugging Face, npm, xAI
+  and others), and a JWT on one line, with a short payload or in pretty-printed JSON, which
+  overshare's own rules now find. Some placeholders change name with it, such as
+  `[REDACTED:anthropic]` becoming `[REDACTED:anthropic-key]`.
 
 - Opening the viewer with no share in the link shows a start page instead of an error: what
   overshare is, a box to open a pasted gist URL or share link, the example session, and how to

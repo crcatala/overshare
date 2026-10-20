@@ -98,7 +98,7 @@ describe("publish dialog", () => {
         blocked: true,
         findings: [],
         issues: [
-          { rule: "github-v2", length: 40, location: "turn 3 · Bash · input (object key)", lines: "lines 6, 9 (+2 more)" },
+          { rule: "github-pat", length: 40, location: "turn 3 · Bash · input (object key)", lines: "lines 6, 9 (+2 more)" },
           { rule: "known-secret:MY_KEY", length: 33 },
         ],
         suspicious: [],
@@ -110,7 +110,7 @@ describe("publish dialog", () => {
     await d.press("p");
     const text = d.text(100, 40).replace(/[│\s]+/g, " ");
     expect(text).toContain("✗ blocked: unredacted secrets remain");
-    expect(text).toContain("github-v2 (40 chars) @ turn 3 · Bash · input (object key) · lines 6, 9 (+2 more)");
+    expect(text).toContain("github-pat (40 chars) @ turn 3 · Bash · input (object key) · lines 6, 9 (+2 more)");
     expect(text).toContain("known-secret:MY_KEY (33 chars)");
     expect(text).toContain("line numbers are of /sessions/s1.jsonl");
     await d.press(KEY.enter, "y");
@@ -137,7 +137,7 @@ describe("publish dialog", () => {
       issues: [],
       suspicious: [
         { rule: "secret-assignment", length: 16, location: "turn 3 · Bash · input (object key)", occurrences: 1, lines: "line 42" },
-        { rule: "eightxeight-2", length: 30, location: "turn 7 · Read · input.path", occurrences: 2 },
+        { rule: "twilio-key", length: 34, location: "turn 7 · Read · input.path", occurrences: 2 },
       ],
       knownSources: [],
       redactions: 0,
@@ -154,7 +154,7 @@ describe("publish dialog", () => {
       const text = d.text(100, 40).replace(/[│\s]+/g, " ");
       expect(text).toContain("2 suspicious values could not be redacted");
       expect(text).toContain("secret-assignment (16 chars) @ turn 3 · Bash · input (object key) · line 42");
-      expect(text).toContain("eightxeight-2 (30 chars, ×2) @ turn 7 · Read · input.path");
+      expect(text).toContain("twilio-key (34 chars, ×2) @ turn 7 · Read · input.path");
       expect(text).toContain("/sessions/s1.jsonl");
       expect(text).not.toContain("Publish brief to");
       expect(d.source.published).toEqual([]);

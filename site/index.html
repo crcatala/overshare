@@ -220,7 +220,7 @@ OPS_CONTACT=<span class="rd">[email]</span></pre></div>
       <ol class="layers">
         <li><span class="n">1</span><b>Structural drop</b><span>System prompts, CLAUDE.md and environment attachments, reminders, image data.</span></li>
         <li><span class="n">2</span><b>Known values</b><span>Exact values of secret-looking env vars and your project's <code>.env</code> files.</span></li>
-        <li><span class="n">3</span><b>Patterns</b><span>About 1,100 token formats: GitHub, Anthropic, OpenAI, AWS, Stripe, JWTs, keys.</span></li>
+        <li><span class="n">3</span><b>Patterns</b><span>About 400 token formats: GitHub, Anthropic, OpenAI, AWS, Stripe, JWTs, keys.</span></li>
         <li><span class="n">4</span><b>Paths and PII</b><span>Home directory, username and email addresses.</span></li>
         <li><span class="n">5</span><b>Final re-scan</b><span>Anything left blocks publishing.</span></li>
       </ol>
@@ -279,7 +279,7 @@ OPS_CONTACT=<span class="rd">[email]</span></pre></div>
 <details open><summary>Who can see a shared session?</summary><p>Anyone with the link. Shares are unlisted, not private: a secret gist isn't listed on your profile or in search, but the link is all it takes to read it.</p></details>
 <details><summary>Where is it stored?</summary><p>In a secret gist on your own GitHub account, created with the <code>gh</code> CLI. You can use your own public R2 bucket instead. There is no overshare server.</p></details>
 <details><summary>How do I unpublish?</summary><p><code>overshare delete &lt;link&gt;</code> deletes the gist, and the link stops working.</p></details>
-<details><summary>Is the redaction perfect?</summary><p>No redaction can promise that. overshare layers known values, ~1,100 patterns and PII rules, re-scans the exact bytes, and asks you to confirm when anything was found or looks suspicious. Values with no recognizable format can't be detected, so <code>overshare report</code> tells you which turns to check.</p></details>
+<details><summary>Is the redaction perfect?</summary><p>No redaction can promise that. overshare layers known values, ~400 patterns and PII rules, re-scans the exact bytes, and asks you to confirm when anything was found or looks suspicious. Values with no recognizable format can't be detected, so <code>overshare report</code> tells you which turns to check.</p></details>
 <details><summary>Can I host my own viewer?</summary><p>Yes. The viewer is a static page: fork the repo and deploy it anywhere, then point <code>viewerUrl</code> at it.</p></details>
 <details><summary>Which agents are supported?</summary><p>Claude Code and pi today. Sessions are normalized into one format, so a new harness is an adapter away.</p></details>
       </div>

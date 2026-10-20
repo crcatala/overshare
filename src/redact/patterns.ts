@@ -1,4 +1,3 @@
-import { scan } from "@sanity-labs/secret-scan";
 import { shannonEntropy } from "./entropy.js";
 import { findBetterleaks } from "./betterleaks.js";
 import { findAwsSecretKeys, findTokenFormats } from "./token-formats.js";
@@ -6,16 +5,10 @@ import { findAwsSecretKeys, findTokenFormats } from "./token-formats.js";
 /**
  * Pattern-based secret detection.
  *
- * `@sanity-labs/secret-scan` ports ~1,100 TruffleHog detectors. Rules for
- * prefix-anchored formats (ghp_, sk-ant-, AKIA, PEM blocks, ...) are precise, but
- * many "keyword + generic token" rules fire constantly on source code and diffs
- * (e.g. `100644` as a GitHub App key, `merge` as a DockerHub token). We trust the
- * anchored rules outright and require everything else to look like a real secret.
- *
- * Three things sit beside that scanner: Betterleaks' high-confidence rules (`betterleaks.ts`), `token-formats.ts`
- * (provider formats recognised by their prefix, plus an AWS secret key found next to its key id) and the strong-context
- * rules below (an auth header, `curl -u`, `password=`), where the position alone says "credential" and the value only
- * has to be plausible, not statistically random.
+ * Three sources: Betterleaks' high-confidence rules (`betterleaks.ts`), `token-formats.ts` (provider formats
+ * recognised by their prefix, plus an AWS secret key found next to its key id) and the strong-context rules below (an
+ * auth header, `curl -u`, `password=`), where the position alone says "credential" and the value only has to be
+ * plausible, not statistically random.
  */
 
 export interface PatternMatch {
@@ -24,36 +17,6 @@ export interface PatternMatch {
   end: number;
   confidence: "high" | "medium";
 }
-
-const TRUSTED_RULES = new Set([
-  "anthropic",
-  "openai",
-  "aws-access_keys",
-  "github-v2",
-  "gitlab-v2",
-  "stripe",
-  "slack",
-  "slackwebhook",
-  "groq",
-  "replicate",
-  "sendgrid",
-  "jwt",
-  "npmtokenv2",
-  "linearapi",
-  "supabasetoken",
-  "postman",
-  "privatekey",
-  "database-connection-string",
-  "huggingface",
-  "gcpapplicationdefaultcredentials",
-  "googleapikey",
-  "digitaloceanv2",
-  "doppler",
-  "pypi",
-  "xai",
-  "openrouter",
-  "sentrytoken",
-]);
 
 const HEX_HASH = /^(sha\d*[-:])?[0-9a-f]{7,128}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -189,16 +152,6 @@ export function findSecretPatterns(text: string, allow: ReadonlySet<string> = ne
 function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] {
   // Betterleaks' matches first: on a tie (same span, same confidence) the first one names the placeholder.
   const found: PatternMatch[] = findBetterleaks(text);
-  for (const s of scan(text)) {
-    const trusted = TRUSTED_RULES.has(s.rule) || TRUSTED_RULES.has(s.rule.replace(/-\d+$/, ""));
-    if (!trusted) {
-      if (!looksLikeSecret(s.text) || s.text.includes(".")) continue;
-      if (/[_-][0-9a-f]{8,}$/.test(s.text)) continue; // build artifacts like libfoo-1df712e7440f2fd2
-      // A generic rule matching a fragment of a longer token (base64 blob, identifier) is noise.
-      if (TOKEN_CHAR.test(text[s.start - 1] ?? "") || TOKEN_CHAR.test(text[s.end] ?? "")) continue;
-    }
-    found.push({ rule: s.rule, start: s.start, end: s.end, confidence: trusted ? "high" : "medium" });
-  }
   for (const m of text.matchAll(AGE_SECRET_KEY)) found.push({ rule: "age-secret-key", start: m.index, end: m.index + m[0].length, confidence: "high" });
   for (const m of text.matchAll(PEM_BLOCK)) found.push({ rule: "private-key-block", start: m.index, end: m.index + m[0].length, confidence: "high" });
   // A complete block also matches here, as a shorter span without its END line; overlap resolution keeps the block.
@@ -269,8 +222,7 @@ function isJwt(compact: string): boolean {
   }
 }
 
-const TOKEN_CHAR = /[A-Za-z0-9+/=_-]/;
-// The scanner is superlinear on very large inputs; scan long strings in overlapping windows.
+// A regex can backtrack, and some rules are superlinear on very large inputs; scan long strings in overlapping windows.
 // The overlap exceeds any single secret we detect (PEM keys are a few KB).
 const CHUNK = 32_768;
 const OVERLAP = 8_192;
@@ -287,7 +239,7 @@ function findChunked(text: string, allow: ReadonlySet<string>): PatternMatch[] {
 }
 
 /**
- * A match without the whitespace at its ends. Some rules of the scanner end on the delimiter after a token (a newline);
+ * A match without the whitespace at its ends. Some rules end on the delimiter after a token (a newline);
  * redacting it protects nothing, and once overlapping matches are joined it would take the line break after a key.
  */
 function trimSpan(text: string, m: PatternMatch): PatternMatch {

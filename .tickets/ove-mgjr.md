@@ -22,7 +22,7 @@ The playbook links to the "Betterleaks rules" section of `docs/development.md` f
 
 ## Decisions (2026-10-20, owner)
 
-- **Where it lives: both.** The steps are in `docs/maintaining-rules.md`. A short skill at `.agents/skills/sync-betterleaks/SKILL.md` (the shared Agent Skills location, which pi reads) tells an agent to follow that doc and holds no steps of its own. If Claude Code does not read `.agents/skills/`, a `.claude/skills/sync-betterleaks` symlink to the same folder, not a second copy.
+- **Where it lives: both.** The steps are in `docs/maintaining-rules.md`. A short skill at `.agents/skills/sync-betterleaks/SKILL.md` (the shared Agent Skills location, which pi reads) tells an agent to follow that doc and holds no steps of its own. It is run only when asked, never picked by an agent on its own: its frontmatter sets `disable-model-invocation: true`, which pi and Claude Code both honour (pi runs it as `/skill:sync-betterleaks`). If Claude Code does not read `.agents/skills/`, a `.claude/skills/sync-betterleaks` symlink to the same folder, not a second copy.
 - **Stable releases only.** Pre-releases are skipped.
 - **New high-confidence rules: enable unless there is a reason not to.** The sync lists each under `enabled`, or under `excluded` with the reason, and the PR shows each with its audit result, so the owner can drop one at review. A new rule still never turns on by itself: the test that fails on an undecided rule stays.
 - **No reminder.** The owner runs the sync by hand when they choose.
@@ -31,7 +31,7 @@ The playbook links to the "Betterleaks rules" section of `docs/development.md` f
 ## Acceptance Criteria
 
 - The playbook exists in `docs/maintaining-rules.md`, linked from the README's docs table, and links to `docs/development.md` rather than restating it.
-- The skill at `.agents/skills/sync-betterleaks/SKILL.md` points at the playbook and holds no steps. Whether Claude Code reads `.agents/skills/` was checked, and a `.claude/skills/` symlink added if it does not.
+- The skill at `.agents/skills/sync-betterleaks/SKILL.md` points at the playbook, holds no steps, and sets `disable-model-invocation: true`. Whether Claude Code reads `.agents/skills/` was checked, and a `.claude/skills/` symlink added if it does not.
 - Renovate is set as above: Betterleaks releases on the Dependency Dashboard, no PR without approval.
 - An agent following the playbook on the then-current state either reports up to date (pre-releases skipped) or produces a PR that meets the steps.
 

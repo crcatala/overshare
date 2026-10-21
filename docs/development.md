@@ -249,6 +249,8 @@ npm run update:betterleaks -- --check      # fail unless the JSON matches the ve
 Never edit either file by hand: the converter checks the rule file's sha256 against `upstream.json`, and
 CI checks that the JSON is what the converter makes of it.
 
+To sync with a new Betterleaks release, follow [Maintaining the Betterleaks rules](maintaining-rules.md).
+
 ## Maintenance scripts
 
 - `npm run update:prices` regenerates `src/pricing-data.ts`, the model price table behind the

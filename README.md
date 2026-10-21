@@ -162,6 +162,7 @@ Links open in the hosted viewer at <https://overshare.link/s/>. The viewer is st
 | [The viewer](docs/viewer.md) | Share links, token and cost rails, cache misses, design variants, view settings |
 | [Self-hosting](docs/self-hosting.md) | Building and deploying your own viewer on Cloudflare or any static host |
 | [Development](docs/development.md) | Building from source, fake sessions, architecture, adding a harness |
+| [Maintaining the rules](docs/maintaining-rules.md) | Syncing with a new Betterleaks release, step by step |
 
 ## Contributing and security
 

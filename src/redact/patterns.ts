@@ -159,13 +159,14 @@ const PEM_TRUNCATED =
 /** Base64 a truncated key must hold past its header, so a header quoted alone (or above a word) is not a finding. */
 const PEM_MIN_BODY = 40;
 // A JWT on one line, or wrapped over lines (a terminal, a log). Betterleaks' `jwt` rule finds one only on one line and
-// before whitespace, a quote or `;`, not before `,` `.` `)` or `&`. Header and payload may wrap anywhere, even between
-// the `e` and `y` that start them, since a `.` ends each; a line of the signature only continues it when the line is
+// before whitespace, a quote or `;`, not before `,` `.` `)` or `&`, and not one with a short payload or pretty-printed
+// JSON (`{` and a line break encode to `ew`, not `ey`). Header and payload may wrap anywhere, even between the two
+// letters that start them, since a `.` ends each; a line of the signature only continues it when the line is
 // token characters to its end, or up to a delimiter that closes the token (`"eyJ…\n  …",`), so the next line of prose
 // is not taken, and holds a letter or digit, so a `----------` separator under it is not either.
 const JWT_PIECE = "[A-Za-z0-9_-]";
 const LINE_BREAK = "[ \\t]*\\r?\\n[ \\t]*";
-const JWT_PART = `e(?:${LINE_BREAK})?y${JWT_PIECE}*(?:${LINE_BREAK}${JWT_PIECE}+)*(?:${LINE_BREAK})?\\.(?:${LINE_BREAK})?`;
+const JWT_PART = `e(?:${LINE_BREAK})?[wy]${JWT_PIECE}*(?:${LINE_BREAK}${JWT_PIECE}+)*(?:${LINE_BREAK})?\\.(?:${LINE_BREAK})?`;
 const JWT = new RegExp(
   `(?<![A-Za-z0-9_-])${JWT_PART}${JWT_PART}${JWT_PIECE}+(?:${LINE_BREAK}(?=[_-]*[A-Za-z0-9])${JWT_PIECE}+(?=[ \\t]*(?:\\r?\\n|$)|["'\`,;)\\]}>]))*`,
   "g",
@@ -208,7 +209,7 @@ function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] 
   // A rejected candidate resumes the search one character on, not after it: a stray `ey` on the line above a JWT starts
   // a candidate that swallows the real token.
   const jwt = new RegExp(JWT.source, "g");
-  for (let m = text.includes(".") && (text.includes("ey") || text.includes("\n")) ? jwt.exec(text) : null; m; m = jwt.exec(text)) {
+  for (let m = text.includes(".") && (text.includes("ey") || text.includes("ew") || text.includes("\n")) ? jwt.exec(text) : null; m; m = jwt.exec(text)) {
     if (isJwt(m[0].replace(/\s+/g, ""))) found.push({ rule: "jwt", start: m.index, end: m.index + m[0].length, confidence: "high" });
     else jwt.lastIndex = m.index + 1;
   }
@@ -250,13 +251,16 @@ function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] 
   );
 }
 
+/** Shortest header or payload taken: `{"sub":"1"}` encodes to 15 characters. */
+const JWT_MIN_PART = 15;
+
 /**
  * A candidate, its whitespace removed, is a JWT when its header decodes to a JSON object naming an algorithm or a type:
  * prose that happens to run `ey…`, `.`, `ey…`, `.` (across lines, say) does not.
  */
 function isJwt(compact: string): boolean {
   const [header, payload, signature] = compact.split(".");
-  if (!header || !payload || !signature || header.length < 19 || payload.length < 19 || signature.length < 10) return false;
+  if (!header || !payload || !signature || header.length < JWT_MIN_PART || payload.length < JWT_MIN_PART || signature.length < 10) return false;
   try {
     const decoded: unknown = JSON.parse(Buffer.from(header, "base64url").toString("utf8"));
     return typeof decoded === "object" && decoded !== null && ("alg" in decoded || "typ" in decoded);

@@ -2,15 +2,18 @@
  * Shapes of secret the pattern layer used to miss, and what fast-check found around them:
  *   - a credential assignment or auth header inside JSON that is itself held in a JSON string (`{\"password\":\"…\"}`),
  *     as in a log line or an API response a tool printed;
- *   - a JWT wrapped over lines, each piece too short for the `jwt` rule, or on one line before `,` `.` `)` or `&`;
+ *   - a JWT wrapped over lines, each piece too short for the `jwt` rule, on one line before `,` `.` `)` or `&`, or with a
+ *     short payload or pretty-printed JSON;
  *   - a private key cut before its END line (`head id_rsa`, a truncated tool result).
  * Only fakes, assembled at runtime.
  */
 import { describe, expect, it } from "vitest";
+import { DEFAULT_CONFIG } from "../src/config.js";
+import { prepareShare } from "../src/pipeline.js";
 import { Redactor } from "../src/redact/index.js";
 import { findSecretPatterns } from "../src/redact/patterns.js";
 import { rescanPayload } from "../src/redact/rescan.js";
-import { fake, randomish } from "./helpers.js";
+import { ClaudeTranscript, ccUsage, fake, randomish } from "./helpers.js";
 
 const machine = { homeDir: "/home/tester", username: "tester" };
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -22,10 +25,11 @@ const nested = (value: unknown, levels: number): string => {
   return text;
 };
 
-const jwt = (seed = 5): string => {
-  const part = (v: unknown) => Buffer.from(JSON.stringify(v)).toString("base64url");
-  return `${part({ alg: "HS256", typ: "JWT" })}.${part({ sub: `user-${randomish(8, seed)}`, exp: 1900000000 })}.${randomish(43, seed + 1, `${B64.slice(0, 62)}-_`)}`;
-};
+/** A JWT header or payload: `value` as JSON, pretty-printed when `indent` is given, in base64url. */
+const part = (value: unknown, indent?: number) => Buffer.from(JSON.stringify(value, null, indent)).toString("base64url");
+const signature = (seed: number) => randomish(43, seed, `${B64.slice(0, 62)}-_`);
+const jwt = (seed = 5): string =>
+  `${part({ alg: "HS256", typ: "JWT" })}.${part({ sub: `user-${randomish(8, seed)}`, exp: 1900000000 })}.${signature(seed + 1)}`;
 
 /** The token cut into lines of `width`, each continuation indented, as a terminal or a log prints it. */
 const wrap = (token: string, width: number, indent = "  "): string[] => {
@@ -157,9 +161,45 @@ describe("JWT", () => {
     expect(out).toBe(place("[REDACTED:jwt]"));
   });
 
+  // Betterleaks' `jwt` rule wants 17 characters after each part's `ey`, and `{` then a line break encodes to `ew`.
+  const SHAPES: Array<[string, string]> = [
+    ["a short payload", `${part({ alg: "HS256", typ: "JWT" })}.${part({ sub: "1" })}.${signature(29)}`],
+    ["only an algorithm in its header", `${part({ alg: "HS256" })}.${part({ uid: 12345 })}.${signature(31)}`],
+    ["pretty-printed JSON", `${part({ alg: "HS256", typ: "JWT" }, 2)}.${part({ sub: "1234", iat: 1700000000 }, 2)}.${signature(37)}`],
+    ["a pretty-printed header", `${part({ alg: "HS256", typ: "JWT" }, 2)}.${part({ sub: "1234", iat: 1700000000 })}.${signature(41)}`],
+  ];
+
+  describe.each(SHAPES)("with %s", (_shape, token) => {
+    it.each([
+      ["bare", (t: string) => `use ${t} now`],
+      ["before a comma", (t: string) => `tokens: ${t}, then more`],
+      ["in an auth header", (t: string) => `Authorization: Bearer ${t}`],
+    ])("redacts one %s", (_where, place) => {
+      expect(new Redactor(machine).redactText(place(token), "test")).toBe(place("[REDACTED:jwt]"));
+    });
+
+    it("redacts one wrapped over lines", () => {
+      expect(new Redactor(machine).redactText(`${wrap(token, 24).join("\n")}\nnext line`, "test")).toBe("[REDACTED:jwt]\nnext line");
+    });
+
+    it("keeps it out of the share, which is not clean", () => {
+      const raw = new ClaudeTranscript("aaaaaaaa-0000-0000-0000-000000000000", "/home/tester/work/demo")
+        .user("log in to the test server")
+        .assistant("m1", [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "./login --print" } }], ccUsage(10, 5))
+        .toolResult("b1", `issued ${token}, valid for 1h`)
+        .toJsonl();
+      const { json, report } = prepareShare(raw, { mode: "full", config: DEFAULT_CONFIG, machine, knownSecrets: [] });
+      for (const piece of token.split(".")) expect(json).not.toContain(piece);
+      expect(report.counts["secret-pattern"]).toBe(1);
+      expect(report.clean).toBe(false);
+      expect(report.blocked).toBe(false);
+    });
+  });
+
   it("leaves prose that only looks like one", () => {
     expect(findSecretPatterns("eyes looked up at the sky.\neyelids drooping over everything.\nsomething else here")).toEqual([]);
     expect(findSecretPatterns("see eyeglassesAndMoreThings.eyebrowsAndOtherThings.somethingElseHere, then")).toEqual([]);
+    expect(findSecretPatterns("see ewesAndLambsInTheField.ewersOfWaterOnTheTable.somethingElseHere, then")).toEqual([]);
   });
 
   it("is high confidence: the re-scan blocks one left in the payload", () => {

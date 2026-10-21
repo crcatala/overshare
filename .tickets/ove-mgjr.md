@@ -1,6 +1,6 @@
 ---
 id: ove-mgjr
-status: open
+status: closed
 deps: [ove-3b8f]
 links: []
 created: 2026-10-19T16:56:49Z
@@ -35,3 +35,9 @@ The playbook links to the "Betterleaks rules" section of `docs/development.md` f
 - Renovate is set as above: Betterleaks releases on the Dependency Dashboard, no PR without approval.
 - An agent following the playbook on the then-current state either reports up to date (pre-releases skipped) or produces a PR that meets the steps.
 
+
+## Notes
+
+**2026-10-21T02:33:14Z**
+
+Done: the playbook is docs/maintaining-rules.md (linked from the README's docs table and from development.md's Betterleaks rules section, which it links to rather than restating). The sync-betterleaks skill at .agents/skills/ only points at it and sets disable-model-invocation: true. Claude Code's skills docs list only .claude/skills/ locations, so .claude/skills/sync-betterleaks is a symlink to the same folder; a headless /sync-betterleaks run loaded it through the symlink. Renovate: a custom regex manager on upstream.json's tag (github-releases, betterleaks/betterleaks, semver, ignoreUnstable) with dependencyDashboardApproval and automerge off. config:recommended ignores **/vendor/**, so ignorePaths repeats its list without it. A local lookup dry run found the dependency, offered v1.9.0 from v1.8.1 (not the 2.0.0 RCs) with approval required, and nothing at v1.9.0. Dry run of the playbook on 2026-10-20: v1.9.0 vendored and newest stable (v2.0.0-rc.1 to rc.4 skipped), so up to date. It showed that a failed gh call could be read as up to date; step 1 now accepts only vX.Y.Z tags and says never to take an empty result as up to date.

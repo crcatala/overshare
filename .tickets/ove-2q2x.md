@@ -46,7 +46,7 @@ Each phase is its own PR, small enough to measure; the epic can stop after any o
 1. ove-3b8f: vendor the rule file and the converter, not wired in. No behaviour change.
 2. ove-ro4e: detect with Betterleaks' high-confidence rules alongside secret-scan, and measure.
 3. ove-byj4: prune hand-written formats Betterleaks covers; decide whether secret-scan stays.
-4. ove-mgjr: a playbook for syncing with new releases by hand (needs a decision first).
+4. ove-mgjr: a playbook for syncing with new releases by hand (decided 2026-10-20; see the ticket).
 
 ## Benefits
 

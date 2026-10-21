@@ -12,7 +12,7 @@ are redacted **on your machine**, the exact payload is scanned again, and only t
 
 <p align="center"><img src="docs/assets/demo.svg" width="100%" alt="overshare publishing a coding-agent session from the terminal: secrets are redacted on your machine, the file is re-scanned, and the link opens in the viewer, where readers can switch share modes" /></p>
 
-- **Redacted locally, checked twice.** Known values from your environment and `.env` files, about 1,100
+- **Redacted locally, checked twice.** Known values from your environment and `.env` files, about 400
   secret patterns, home paths and emails are scrubbed before upload. If the final re-scan still finds
   something, publishing is refused.
 - **Share as much as you mean to.** Four [share modes](#share-modes), from the full transcript down to just

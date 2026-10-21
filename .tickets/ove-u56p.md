@@ -1,6 +1,6 @@
 ---
 id: ove-u56p
-status: open
+status: closed
 deps: [ove-byj4]
 links: []
 created: 2026-10-20T17:23:21Z
@@ -22,3 +22,13 @@ First, the owner checks the two values (npm run audit:redaction -- --from out/au
 
 @sanity-labs/secret-scan is gone from package.json and src/; shannonEntropy gives the same values as before (a test); audit:redaction --base main loses only the generic medium findings (and the high ones the #78 triage called placeholders or false positives), each triaged by shape in the PR; the two unclassified values are decided by the owner first; full suite, typecheck, property suite at FC_NUM_RUNS=20000 and Node 22.19 pass.
 
+
+## Notes
+
+**2026-10-20T18:57:53Z**
+
+Done: @sanity-labs/secret-scan is gone. Owner decided first (2026-10-20) that the two unclassified values from #78 are not live; investigated by shape: the 32-char value is the age-key character set and the 27-char one the TestPyPI test prefix, both committed in tests. shannonEntropy lives in src/redact/entropy.ts (same definition, pinned by tests/entropy.vitest.ts). Removing the library as designed would have lost 12 providers (Anthropic, OpenAI, Stripe, Groq, Replicate, SendGrid, npm, Postman, Hugging Face, DigitalOcean, xAI, single-line JWT) before ',' ')' '.' or '&', since Betterleaks' rules end only at whitespace, a quote or ';'. The owner chose to port them: 11 new token-formats.ts entries, and the JWT rule now also takes a JWT on one line. For phase 4 (sync playbook): if the converter ever relaxes Betterleaks' trailing boundary, the redundancy guard in tests/token-formats.vitest.ts will flag many entries (old and new) for pruning. audit:redaction against a ref that still imports a removed dependency needs it installed with npm install --no-save (docs/development.md).
+
+**2026-10-20T20:01:39Z**
+
+Also found by the property suite at FC_NUM_RUNS=20000: an AKIA key id whose entropy is at most 3 bits (repeated characters) is dropped by Betterleaks' aws-access-token entropy bar, and secret-scan had trusted the format. token-formats.ts has an aws-access-key-id entry at the fixed length with no randomness check (so 12 new entries in all, plus single-line JWTs).

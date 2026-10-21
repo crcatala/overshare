@@ -104,8 +104,7 @@ describe("redaction properties", () => {
   });
 
   // The guarantee is about publishing, not about the redactor alone: a credential is removed, or the final re-scan stops
-  // the share. The re-scan blocking is a designed outcome, not a failure (a generic rule of the scanner can shadow a
-  // trusted match until the path rule changes the text around it; see redaction-gaps.vitest.ts).
+  // the share. The re-scan blocking is a designed outcome, not a failure.
   it("no planted credential is published silently", () => {
     // Credentials on their own lines, between noise: two tokens glued into one run of token characters are not a case
     // the rules aim at (their boundary checks refuse a match inside a longer token, by design).

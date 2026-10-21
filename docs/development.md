@@ -59,7 +59,9 @@ printing it. Each session is read up to its size when the audit started, without
 complete JSON, so the one being written meanwhile is compared on the same text on both sides; sessions that
 changed on disk are labelled `(live)`. Not run in
 CI: it needs your own sessions. Run it for every change to detection, and put its summary (counts, never
-session names) in the PR.
+session names) in the PR. The base runs with this checkout's `node_modules`: when a change removes a
+dependency the base still imports, install it for the run with `npm install --no-save <package>`, and
+`npm prune` afterwards.
 
 ## How it fits together
 

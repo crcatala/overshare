@@ -1,4 +1,4 @@
-import { shannonEntropy } from "@sanity-labs/secret-scan";
+import { shannonEntropy } from "./entropy.js";
 import enabled from "./betterleaks-enabled.json" with { type: "json" };
 import table from "./betterleaks-rules.json" with { type: "json" };
 import type { PatternMatch } from "./patterns.js";

@@ -1,11 +1,10 @@
-import { shannonEntropy } from "@sanity-labs/secret-scan";
+import { shannonEntropy } from "./entropy.js";
 import type { PatternMatch } from "./patterns.js";
 
 /**
  * Provider token formats recognised by their own shape, with no surrounding context needed: a literal prefix the
- * provider chose (`vcp_`, `glrt-`, `sk-or-v1-`) followed by a random body. Written by hand from the providers' public
- * token formats to cover what the generic detector (`@sanity-labs/secret-scan`, a frozen snapshot of TruffleHog's
- * detectors) misses when a token is printed bare, e.g. in tool output.
+ * provider chose (`vcp_`, `glrt-`, `sk-or-v1-`) followed by a random body, so a token printed bare (in tool output,
+ * say) is found. Written by hand from the providers' public token formats.
  *
  * Choices that apply to every entry:
  * - Lengths are lower bounds (`{40,}`), not the provider's exact length. Providers lengthen tokens over time and an
@@ -65,6 +64,7 @@ export const TOKEN_FORMATS: readonly TokenFormat[] = [
   fmt("buildkite-token", "bk", r`bk(?:ua|aa|ct)_[A-Za-z0-9_-]{36,}`),
   fmt("rubygems-token", "rubygems_", r`rubygems_[0-9a-f]{48,}`),
   fmt("clojars-token", "CLOJARS_", r`CLOJARS_[a-z0-9]{40,}`),
+  fmt("npm-token", "npm_", r`npm_[A-Za-z0-9]{36,}`),
   fmt("docker-swarm-token", "SWM", r`SWM(?:TKN|KEY)-1-[A-Za-z0-9-]{40,}`),
   fmt("gitlab-runner-registration", "GR1348941", r`GR1348941[A-Za-z0-9_-]{20,}`),
   fmt("netlify-token", "nfp_", r`nfp_[A-Za-z0-9]{30,}`),
@@ -88,12 +88,24 @@ export const TOKEN_FORMATS: readonly TokenFormat[] = [
   fmt("heroku-token", "HRKU-", r`HRKU-[A-Za-z0-9_-]{30,}`),
   fmt("doppler-token", "dp.", r`dp\.(?:pt|st|sa|ct|scim|audit)\.(?:[a-z0-9_-]{1,40}\.)?[A-Za-z0-9]{40,}`),
   fmt("atlassian-token", "ATATT3", r`ATATT3[A-Za-z0-9_=-]{50,}`),
+  // An AWS access key id has a fixed length, and no entropy bar: Betterleaks' rule drops one whose 16 characters repeat
+  // enough to score 3 bits or less.
+  fmt("aws-access-key-id", "", r`(?:AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16}(?![A-Za-z0-9])`, { plain: true }),
   fmt("aws-bedrock-key", "ABSK", r`ABSK[A-Za-z0-9+/=]{80,}`, { plain: true }),
   fmt("aws-bedrock-key", "bedrock-api-key-", r`bedrock-api-key-[A-Za-z0-9+/=_-]{24,}`, { plain: true }),
   fmt("azure-storage-key", "AccountKey=", r`(?<=AccountKey=)[A-Za-z0-9+/]{80,}={0,2}`, { anchored: true, plain: true }),
   fmt("polar-token", "polar_", r`polar_(?:at|oat|pat|ot)_[A-Za-z0-9]{30,}`),
+  fmt("digitalocean-token", "_v1_", r`do[opr]_v1_[0-9a-f]{64,}`),
 
   // AI providers and tooling.
+  fmt("anthropic-key", "sk-ant-", r`sk-ant-(?:api|admin)\d{2}-[A-Za-z0-9_-]{80,}`),
+  // The key's middle always holds `T3BlbkFJ` (base64 of `OpenAI`); older keys have no kind segment.
+  fmt("openai-key", "T3BlbkFJ", r`sk-(?:(?:proj|svcacct|admin|service)-[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{20,})T3BlbkFJ[A-Za-z0-9_-]{20,}`),
+  fmt("xai-key", "xai-", r`xai-[A-Za-z0-9_-]{70,}`),
+  fmt("groq-key", "gsk_", r`gsk_[A-Za-z0-9]{48,}`),
+  fmt("replicate-token", "r8_", r`r8_[A-Za-z0-9]{36,}`),
+  fmt("huggingface-token", "hf_", r`hf_[A-Za-z0-9]{34,}`),
+  fmt("huggingface-token", "api_org_", r`api_org_[A-Za-z0-9]{34,}`),
   fmt("openrouter-key", "sk-or-", r`sk-or-v1-[0-9a-f]{48,}`),
   fmt("perplexity-key", "pplx-", r`pplx-[A-Za-z0-9]{40,}`),
   fmt("cerebras-key", "csk-", r`csk-[a-z0-9]{40,}`),
@@ -112,6 +124,9 @@ export const TOKEN_FORMATS: readonly TokenFormat[] = [
   fmt("firebase-server-key", ":APA91b", r`AAAA[A-Za-z0-9_-]{7}:APA91b[A-Za-z0-9_-]{100,}`, { plain: true }),
 
   // SaaS APIs.
+  fmt("stripe-key", "k_", r`[rs]k_(?:live|test|prod)_[A-Za-z0-9]{20,}`),
+  fmt("sendgrid-key", "SG.", r`SG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{40,}`),
+  fmt("postman-key", "PMAK-", r`PMAK-[0-9a-fA-F]{24}-[0-9a-fA-F]{34,}`),
   fmt("notion-token", "ntn_", r`ntn_[A-Za-z0-9]{40,}`),
   fmt("figma-token", "figd_", r`figd_[A-Za-z0-9_-]{40,}`),
   fmt("posthog-personal-key", "phx_", r`phx_[A-Za-z0-9]{40,}`),

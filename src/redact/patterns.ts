@@ -1,20 +1,14 @@
-import { scan, shannonEntropy } from "@sanity-labs/secret-scan";
+import { shannonEntropy } from "./entropy.js";
 import { findBetterleaks } from "./betterleaks.js";
 import { findAwsSecretKeys, findTokenFormats } from "./token-formats.js";
 
 /**
  * Pattern-based secret detection.
  *
- * `@sanity-labs/secret-scan` ports ~1,100 TruffleHog detectors. Rules for
- * prefix-anchored formats (ghp_, sk-ant-, AKIA, PEM blocks, ...) are precise, but
- * many "keyword + generic token" rules fire constantly on source code and diffs
- * (e.g. `100644` as a GitHub App key, `merge` as a DockerHub token). We trust the
- * anchored rules outright and require everything else to look like a real secret.
- *
- * Three things sit beside that scanner: Betterleaks' high-confidence rules (`betterleaks.ts`), `token-formats.ts`
- * (provider formats recognised by their prefix, plus an AWS secret key found next to its key id) and the strong-context
- * rules below (an auth header, `curl -u`, `password=`), where the position alone says "credential" and the value only
- * has to be plausible, not statistically random.
+ * Three sources: Betterleaks' high-confidence rules (`betterleaks.ts`), `token-formats.ts` (provider formats
+ * recognised by their prefix, plus an AWS secret key found next to its key id) and the strong-context rules below (an
+ * auth header, `curl -u`, `password=`), where the position alone says "credential" and the value only has to be
+ * plausible, not statistically random.
  */
 
 export interface PatternMatch {
@@ -23,36 +17,6 @@ export interface PatternMatch {
   end: number;
   confidence: "high" | "medium";
 }
-
-const TRUSTED_RULES = new Set([
-  "anthropic",
-  "openai",
-  "aws-access_keys",
-  "github-v2",
-  "gitlab-v2",
-  "stripe",
-  "slack",
-  "slackwebhook",
-  "groq",
-  "replicate",
-  "sendgrid",
-  "jwt",
-  "npmtokenv2",
-  "linearapi",
-  "supabasetoken",
-  "postman",
-  "privatekey",
-  "database-connection-string",
-  "huggingface",
-  "gcpapplicationdefaultcredentials",
-  "googleapikey",
-  "digitaloceanv2",
-  "doppler",
-  "pypi",
-  "xai",
-  "openrouter",
-  "sentrytoken",
-]);
 
 const HEX_HASH = /^(sha\d*[-:])?[0-9a-f]{7,128}$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -157,14 +121,16 @@ const PEM_TRUNCATED =
   /-----BEGIN [A-Z ]*PRIVATE KEY-----(?:[ \t]*(?:\r?\n|(?:\\r)?\\n)(?:[ \t]*(?:\r?\n|(?:\\r)?\\n))?[ \t]*(?:[A-Za-z0-9+/=]{16,}|(?:[A-Za-z0-9+/=]+|(?:Proc-Type|DEK-Info|Comment):[^\r\n\\]*)(?=[ \t]*(?:\r?\n|\\[rn]|["'`]|$))))+/g;
 /** Base64 a truncated key must hold past its header, so a header quoted alone (or above a word) is not a finding. */
 const PEM_MIN_BODY = 40;
-// A JWT wrapped over lines (a terminal, a log): too broken up for the `jwt` rule. Header and payload may wrap anywhere,
-// even between the `e` and `y` that start them, since a `.` ends each; a line of the signature only continues it when
-// the line is token characters to its end, or up to a delimiter that closes the token (`"eyJ…\n  …",`), so the next
-// line of prose is not taken, and holds a letter or digit, so a `----------` separator under it is not either.
+// A JWT on one line, or wrapped over lines (a terminal, a log). Betterleaks' `jwt` rule finds one only on one line and
+// before whitespace, a quote or `;`, not before `,` `.` `)` or `&`, and not one with a short payload or pretty-printed
+// JSON (`{` and a line break encode to `ew`, not `ey`). Header and payload may wrap anywhere, even between the two
+// letters that start them, since a `.` ends each; a line of the signature only continues it when the line is
+// token characters to its end, or up to a delimiter that closes the token (`"eyJ…\n  …",`), so the next line of prose
+// is not taken, and holds a letter or digit, so a `----------` separator under it is not either.
 const JWT_PIECE = "[A-Za-z0-9_-]";
 const LINE_BREAK = "[ \\t]*\\r?\\n[ \\t]*";
-const JWT_PART = `e(?:${LINE_BREAK})?y${JWT_PIECE}*(?:${LINE_BREAK}${JWT_PIECE}+)*(?:${LINE_BREAK})?\\.(?:${LINE_BREAK})?`;
-const WRAPPED_JWT = new RegExp(
+const JWT_PART = `e(?:${LINE_BREAK})?[wy]${JWT_PIECE}*(?:${LINE_BREAK}${JWT_PIECE}+)*(?:${LINE_BREAK})?\\.(?:${LINE_BREAK})?`;
+const JWT = new RegExp(
   `(?<![A-Za-z0-9_-])${JWT_PART}${JWT_PART}${JWT_PIECE}+(?:${LINE_BREAK}(?=[_-]*[A-Za-z0-9])${JWT_PIECE}+(?=[ \\t]*(?:\\r?\\n|$)|["'\`,;)\\]}>]))*`,
   "g",
 );
@@ -186,16 +152,6 @@ export function findSecretPatterns(text: string, allow: ReadonlySet<string> = ne
 function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] {
   // Betterleaks' matches first: on a tie (same span, same confidence) the first one names the placeholder.
   const found: PatternMatch[] = findBetterleaks(text);
-  for (const s of scan(text)) {
-    const trusted = TRUSTED_RULES.has(s.rule) || TRUSTED_RULES.has(s.rule.replace(/-\d+$/, ""));
-    if (!trusted) {
-      if (!looksLikeSecret(s.text) || s.text.includes(".")) continue;
-      if (/[_-][0-9a-f]{8,}$/.test(s.text)) continue; // build artifacts like libfoo-1df712e7440f2fd2
-      // A generic rule matching a fragment of a longer token (base64 blob, identifier) is noise.
-      if (TOKEN_CHAR.test(text[s.start - 1] ?? "") || TOKEN_CHAR.test(text[s.end] ?? "")) continue;
-    }
-    found.push({ rule: s.rule, start: s.start, end: s.end, confidence: trusted ? "high" : "medium" });
-  }
   for (const m of text.matchAll(AGE_SECRET_KEY)) found.push({ rule: "age-secret-key", start: m.index, end: m.index + m[0].length, confidence: "high" });
   for (const m of text.matchAll(PEM_BLOCK)) found.push({ rule: "private-key-block", start: m.index, end: m.index + m[0].length, confidence: "high" });
   // A complete block also matches here, as a shorter span without its END line; overlap resolution keeps the block.
@@ -205,9 +161,9 @@ function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] 
   }
   // A rejected candidate resumes the search one character on, not after it: a stray `ey` on the line above a JWT starts
   // a candidate that swallows the real token.
-  const jwt = new RegExp(WRAPPED_JWT.source, "g");
-  for (let m = text.includes("\n") && text.includes(".") ? jwt.exec(text) : null; m; m = jwt.exec(text)) {
-    if (m[0].includes("\n") && isWrappedJwt(m[0].replace(/\s+/g, ""))) found.push({ rule: "jwt", start: m.index, end: m.index + m[0].length, confidence: "high" });
+  const jwt = new RegExp(JWT.source, "g");
+  for (let m = text.includes(".") && (text.includes("ey") || text.includes("ew") || text.includes("\n")) ? jwt.exec(text) : null; m; m = jwt.exec(text)) {
+    if (isJwt(m[0].replace(/\s+/g, ""))) found.push({ rule: "jwt", start: m.index, end: m.index + m[0].length, confidence: "high" });
     else jwt.lastIndex = m.index + 1;
   }
   for (const m of text.matchAll(ASSIGNMENT)) {
@@ -248,13 +204,16 @@ function findInWindow(text: string, allow: ReadonlySet<string>): PatternMatch[] 
   );
 }
 
+/** Shortest header or payload taken: `{"sub":"1"}` encodes to 15 characters. */
+const JWT_MIN_PART = 15;
+
 /**
- * A wrapped candidate, its whitespace removed, is a JWT when its header decodes to a JSON object naming an algorithm or a
- * type: prose that happens to run `ey…`, `.`, `ey…`, `.` across lines does not.
+ * A candidate, its whitespace removed, is a JWT when its header decodes to a JSON object naming an algorithm or a type:
+ * prose that happens to run `ey…`, `.`, `ey…`, `.` (across lines, say) does not.
  */
-function isWrappedJwt(compact: string): boolean {
+function isJwt(compact: string): boolean {
   const [header, payload, signature] = compact.split(".");
-  if (!header || !payload || !signature || header.length < 19 || payload.length < 19 || signature.length < 10) return false;
+  if (!header || !payload || !signature || header.length < JWT_MIN_PART || payload.length < JWT_MIN_PART || signature.length < 10) return false;
   try {
     const decoded: unknown = JSON.parse(Buffer.from(header, "base64url").toString("utf8"));
     return typeof decoded === "object" && decoded !== null && ("alg" in decoded || "typ" in decoded);
@@ -263,8 +222,7 @@ function isWrappedJwt(compact: string): boolean {
   }
 }
 
-const TOKEN_CHAR = /[A-Za-z0-9+/=_-]/;
-// The scanner is superlinear on very large inputs; scan long strings in overlapping windows.
+// A regex can backtrack, and some rules are superlinear on very large inputs; scan long strings in overlapping windows.
 // The overlap exceeds any single secret we detect (PEM keys are a few KB).
 const CHUNK = 32_768;
 const OVERLAP = 8_192;
@@ -281,7 +239,7 @@ function findChunked(text: string, allow: ReadonlySet<string>): PatternMatch[] {
 }
 
 /**
- * A match without the whitespace at its ends. Some rules of the scanner end on the delimiter after a token (a newline);
+ * A match without the whitespace at its ends. Some rules end on the delimiter after a token (a newline);
  * redacting it protects nothing, and once overlapping matches are joined it would take the line break after a key.
  */
 function trimSpan(text: string, m: PatternMatch): PatternMatch {

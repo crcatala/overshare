@@ -116,7 +116,7 @@ describe("a secret that straddles the title cut", () => {
   });
 
   it("a marker that ends exactly at the cut is kept whole", () => {
-    const marker = "[REDACTED:github-v2]";
+    const marker = "[REDACTED:github-pat]";
     const title = capTitle(`${"a".repeat(79 - marker.length)}${marker}tail beyond the cut`);
     expect(title).toBe(`${"a".repeat(79 - marker.length)}${marker}…`);
   });

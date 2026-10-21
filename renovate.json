@@ -1,4 +1,27 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>crcatala/renovate-config"]
+  "extends": ["github>crcatala/renovate-config"],
+  "description": "ignorePaths is config:recommended's list without **/vendor/**, so the custom manager below can read vendor/betterleaks/upstream.json.",
+  "ignorePaths": ["**/node_modules/**", "**/bower_components/**", "**/examples/**", "**/__tests__/**", "**/test/**", "**/tests/**", "**/__fixtures__/**"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The Betterleaks release whose rule file is vendored in vendor/betterleaks",
+      "managerFilePatterns": ["vendor/betterleaks/upstream.json"],
+      "matchStrings": ["\"tag\":\\s*\"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "betterleaks/betterleaks",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Notify only: list a new stable Betterleaks release on the Dependency Dashboard, never open its PR unless approved there. The sync is done by hand (docs/maintaining-rules.md), since a tag bump alone leaves the rule file behind.",
+      "matchDatasources": ["github-releases"],
+      "matchDepNames": ["betterleaks/betterleaks"],
+      "dependencyDashboardApproval": true,
+      "ignoreUnstable": true,
+      "automerge": false
+    }
+  ]
 }

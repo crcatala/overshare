@@ -1,6 +1,6 @@
 ---
 id: ove-a4iy
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-10-25T18:32:11Z
@@ -102,3 +102,17 @@ Fields: `title`, `session_id`, `harness`, `harness_version` (when recorded), `mo
 - [ ] Unit tests for the renderer and escaping, CLI tests for the command (temp `XDG_DATA_HOME`, fixture sessions), `npm run typecheck` and `npm test` pass
 - [ ] Docs and CHANGELOG (Unreleased → Added) updated
 
+
+## Notes
+
+**2026-10-25T18:56:39Z**
+
+Implemented on feat/archive-markdown. Changes from the design, all found while building and testing:
+- _archive-report.md is written by --all runs only. With -o file.md it would have landed next to an arbitrary file, and a single-session run would have replaced the last sweep's report with one line.
+- The report's session paths go through the same personal redaction as the frontmatter (it sits in the archive); the terminal shows real paths, to open them.
+- Frontmatter also records tools: true|false, so changing --tools rewrites a file like changing --mode does.
+- The id in a file name is the first 8 characters, except for UUIDv7 ids (pi), whose first 8 are a timestamp shared by sessions begun within about a minute; those use the last 8.
+- A lone ~ in a prompt is escaped like a stray * or _: GFM strikes through ~a~, and emphasis can pair across the lines of one paragraph. Only ~~a~~ is kept.
+- A plain line right after a list item in a prompt is indented to the item's content column: CommonMark allows it unindented, but marked ends the item, which left the hard-break backslash visible.
+- A heading line in a list item's content is escaped too (1. > x is a quote inside a list).
+The fast-check properties in tests/markdown.vitest.ts found the last four; they pass at 8000 runs.

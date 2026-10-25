@@ -19,6 +19,7 @@ A missing file means defaults; an invalid one is an error.
     "publicUrl": "https://shares.example.com"
   },
   "maxToolChars": 20000,
+  "archive": { "dir": "~/notes/sessions" },
   "redact": {
     "emails": true,
     "username": true,
@@ -36,6 +37,7 @@ A missing file means defaults; an invalid one is an error.
 | `target` | `gist` | Where `publish` uploads: `gist` or `r2` ([Storage targets](sharing.md#storage-targets)). |
 | `r2` | — | Public R2 bucket for `target: "r2"`. Credentials come from environment variables, never this file. |
 | `maxToolChars` | `20000` | Per-string cap on tool inputs and results in `full` mode. |
+| `archive.dir` | `~/.local/share/overshare/archive` | Where `overshare archive` writes ([Archiving](archive.md)); `~` is expanded. |
 | `redact.emails` | `true` | Replace email addresses with `[email]` (no-reply and example addresses are kept). |
 | `redact.username` | `true` | Replace your username with `[user]`. |
 | `redact.hostname` | `false` | Also replace this machine's hostname. |
@@ -46,7 +48,7 @@ A missing file means defaults; an invalid one is an error.
 ## Per-run options
 
 - `--target gist|r2` on `publish` overrides `target`; in `browse`, press `t` in the publish dialog.
-- `--secrets-file <file>` (on `report`, `export` and `publish`) adds exact values to redact.
+- `--secrets-file <file>` (on `report`, `export`, `archive` and `publish`) adds exact values to redact.
   `UPPER_SNAKE=value` lines are split at the first `=`; any other line is redacted whole, so base64
   padding or an `=` inside a bare secret never drops or partly reveals it. Values under 4 characters
   are skipped with a warning.
@@ -64,6 +66,7 @@ A missing file means defaults; an invalid one is an error.
 | `OVERSHARE_BROWSE_SETTINGS` | Path to the `browse` settings file. |
 | `OVERSHARE_INDEX` | Path to the `browse` session index cache. |
 | `OVERSHARE_SHARES` | Path to the record of published shares. |
+| `OVERSHARE_ARCHIVE_DIR` | Overrides `archive.dir`. |
 | `OVERSHARE_BIN` | Used by the agent integrations when `overshare` is not on `PATH`. |
 
 ## Files overshare writes
@@ -73,6 +76,7 @@ A missing file means defaults; an invalid one is an error.
 | `~/.config/overshare/browse.json` | `browse` preferences ([Settings](browse.md#settings)). |
 | `~/.cache/overshare/index.json` | `browse` session summaries, including prompt text (mode 0600). |
 | `~/.local/state/overshare/shares.json` | Every successful publish and its link, so `browse` can mark shared sessions (mode 0600). |
+| `~/.local/share/overshare/archive/` | Markdown files from `overshare archive`, and the last sweep's `_archive-report.md` (files 0600, folder 0700). |
 
-Each respects `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_STATE_HOME`. Secret values collected for
+Each respects `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME` and `XDG_DATA_HOME`. Secret values collected for
 redaction are never written to disk.

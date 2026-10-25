@@ -116,3 +116,11 @@ Implemented on feat/archive-markdown. Changes from the design, all found while b
 - A plain line right after a list item in a prompt is indented to the item's content column: CommonMark allows it unindented, but marked ends the item, which left the hard-break backslash visible.
 - A heading line in a list item's content is escaped too (1. > x is a quote inside a list).
 The fast-check properties in tests/markdown.vitest.ts found the last four; they pass at 8000 runs.
+
+**2026-10-25T21:40:19Z**
+
+After an independent review of PR #85:
+- Frontmatter values from this machine (source_path, machine) and the report's paths and errors now use the session's own redaction rules, denylist and known values included, not only the personal rules. The final re-scan only covers the session content, so a denylisted project folder name had reached source_path.
+- Frontmatter records settings, a 12-character hash of the overshare version, the redact config, the --secrets-file contents, --leaf and --include-system-prompt. A file made with different settings is rewritten, so a new denylist entry reaches files that were already archived. Known values from the environment and .env files are not in the hash: collecting them per session would make the skip slow. --overwrite covers them.
+- --mode full --include-system-prompt writes a ## System prompt section of fenced parts; it had been prepared but never rendered.
+- A property run found that a table row starting with > (or #, -, 1.) became a quote, heading or list; such rows now have their first marker escaped.

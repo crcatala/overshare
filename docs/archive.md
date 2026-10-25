@@ -27,12 +27,16 @@ readable only by you (mode 0600).
 
 Run it as often as you like. A file whose session has not changed since it was written is skipped without
 reading the session; a session that has grown since is written again, under the same name. Changing `--mode`
-or `--tools` also rewrites a file. `--overwrite` rewrites every file regardless, and `--dry-run` lists what
-would be written and writes nothing.
+or `--tools` also rewrites a file, and so do changes to what redaction uses: the `redact` config (a new
+denylist entry, say), the contents of a `--secrets-file`, `--leaf`, `--include-system-prompt`, and a new
+overshare version. `--overwrite` rewrites every file regardless, and `--dry-run` lists what would be written and
+writes nothing.
 
-The check reads `source_mtime`, `source_size`, `mode` and `tools` from the file's frontmatter. With
-`--no-frontmatter` there is no such record, so a file counts as up to date when it is newer than its session
-file; pass `--overwrite` after changing the mode.
+The check reads `source_mtime`, `source_size`, `mode`, `tools` and `settings` (a short hash of those other
+settings, never their values) from the file's frontmatter. Known values read from the environment and `.env`
+files are not part of it, so after adding a secret there, pass `--overwrite`. With `--no-frontmatter` there is
+no such record, so a file counts as up to date when it is newer than its session file; pass `--overwrite` after
+changing any option. Turning frontmatter off for files that have it does not remove it until they are rewritten.
 
 ## What a file looks like
 
@@ -43,6 +47,7 @@ session_id: "3f9c2a1e-7b44-4c0e-9d1a-5e2f8c6b0a11"
 harness: "claude-code"
 mode: "minimal"
 tools: false
+settings: "5d41402abc4b"
 project: "overshare"
 cwd: "~/workspace/overshare"
 branch: "fix/r2-retry"
@@ -98,8 +103,9 @@ src/publish/r2.ts
   (`` _Tools: Read ×6, Bash ×4 (1 error) · edited `src/x.ts`_ ``), the commands in `brief` mode, subagent launches,
   and in `full` mode one line per call. Tool output and thinking are never written.
 - **Headings.** One `#` title, then `## User (Turn N)` and `## Assistant (Turn N)`; turn numbers match
-  `overshare browse` and the report. Headings in a reply are moved down so its shallowest is `###`, keeping their
-  relative depth; one that would go past `######` becomes bold text.
+  `overshare browse` and the report. With `--mode full --include-system-prompt`, a `## System prompt` section
+  comes first, each part of it a plain-text code block. Headings in a reply are moved down so its shallowest is
+  `###`, keeping their relative depth; one that would go past `######` becomes bold text.
 - **Prompts are shown as typed.** A prompt is plain text, so the file escapes what markdown would otherwise turn
   into markup: a line starting with `#` or `>`, `<Name>` (which would vanish as HTML), a stray `*`, `_` or `~`, a
   line of `-` or `=` under text. Line breaks are kept (as a trailing `\`), an indented block such as a pasted log
@@ -107,8 +113,8 @@ src/publish/r2.ts
   are. A fence left open in a prompt or a reply is closed where that message ends.
 - **Frontmatter.** On by default; `--no-frontmatter` leaves it out. Every value is redacted like the rest of the
   file: home paths become `~`, the home folder in Claude Code's project folder names `-home-[user]-`, your username
-  `[user]`. `machine` (the hostname) is left out when `redact.hostname` is on. `usage` covers the session's own
-  model calls, not its subagents'.
+  `[user]`; the denylist and known values apply too. `machine` (the hostname) is left out when `redact.hostname`
+  is on. `usage` covers the session's own model calls, not its subagents'.
 
 ## Findings
 

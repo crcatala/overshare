@@ -58,6 +58,11 @@ export interface PreparedShare {
   session: NormalizedSession;
   json: string;
   report: ShareReport;
+  /**
+   * Redact a value from outside the session (a file path, the hostname) with this share's rules: its known values,
+   * denylist and personal rules. A fresh redactor each call, so the report's counts are not touched.
+   */
+  redactText: (text: string) => string;
 }
 
 export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
@@ -98,7 +103,7 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
   const extra = opts.extraKnownSecrets ?? [];
   const knownSources: KnownSourceUse[] = extra.length ? [...collected.sources, { id: "secrets-file", enabled: true, count: extra.length }] : collected.sources;
   const knownSecrets = [...collected.secrets, ...extra].sort((a, b) => b.value.length - a.value.length);
-  const redactor = new Redactor({
+  const redactorOptions = {
     ...machine,
     redactEmails: redact.emails,
     redactUsername: redact.username,
@@ -106,7 +111,8 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
     knownSecrets,
     denylist: redact.denylist,
     allowlist: redact.allowlist,
-  });
+  };
+  const redactor = new Redactor(redactorOptions);
 
   // Project first so only content that will actually be published is redacted and reported.
   // Every length cap on text that reaches the payload runs AFTER redaction (ass-7x3c): the adapters keep summaries and
@@ -132,6 +138,7 @@ export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
   return {
     session,
     json,
+    redactText: (text) => new Redactor(redactorOptions).redactText(text),
     report: {
       harness: session.harness.name,
       sessionId: safeLabel(session.source.sessionId, "unknown"),

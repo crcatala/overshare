@@ -22,6 +22,8 @@ export function renderMarkdown(session: NormalizedSession, opts: MarkdownOptions
   const out: string[] = [];
   if (opts.frontmatter) out.push(frontmatter(opts.frontmatter));
   out.push(`# ${inlineText(session.title?.split("\n", 1)[0]?.trim() || "Untitled session")}`);
+  // Only there when the sharer opted in (full mode); fenced, since it is the harness's text, not a reply to render.
+  if (session.systemPrompt?.length) out.push(["## System prompt", ...session.systemPrompt.map(fenced)].join("\n\n"));
   for (const turn of session.turns) {
     // Numbered as in `overshare browse` and the report's suspicious locations.
     const n = turn.index + 1;
@@ -172,6 +174,12 @@ export function fenceFor(text: string): string {
   return "`".repeat(Math.max(3, longest + 1));
 }
 
+/** `text` as a plain-text code block, whatever fences it holds. */
+function fenced(text: string): string {
+  const fence = fenceFor(text);
+  return `${fence}text\n${text.replace(/\n+$/, "")}\n${fence}`;
+}
+
 /** Close a fenced block left open at the end of `text`. */
 export function closeOpenFence(text: string): string {
   const segs = segments(text.split("\n"));
@@ -309,7 +317,7 @@ function proseLines(lines: string[]): string[] {
     const table = tables.has(i);
     // A line of `-` or `* * *` is a setext underline or a rule (escaped below), not a list item.
     const item = BLOCK_START.test(line) ? null : LIST_ITEM.exec(line);
-    let text = table ? inlineEscape(line) : escapeLine(line);
+    let text = table ? tableRowEscape(line) : escapeLine(line);
     if (item) {
       inList = true;
       itemIndent = contentColumn(line);
@@ -371,6 +379,20 @@ function escapeLine(line: string): string {
   const def = LINK_DEFINITION.exec(line);
   if (def) return `${def[1]}\\[${inlineEscape(line.slice(def[0].length))}`;
   return inlineEscape(line);
+}
+
+/**
+ * A table row keeps its pipes, but a row that starts like a block (`> a | b`, `- a | b`, `1. a | b`) would be read as
+ * that block instead of the table's header or a row, so its first marker is escaped. The delimiter row is left as is.
+ */
+function tableRowEscape(line: string): string {
+  if (TABLE_DELIMITER.test(line)) return inlineEscape(line);
+  const item = LIST_ITEM.exec(line);
+  if (item) {
+    const [, indent, digits, marker] = /^( *)(\d*)(.)/.exec(item[0])!;
+    return `${indent}${digits}\\${marker}${inlineEscape(line.slice(indent!.length + digits!.length + 1))}`;
+  }
+  return escapeLine(line);
 }
 
 /**

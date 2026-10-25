@@ -3,7 +3,7 @@ import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError, Option } from "commander";
-import { ARCHIVE_REPORT, archiveExitCode, archiveSession, defaultArchiveDir, existingArchives, formatEntry, formatReportFile, formatSummary, personalRedactor, summaryJson, type ArchiveEntry, type ArchiveTarget } from "./archive.js";
+import { ARCHIVE_REPORT, archiveExitCode, archiveSession, defaultArchiveDir, existingArchives, formatEntry, formatReportFile, formatSummary, personalRedactor, settingsHash, summaryJson, type ArchiveEntry, type ArchiveTarget } from "./archive.js";
 import { SHARE_TARGETS, loadConfig, type OvershareConfig, type ShareTarget } from "./config.js";
 import { exportFixtureShares, generateFixtures } from "./fixtures/index.js";
 import { formatBytes, plural } from "./format.js";
@@ -77,14 +77,15 @@ function prepare(arg: string | undefined, opts: SessionOptions): { ref: SessionR
 }
 
 /** Prepare sessions with these options; `--secrets-file` is read once, however many sessions follow. */
-function preparer(opts: SessionOptions, config: OvershareConfig): (ref: SessionRef) => PreparedShare {
-  const extraKnownSecrets = (opts.secretsFile ?? []).flatMap((f) => readSecretsFile(f, (msg) => console.error(`warning: ${msg}`)));
+function preparer(opts: SessionOptions, config: OvershareConfig, extraKnownSecrets = readSecretsFiles(opts)): (ref: SessionRef) => PreparedShare {
   return (ref) => {
     const raw = readFileSync(ref.path, "utf8");
     const subagentFiles = loadSubagentFiles(ref.harness, ref.path);
     return prepareShare(raw, { mode: opts.mode, config, harness: ref.harness, leafId: opts.leaf, subagentFiles, extraKnownSecrets, includeSystemPrompt: opts.includeSystemPrompt });
   };
 }
+
+const readSecretsFiles = (opts: SessionOptions) => (opts.secretsFile ?? []).flatMap((f) => readSecretsFile(f, (msg) => console.error(`warning: ${msg}`)));
 
 async function confirm(question: string): Promise<boolean> {
   if (!process.stdin.isTTY) return false;
@@ -201,7 +202,7 @@ withSessionOptions(program.command("archive"), "minimal")
     "after",
     `
 Files are named <start date>_<harness>_<project>_<id>.md. A file whose session has not changed since it
-was written (with the same --mode and --tools) is skipped; one whose session grew is rewritten.
+was written (with the same options and redaction settings) is skipped; one whose session grew is rewritten.
 Redacted secrets and suspicious values do not stop a file from being written: the end summary (and, with
 --all, ${ARCHIVE_REPORT} in the folder) lists them for review. Exit codes: 0 done, 1 an error,
 2 suspicious values to review, 3 a session held back. See docs/archive.md.`,
@@ -227,11 +228,13 @@ Redacted secrets and suspicious values do not stop a file from being written: th
           .sort((a, b) => b.mtimeMs - a.mtimeMs)
       : [resolveSession(arg, { current: opts.current, harness: opts.harness })];
 
+    const extraKnownSecrets = readSecretsFiles(opts);
+    const settings = settingsHash(config, { secretsFiles: (opts.secretsFile ?? []).map((f) => readFileSync(f, "utf8")), leaf: opts.leaf, includeSystemPrompt: opts.includeSystemPrompt });
     const ctx = {
       target,
       config,
-      prepare: preparer(opts, config),
-      opts: { mode: opts.mode, tools: !!opts.tools, frontmatter: opts.frontmatter, overwrite: !!opts.overwrite, force: !!opts.force, dryRun: !!opts.dryRun, sinceMs },
+      prepare: preparer(opts, config, extraKnownSecrets),
+      opts: { mode: opts.mode, tools: !!opts.tools, frontmatter: opts.frontmatter, overwrite: !!opts.overwrite, force: !!opts.force, dryRun: !!opts.dryRun, sinceMs, settings },
     };
     const existing = existingArchives(target.dir);
     const entries: ArchiveEntry[] = [];

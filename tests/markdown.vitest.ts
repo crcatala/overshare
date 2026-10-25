@@ -93,6 +93,13 @@ describe("promptMarkdown", () => {
     expect(md).toContain("snake_case_name");
   });
 
+  it("keeps a table whose rows start like a block (a quote, a list item, a heading) a table", () => {
+    for (const prompt of [">|\n-|", "- a | b\n--|--\n1 | 2", "1. a | b\n--|--", "# h | b\n--|--", "a | b\n--|--\n> c | d"]) {
+      const md = promptMarkdown(prompt);
+      expect(marked.lexer(md).map((t) => t.type), md).toEqual(["table"]);
+    }
+  });
+
   it("closes a fence the prompt left open, and a stray backtick cannot start a span across lines", () => {
     const md = promptMarkdown("look:\n```\nunterminated");
     expect(md.endsWith("\n```")).toBe(true);

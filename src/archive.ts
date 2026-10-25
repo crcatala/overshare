@@ -8,6 +8,7 @@
  * A file is `<start date>_<harness>_<project>_<id8>.md`. Its frontmatter records the session file's mtime and size
  * and the options it was rendered with, so a later run skips it before parsing anything when none of them changed.
  */
+import { createHash } from "node:crypto";
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import { homedir, hostname as osHostname, userInfo } from "node:os";
 import { basename, join } from "node:path";
@@ -43,6 +44,19 @@ export interface ArchiveOptions {
   dryRun: boolean;
   /** `--all`: sessions whose last activity is before this are left out. */
   sinceMs?: number;
+  /** `settingsHash` of what else shapes the content; a file made with other settings is rewritten. */
+  settings: string;
+}
+
+/**
+ * A short hash of the inputs besides the session, mode and tools that change what a file holds: the overshare version
+ * (redaction rules improve), the redact config, the `--secrets-file` contents, `--leaf` and `--include-system-prompt`.
+ * Only the hash is written, never the values. Known values read from the environment and `.env` files are not in it:
+ * collecting them for every session would cost the skip its speed; `--overwrite` picks up a new one.
+ */
+export function settingsHash(config: OvershareConfig, extra: { secretsFiles?: string[]; leaf?: string; includeSystemPrompt?: boolean }): string {
+  const input = JSON.stringify([TOOL_VERSION, config.redact, extra.secretsFiles ?? [], extra.leaf ?? null, !!extra.includeSystemPrompt]);
+  return createHash("sha256").update(input).digest("hex").slice(0, 12);
 }
 
 export type ArchiveStatus = "written" | "updated" | "up-to-date" | "held-back" | "failed";
@@ -61,6 +75,8 @@ export interface ArchiveEntry {
   suspicious: SuspiciousItem[];
   /** Final re-scan issues: the reason a session is held back. */
   blocked: number;
+  /** `source` redacted with the session's own rules, for the report file. */
+  redactedSource?: string;
   error?: string;
 }
 
@@ -105,6 +121,7 @@ export function archiveSession(ref: SessionRef, ctx: ArchiveContext, existing = 
     rules,
     suspicious: report.suspicious,
     blocked: report.rescan.length,
+    redactedSource: prepared.redactText(ref.path),
   };
   if (report.blocked && !opts.force) return { ...entry, status: "held-back" };
 
@@ -172,6 +189,7 @@ interface Stamp {
   sourceSize?: number;
   mode?: string;
   tools?: boolean;
+  settings?: string;
 }
 
 const STAMP_BYTES = 16 * 1024;
@@ -195,7 +213,7 @@ function readStamp(path: string): Stamp | undefined {
       return undefined;
     }
   };
-  return { sourceMtime: json(value("source_mtime")), sourceSize: json(value("source_size")), mode: json(value("mode")), tools: json(value("tools")) };
+  return { sourceMtime: json(value("source_mtime")), sourceSize: json(value("source_size")), mode: json(value("mode")), tools: json(value("tools")), settings: json(value("settings")) };
 }
 
 /**
@@ -206,7 +224,7 @@ function upToDate(path: string, ref: SessionRef, opts: ArchiveOptions): boolean 
   try {
     const stamp = readStamp(path);
     if (!stamp) return !opts.frontmatter && statSync(path).mtimeMs >= ref.mtimeMs;
-    return stamp.sourceMtime === new Date(ref.mtimeMs).toISOString() && stamp.sourceSize === ref.size && stamp.mode === opts.mode && stamp.tools === opts.tools;
+    return stamp.sourceMtime === new Date(ref.mtimeMs).toISOString() && stamp.sourceSize === ref.size && stamp.mode === opts.mode && stamp.tools === opts.tools && stamp.settings === opts.settings;
   } catch {
     return false;
   }
@@ -217,8 +235,7 @@ function upToDate(path: string, ref: SessionRef, opts: ArchiveOptions): boolean 
 function frontmatterFields(prepared: PreparedShare, ref: SessionRef, entry: ArchiveEntry, ctx: ArchiveContext): Record<string, FrontmatterValue> {
   const { session } = prepared;
   const { config, opts } = ctx;
-  // The session's own fields are redacted already; what comes from this machine goes through the same personal rules.
-  const personal = personalRedactor(config);
+  // The session's own fields are redacted already; what comes from this machine goes through the same rules.
   const tokens = session.stats.tokens;
   const cost = session.stats.cost;
   return {
@@ -228,16 +245,17 @@ function frontmatterFields(prepared: PreparedShare, ref: SessionRef, entry: Arch
     harness_version: session.harness.version,
     mode: opts.mode,
     tools: opts.tools,
+    settings: opts.settings,
     project: session.project?.name,
     cwd: session.project?.cwd,
     branch: session.project?.branch,
     // Left out when hostname redaction is on, rather than written as a placeholder.
-    machine: config.redact.hostname ? undefined : personal.redactText(osHostname()),
+    machine: config.redact.hostname ? undefined : prepared.redactText(osHostname()),
     started_at: session.startedAt,
     last_activity_at: session.endedAt ?? new Date(ref.mtimeMs).toISOString(),
     exported_at: (ctx.now ?? new Date()).toISOString(),
     overshare_version: TOOL_VERSION,
-    source_path: personal.redactText(ref.path),
+    source_path: entry.redactedSource,
     source_mtime: new Date(ref.mtimeMs).toISOString(),
     source_size: ref.size,
     models: session.models.length ? session.models : undefined,
@@ -254,9 +272,13 @@ function frontmatterFields(prepared: PreparedShare, ref: SessionRef, entry: Arch
   };
 }
 
-/** Home paths, username, emails and (when configured) hostname, as redaction replaces them in a share. */
+/**
+ * Home paths, username, emails, (when configured) hostname and the denylist, as redaction replaces them in a share: for
+ * paths of sessions that were not prepared (each prepared one has its own `redactText`, with its known values too).
+ */
 export function personalRedactor(config: OvershareConfig): Redactor {
   return new Redactor({
+    denylist: config.redact.denylist,
     homeDir: homedir(),
     username: safeUsername(),
     hostname: osHostname(),
@@ -343,20 +365,20 @@ export function formatSummary(entries: ArchiveEntry[], target: ArchiveTarget, { 
 
 /**
  * `_archive-report.md`: the last sweep, for reviewing after the terminal output is gone. It sits in the archive with the
- * redacted files, so session paths go through `redactPath` (the terminal shows them as they are, to open them).
+ * redacted files, so session paths and errors are redacted (the terminal shows paths as they are, to open them).
  */
-export function formatReportFile(entries: ArchiveEntry[], redactPath: (path: string) => string, now = new Date()): string {
+export function formatReportFile(entries: ArchiveEntry[], redact: (text: string) => string, now = new Date()): string {
   const code = (s: string) => `\`${s.replace(/`/g, "'")}\``;
   const lines = [`# overshare archive report`, "", `Run at ${now.toISOString()} with overshare ${TOOL_VERSION}. ${totals(entries, false)}`, ""];
   const listed = entries.filter((e) => e.status !== "up-to-date");
   if (listed.length) {
     lines.push("| Status | File | Findings |", "|---|---|---|");
-    for (const e of listed) lines.push(`| ${LABEL[e.status]} | ${code(fileOf(e))} | ${findingsText(e).replace(/\|/g, "\\|") || "clean"} |`);
+    for (const e of listed) lines.push(`| ${LABEL[e.status]} | ${code(fileOf(e))} | ${stripControls(redact(findingsText(e))).replace(/\|/g, "\\|") || "clean"} |`);
   }
   const review = listed.filter((e) => e.suspicious.length && e.status !== "failed");
   if (review.length) {
     lines.push("", "## Suspicious values to review", "", "Line numbers are of the session file.", "");
-    for (const e of review) lines.push(`### ${code(fileOf(e))}`, "", `From ${code(stripControls(redactPath(e.source)))}`, "", ...suspiciousLines(e).map((l) => `- ${l.trim().replace(/^\? /, "")}`), "");
+    for (const e of review) lines.push(`### ${code(fileOf(e))}`, "", `From ${code(stripControls(e.redactedSource ?? redact(e.source)))}`, "", ...suspiciousLines(e).map((l) => `- ${l.trim().replace(/^\? /, "")}`), "");
   }
   return `${lines.join("\n").trimEnd()}\n`;
 }

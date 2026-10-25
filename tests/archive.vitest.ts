@@ -213,6 +213,62 @@ describe("overshare archive", { timeout: 60_000 }, () => {
     expect(md).toMatch(/^source_size: \d+$/m);
   });
 
+  it("redacts the denylist in frontmatter and report paths, and rewrites a file when redaction settings change", () => {
+    const m = machine();
+    const file = addSession(m, ID, simple);
+    expect(m.run([ID]).stderr).toContain("1 written.");
+    expect(m.run([ID]).stderr).toContain("1 up to date.");
+
+    // The project folder ("demo") is in the session file's path, which the session's own redaction never sees.
+    const config = join(m.home, ".config", "overshare", "config.json");
+    mkdirSync(join(m.home, ".config", "overshare"), { recursive: true });
+    writeFileSync(config, JSON.stringify({ redact: { denylist: ["demo"] } }));
+    expect(m.run([ID]).stderr).toContain("1 updated.");
+    const md = readFileSync(join(m.archive, archived(m)[0]!), "utf8");
+    expect(md).toMatch(/^source_path: ".*\[REDACTED\].*"$/m);
+    expect(md).toMatch(/^settings: "[0-9a-f]{12}"$/m);
+    expect(md.split("\n---\n", 1)[0]).not.toContain("demo");
+    expect(m.run([ID]).stderr).toContain("1 up to date.");
+
+    const secrets = join(m.home, "secrets.env");
+    writeFileSync(secrets, "TOKEN=not-in-this-session-0123456789\n");
+    expect(m.run([ID, "--secrets-file", secrets]).stderr).toContain("1 updated.");
+    expect(m.run([ID, "--secrets-file", secrets]).stderr).toContain("1 up to date.");
+    writeFileSync(secrets, "TOKEN=another-value-0123456789abcdef\n");
+    expect(m.run([ID, "--secrets-file", secrets]).stderr).toContain("1 updated.");
+
+    // The report's paths too: a suspicious value puts the session's path in it.
+    const risky = addSession(m, "bbbbbbbb-1111-4222-8333-444444444444", (t) =>
+      t.user("go").assistant("m1", [{ type: "tool_use", id: "b1", name: "Bash", input: { [`db_password=${randomish(16, 41)}`]: 1 } }], ccUsage(1, 1)).toolResult("b1", "ok"),
+    );
+    const sweep = m.run(["--all", "-m", "full"]);
+    expect(sweep.status, sweep.stderr).toBe(2);
+    expect(sweep.stderr).toContain(`from ${risky}`);
+    const report = readFileSync(join(m.archive, "_archive-report.md"), "utf8");
+    expect(report).toContain("## Suspicious values to review");
+    expect(report).toContain("-home-[user]-work-[REDACTED]/bbbbbbbb");
+    // Only the first file's name keeps "demo": it was named before the denylist, and a file keeps its name.
+    expect(report.replaceAll(`_demo_${ID.slice(0, 8)}.md`, "")).not.toContain("demo");
+    expect(file).toContain("demo");
+  });
+
+  it("--mode full --include-system-prompt writes the system prompt, fenced, before the first turn", () => {
+    const m = machine();
+    addSession(m, ID, (t) =>
+      t
+        .attachment({ type: "prompt_snapshot", systemPrompt: ["You are an interactive agent.\n# Not a heading", "```js\nfence();\n```"] })
+        .user("hello")
+        .assistant("m1", [{ type: "text", text: "hi" }], ccUsage(1, 1)),
+    );
+    expect(m.run([ID, "-m", "full"]).status).toBe(0);
+    const out = join(m.archive, archived(m)[0]!);
+    expect(readFileSync(out, "utf8")).not.toContain("System prompt");
+    // Opting in changes the content, so the file is rewritten rather than counted as up to date.
+    expect(m.run([ID, "-m", "full", "--include-system-prompt"]).stderr).toContain("1 updated.");
+    const md = readFileSync(out, "utf8");
+    expect(md).toContain("## System prompt\n\n```text\nYou are an interactive agent.\n# Not a heading\n```\n\n````text\n```js\nfence();\n```\n````\n\n## User (Turn 1)");
+  });
+
   it("rejects option combinations that make no sense", () => {
     const m = machine();
     for (const [args, message] of [

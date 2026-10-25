@@ -73,6 +73,10 @@ overshare publish --current --secrets-file ./secrets.txt
 overshare export --current -o session.json
 overshare export --current --mode brief -o session.html
 
+# Keep a local markdown archive: one session, or every session from the last 30 days
+overshare archive --current
+overshare archive --all --since 7d
+
 # Open local share files in the viewer
 overshare serve session.json
 
@@ -102,7 +106,7 @@ cost. Readers can step a share *down* to a smaller mode in the viewer, never up.
 
 ## Redaction
 
-Each `report`, `export` and `publish` runs the same pipeline and ends with a status:
+Each `report`, `export`, `archive` and `publish` runs the same pipeline and ends with a status:
 
 | Status | Meaning | To publish |
 | --- | --- | --- |
@@ -157,6 +161,7 @@ Links open in the hosted viewer at <https://overshare.link/s/>. The viewer is st
 | --- | --- |
 | [Browsing sessions](docs/browse.md) | `overshare browse`: keys, search, the session viewer, settings |
 | [Sharing](docs/sharing.md) | Share modes in detail, gist and R2 targets, deleting, single-file HTML |
+| [Archiving](docs/archive.md) | `overshare archive`: redacted sessions as local markdown, re-runs, frontmatter, findings |
 | [Redaction](docs/redaction.md) | Each redaction layer, report statuses, suspicious values, what is read from your machine |
 | [Configuration](docs/configuration.md) | Config file, environment variables, files overshare writes |
 | [The viewer](docs/viewer.md) | Share links, token and cost rails, cache misses, design variants, view settings |

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `overshare archive` saves redacted sessions as markdown files on your machine, in
+  `~/.local/share/overshare/archive` by default (config `archive.dir`, or `-o`). Archive one session, or every
+  session active in the last 30 days with `--all` (`--since 7d`, `--since 2026-10-01`). It runs the same redaction
+  as `publish` but never uploads. Redacted secrets and suspicious values don't stop a file from being written:
+  the run lists them for review. A session the final re-scan blocks is held back unless you pass `--force`.
+  Files have YAML frontmatter (dates, harness, branch, the session file's path with your home folder hidden,
+  token usage, finding counts). A file is rewritten only when its session has changed since. The default mode is
+  `minimal`: each prompt and the final reply of its turn. Prompts are escaped so they show exactly as typed.
+  See [Archiving](docs/archive.md).
+
 ## [0.3.0] - 2026-10-21
 
 ### Added

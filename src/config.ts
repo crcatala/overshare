@@ -15,6 +15,8 @@ export interface OvershareConfig {
   r2?: R2Config;
   /** Max characters per tool result / large tool input string in full mode. */
   maxToolChars: number;
+  /** `overshare archive`: the folder it writes to (default `$XDG_DATA_HOME/overshare/archive`; `~` is expanded). */
+  archive?: { dir?: string };
   redact: {
     emails: boolean;
     username: boolean;
@@ -60,6 +62,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): OvershareConfi
   if (env.OVERSHARE_VIEWER_URL) {
     config.viewerUrl = env.OVERSHARE_VIEWER_URL;
     config.viewerUrlSource = "env";
+  }
+  if (config.archive !== undefined && (typeof config.archive !== "object" || config.archive === null || (config.archive.dir !== undefined && typeof config.archive.dir !== "string"))) {
+    throw new Error(`Invalid config at ${path}: archive.dir must be a path`);
   }
   if (env.OVERSHARE_TARGET) config.target = env.OVERSHARE_TARGET as ShareTarget;
   if (!SHARE_TARGETS.includes(config.target)) throw new Error(`Unknown target "${config.target}" (use ${SHARE_TARGETS.join(" or ")})`);

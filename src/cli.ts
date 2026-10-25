@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError, Option } from "commander";
-import { SHARE_TARGETS, loadConfig, type ShareTarget } from "./config.js";
+import { ARCHIVE_REPORT, archiveExitCode, archiveSession, defaultArchiveDir, existingArchives, formatEntry, formatReportFile, formatSummary, personalRedactor, settingsHash, summaryJson, type ArchiveEntry, type ArchiveTarget } from "./archive.js";
+import { SHARE_TARGETS, loadConfig, type OvershareConfig, type ShareTarget } from "./config.js";
 import { exportFixtureShares, generateFixtures } from "./fixtures/index.js";
 import { formatBytes, plural } from "./format.js";
 import { prepareShare, type PreparedShare } from "./pipeline.js";
@@ -15,6 +16,8 @@ import { formatReport } from "./report.js";
 import { stripControls } from "./sanitize.js";
 import { embedShare, readStandaloneTemplate } from "./standalone.js";
 import { defaultRoots, listSessions, resolveSession, type SessionRef } from "./resolve.js";
+import { writePrivateFile } from "./sessions/private-files.js";
+import { parseSince } from "./sessions/query.js";
 import { HARNESS_NAMES, loadSubagentFiles } from "./harnesses/index.js";
 import { SHARE_MODES, type HarnessName, type ShareMode } from "./schema.js";
 import { DEFAULT_HOST, startViewerServer } from "./serve.js";
@@ -70,13 +73,19 @@ function withSessionOptions(cmd: Command, defaultMode: ShareMode): Command {
 function prepare(arg: string | undefined, opts: SessionOptions): { ref: SessionRef; prepared: PreparedShare } {
   if (opts.includeSystemPrompt && opts.mode !== "full") throw new Error("--include-system-prompt only applies to --mode full");
   const ref = resolveSession(arg, { current: opts.current, harness: opts.harness });
-  const config = loadConfig();
-  const raw = readFileSync(ref.path, "utf8");
-  const extraKnownSecrets = (opts.secretsFile ?? []).flatMap((f) => readSecretsFile(f, (msg) => console.error(`warning: ${msg}`)));
-  const subagentFiles = loadSubagentFiles(ref.harness, ref.path);
-  const prepared = prepareShare(raw, { mode: opts.mode, config, harness: ref.harness, leafId: opts.leaf, subagentFiles, extraKnownSecrets, includeSystemPrompt: opts.includeSystemPrompt });
-  return { ref, prepared };
+  return { ref, prepared: preparer(opts, loadConfig())(ref) };
 }
+
+/** Prepare sessions with these options; `--secrets-file` is read once, however many sessions follow. */
+function preparer(opts: SessionOptions, config: OvershareConfig, extraKnownSecrets = readSecretsFiles(opts)): (ref: SessionRef) => PreparedShare {
+  return (ref) => {
+    const raw = readFileSync(ref.path, "utf8");
+    const subagentFiles = loadSubagentFiles(ref.harness, ref.path);
+    return prepareShare(raw, { mode: opts.mode, config, harness: ref.harness, leafId: opts.leaf, subagentFiles, extraKnownSecrets, includeSystemPrompt: opts.includeSystemPrompt });
+  };
+}
+
+const readSecretsFiles = (opts: SessionOptions) => (opts.secretsFile ?? []).flatMap((f) => readSecretsFile(f, (msg) => console.error(`warning: ${msg}`)));
 
 async function confirm(question: string): Promise<boolean> {
   if (!process.stdin.isTTY) return false;
@@ -162,6 +171,94 @@ withSessionOptions(program.command("export"), "full")
     console.error(`\nWrote ${opts.output} (${formatBytes(Buffer.byteLength(content))}${template ? `: viewer + ${formatBytes(prepared.report.bytes)} session` : ""})`);
     // Shown even with --quiet: the file is what gets forwarded, and unlike a link it cannot be taken back.
     if (template) console.error(HTML_EXPORT_NOTE);
+  });
+
+interface ArchiveCliOptions extends SessionOptions {
+  all?: boolean;
+  since?: string;
+  output?: string;
+  tools?: boolean;
+  frontmatter: boolean;
+  overwrite?: boolean;
+  force?: boolean;
+  dryRun?: boolean;
+  json?: boolean;
+  quiet?: boolean;
+}
+
+withSessionOptions(program.command("archive"), "minimal")
+  .description("save redacted sessions as markdown files on this machine (one session, or --all of the recent ones)")
+  .option("-a, --all", "archive every session with activity since --since")
+  .option("--since <when>", "with --all: last activity on or after this (7d, 12h, 2w or a date; default 30d)")
+  .option("-o, --output <path>", "folder to write into, or a .md file for one session (default: config archive.dir, else $XDG_DATA_HOME/overshare/archive)")
+  .option("--tools", "add a line per tool group, subagent and (full mode) tool call")
+  .option("--no-frontmatter", "leave out the YAML frontmatter")
+  .option("--overwrite", "rewrite files that are up to date")
+  .option("--force", "also write a session the final re-scan blocked (unredacted secrets in it)")
+  .option("--dry-run", "say what would be written; write nothing")
+  .option("--json", "print the run summary as JSON")
+  .option("-q, --quiet", "print only problems and the end summary")
+  .addHelpText(
+    "after",
+    `
+Files are named <start date>_<harness>_<project>_<id>.md. A file whose session has not changed since it
+was written (with the same options and redaction settings) is skipped; one whose session grew is rewritten.
+Redacted secrets and suspicious values do not stop a file from being written: the end summary (and, with
+--all, ${ARCHIVE_REPORT} in the folder) lists them for review. Exit codes: 0 done, 1 an error,
+2 suspicious values to review, 3 a session held back. See docs/archive.md.`,
+  )
+  .action((arg: string | undefined, opts: ArchiveCliOptions) => {
+    if (opts.includeSystemPrompt && opts.mode !== "full") throw new Error("--include-system-prompt only applies to --mode full");
+    if (opts.all && (arg || opts.current)) throw new Error("--all archives every recent session: drop the session argument / --current");
+    if (opts.all && opts.leaf) throw new Error("--leaf applies to one session, not --all");
+    if (opts.since !== undefined && !opts.all) throw new Error("--since only applies with --all");
+    if (!opts.all && !arg && !opts.current) throw new Error("Pass a session path or id, use --current, or use --all");
+    const sinceMs = opts.all ? parseSince(opts.since ?? "30d") : undefined;
+    if (opts.all && sinceMs === undefined) throw new Error(`--since ${opts.since}: expected 7d, 12h, 2w or a date`);
+
+    const config = loadConfig();
+    const asFile = opts.output !== undefined && /\.md$/i.test(opts.output);
+    if (asFile && opts.all) throw new Error("-o names a file; with --all, give a folder");
+    const target: ArchiveTarget = asFile ? { dir: dirname(opts.output!), file: opts.output } : { dir: opts.output ?? defaultArchiveDir(config) };
+
+    const refs = opts.all
+      ? (opts.harness ? [opts.harness] : HARNESS_NAMES)
+          .flatMap((h) => listSessions(h, defaultRoots()))
+          .filter((r) => r.mtimeMs >= sinceMs!)
+          .sort((a, b) => b.mtimeMs - a.mtimeMs)
+      : [resolveSession(arg, { current: opts.current, harness: opts.harness })];
+
+    const extraKnownSecrets = readSecretsFiles(opts);
+    const settings = settingsHash(config, { secretsFiles: (opts.secretsFile ?? []).map((f) => readFileSync(f, "utf8")), leaf: opts.leaf, includeSystemPrompt: opts.includeSystemPrompt });
+    const ctx = {
+      target,
+      config,
+      prepare: preparer(opts, config, extraKnownSecrets),
+      opts: { mode: opts.mode, tools: !!opts.tools, frontmatter: opts.frontmatter, overwrite: !!opts.overwrite, force: !!opts.force, dryRun: !!opts.dryRun, sinceMs, settings },
+    };
+    const existing = existingArchives(target.dir);
+    const entries: ArchiveEntry[] = [];
+    const progress = !opts.json && !opts.quiet;
+    for (const ref of refs) {
+      const entry = archiveSession(ref, ctx, existing);
+      if (!entry) continue;
+      entries.push(entry);
+      const line = formatEntry(entry, ctx.opts.dryRun);
+      // Problems are printed even with --quiet: the summary only counts them.
+      if (line && (progress || (!opts.json && (entry.status === "failed" || entry.status === "held-back")))) console.error(line);
+    }
+    // A sweep's report only: one session's run would replace it with a single line.
+    if (opts.all && !ctx.opts.dryRun && entries.some((e) => e.status !== "up-to-date")) {
+      try {
+        const personal = personalRedactor(config);
+        writePrivateFile(join(target.dir, ARCHIVE_REPORT), formatReportFile(entries, (p) => personal.redactText(p)));
+      } catch (err) {
+        console.error(`warning: could not write ${ARCHIVE_REPORT}: ${(err as Error).message}`);
+      }
+    }
+    if (opts.json) console.log(summaryJson(entries, target, ctx.opts.dryRun));
+    else console.error(formatSummary(entries, target, { dryRun: ctx.opts.dryRun, report: !!opts.all }));
+    process.exitCode = archiveExitCode(entries);
   });
 
 const parseTarget = (value: string): ShareTarget => {

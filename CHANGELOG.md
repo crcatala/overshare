@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-26
+
 ### Changed
 
 - Sessions in throwaway workspaces are marked as scratch instead of each counting as a project of its own: a T3 Code

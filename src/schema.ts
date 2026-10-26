@@ -182,7 +182,8 @@ export interface NormalizedSession {
   title?: string;
   harness: { name: HarnessName; version?: string; formatVersion?: number };
   source: { sessionId: string; leafId?: string };
-  project?: { cwd?: string; name?: string; branch?: string };
+  /** `name` is the repository (a linked worktree's main checkout), `worktree` the worktree's own folder when it ran in one. */
+  project?: { cwd?: string; name?: string; worktree?: string; branch?: string };
   startedAt?: string;
   endedAt?: string;
   durationMs?: number;

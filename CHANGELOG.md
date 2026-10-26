@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A session's project is now the repository it ran in, not the last folder of its working directory: a session in
+  a subfolder or a git worktree is named after the repository (the worktree's main checkout, found through git's
+  files or, for a removed worktree, from its path: T3 Code, herdr, Claude Code, Codex and `<repo>/.worktrees`
+  layouts). Sessions from different subfolders of one repository now share its name. This applies to `browse`
+  (and its search), shares and the archive; `overshare list` still shows the transcript's folder.
+- `overshare archive` puts each file in a folder per project (`<project>/<date>_<harness>_<project>_<id>.md`) and
+  records a worktree session's worktree in the frontmatter. A file whose name changes when it is rewritten is moved,
+  not copied. The first run after upgrading rewrites every file once and moves an existing archive into project
+  folders (with or without frontmatter).
+
 ## [0.4.0] - 2026-10-26
 
 ### Added

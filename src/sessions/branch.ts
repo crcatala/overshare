@@ -13,9 +13,9 @@
  * The working directory comes from the transcript, so it is untrusted: only these four things are read (`.git`,
  * a `gitdir:` pointer in it, and `HEAD` / `logs/HEAD` there), and only a plain branch name comes back.
  */
-import { closeSync, constants, fstatSync, openSync, readSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { join } from "node:path";
 import { stripControls } from "../sanitize.js";
+import { checkoutOf, readText } from "./git-files.js";
 
 interface Checkout {
   at: number;
@@ -34,52 +34,6 @@ const MAX_REFLOG_BYTES = 4_000_000;
 const MAX_BRANCH_CHARS = 100;
 const SHA = /^[0-9a-f]{7,40}$/;
 const CHECKOUT = /^\S+ \S+ .*? (\d{9,11}) [+-]\d{4}\tcheckout: moving from (\S+) to (\S+)$/;
-
-/**
- * A small text file, or undefined. Only a regular file is read, and never in a way that can wait: the path comes from a
- * transcript, and a FIFO there (named `.git`, `HEAD` or `logs/HEAD`) would block a plain `readFileSync` for good, freezing
- * the whole browser. So the file is opened non-blocking, checked on the open descriptor (no race with a swap after a
- * `stat`), and read in a bounded way: more than `max` bytes means "too big", not "read it all".
- */
-const readText = (path: string, max = 1_000_000): string | undefined => {
-  let fd: number | undefined;
-  try {
-    fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
-    if (!fstatSync(fd).isFile()) return undefined;
-    const buf = Buffer.alloc(max + 1);
-    let n = 0;
-    for (let got = 1; got > 0 && n <= max; n += got) got = readSync(fd, buf, n, max + 1 - n, null);
-    return n > max ? undefined : buf.toString("utf8", 0, n);
-  } catch {
-    return undefined;
-  } finally {
-    if (fd !== undefined) closeSync(fd);
-  }
-};
-
-/** The git directory of the checkout that contains `cwd`: `.git` itself, or what a worktree's `.git` file points to. */
-function gitDirOf(cwd: string): string | undefined {
-  if (!isAbsolute(cwd)) return undefined;
-  try {
-    // A directory that is gone (a deleted worktree) must not resolve to some unrelated repository above it.
-    if (!statSync(cwd).isDirectory()) return undefined;
-  } catch {
-    return undefined;
-  }
-  for (let dir = resolve(cwd); ; dir = dirname(dir)) {
-    const dotGit = join(dir, ".git");
-    try {
-      const st = statSync(dotGit);
-      if (st.isDirectory()) return dotGit;
-      const pointer = /^gitdir:\s*(.+)\s*$/m.exec(readText(dotGit, 4_096) ?? "")?.[1];
-      if (pointer) return resolve(dir, pointer);
-      return undefined;
-    } catch {
-      // no .git here: look one level up
-    }
-    if (dirname(dir) === dir) return undefined;
-  }
-}
 
 const branchName = (ref: string): string | undefined => {
   const name = stripControls(ref).trim().replace(/^refs\/heads\//, "");
@@ -107,7 +61,7 @@ export function forgetReflogs(): void {
 /** The branch the repo at `cwd` was most likely on at `atMs`, or undefined when there is no way to tell. */
 export function guessBranch(cwd: string | undefined, atMs: number): string | undefined {
   if (!cwd || !Number.isFinite(atMs)) return undefined;
-  const gitDir = gitDirOf(cwd);
+  const gitDir = checkoutOf(cwd)?.gitDir;
   if (!gitDir) return undefined;
   let log = reflogs.get(gitDir);
   if (!log) reflogs.set(gitDir, (log = readReflog(gitDir)));

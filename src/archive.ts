@@ -5,13 +5,14 @@
  * by `renderMarkdown`. Nothing waits for a confirmation: redacted secrets and suspicious values are written and listed
  * in the run summary, and only a session the final re-scan blocked is held back (unless forced).
  *
- * A file is `<start date>_<harness>_<project>_<id8>.md`. Its frontmatter records the session file's mtime and size
- * and the options it was rendered with, so a later run skips it before parsing anything when none of them changed.
+ * A file is `<project>/<start date>_<harness>_<project>_<id8>.md`, the project being the repository the session ran in
+ * (a worktree's main checkout, see `sessions/repo.ts`). Its frontmatter records the session file's mtime and size and
+ * the options it was rendered with, so a later run skips it before parsing anything when none of them changed.
  */
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, readdirSync, rmdirSync, rmSync, statSync } from "node:fs";
 import { homedir, hostname as osHostname, userInfo } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import type { OvershareConfig } from "./config.js";
 import { plural } from "./format.js";
 import { renderMarkdown, type FrontmatterValue } from "./markdown.js";
@@ -26,6 +27,10 @@ import { writePrivateFile } from "./sessions/private-files.js";
 import { TOOL_VERSION } from "./version.js";
 
 export const ARCHIVE_REPORT = "_archive-report.md";
+/** The folder for sessions with no project (no working directory recorded). */
+export const NO_PROJECT = "_no-project";
+/** Bump when where files go or how they are named changes, so every file is rewritten (and moved) on the next run. */
+const ARCHIVE_LAYOUT = 2;
 
 /** `$OVERSHARE_ARCHIVE_DIR`, else config `archive.dir`, else `$XDG_DATA_HOME/overshare/archive`. */
 export function defaultArchiveDir(config: OvershareConfig, env: NodeJS.ProcessEnv = process.env): string {
@@ -50,12 +55,12 @@ export interface ArchiveOptions {
 
 /**
  * A short hash of the inputs besides the session, mode and tools that change what a file holds: the overshare version
- * (redaction rules improve), the redact config, the `--secrets-file` contents, `--leaf` and `--include-system-prompt`.
+ * (redaction rules improve), the archive layout, the redact config, the `--secrets-file` contents, `--leaf` and `--include-system-prompt`.
  * Only the hash is written, never the values. Known values read from the environment and `.env` files are not in it:
  * collecting them for every session would cost the skip its speed; `--overwrite` picks up a new one.
  */
 export function settingsHash(config: OvershareConfig, extra: { secretsFiles?: string[]; leaf?: string; includeSystemPrompt?: boolean }): string {
-  const input = JSON.stringify([TOOL_VERSION, config.redact, extra.secretsFiles ?? [], extra.leaf ?? null, !!extra.includeSystemPrompt]);
+  const input = JSON.stringify([TOOL_VERSION, ARCHIVE_LAYOUT, config.redact, extra.secretsFiles ?? [], extra.leaf ?? null, !!extra.includeSystemPrompt]);
   return createHash("sha256").update(input).digest("hex").slice(0, 12);
 }
 
@@ -67,6 +72,10 @@ export interface ArchiveEntry {
   source: string;
   /** The markdown file (absent when it failed before a name was known). */
   output?: string;
+  /** `output` as shown: relative to the archive folder (`<project>/<file>.md`). */
+  name?: string;
+  /** The file this session had before, when it was moved to a new name (a worktree session now under its repository, say). */
+  movedFrom?: string;
   title?: string;
   /** Secrets redacted in the file, and the rules that found them (labels only). */
   secrets: number;
@@ -99,7 +108,10 @@ export function archiveSession(ref: SessionRef, ctx: ArchiveContext, existing = 
   const { opts, target } = ctx;
   const base: ArchiveEntry = { status: "failed", source: ref.path, secrets: 0, rules: [], suspicious: [], blocked: 0 };
   const previous = target.file ?? existing.get(archiveKey(ref.harness, ref.id));
-  if (previous && !opts.overwrite && existsSync(previous) && upToDate(previous, ref, opts)) return { ...base, status: "up-to-date", output: previous };
+  // A loose file at the top of the archive is from before project folders: never up to date, so it is moved even
+  // without frontmatter (whose up-to-date check is only the file's mtime).
+  const loose = !target.file && previous !== undefined && dirname(previous) === target.dir;
+  if (previous && !loose && !opts.overwrite && existsSync(previous) && upToDate(previous, ref, opts)) return { ...base, status: "up-to-date", output: previous, name: shownName(target, previous) };
   let prepared: PreparedShare;
   try {
     prepared = ctx.prepare(ref);
@@ -111,11 +123,15 @@ export function archiveSession(ref: SessionRef, ctx: ArchiveContext, existing = 
   const ended = session.endedAt ? Date.parse(session.endedAt) : Number.NaN;
   if (opts.sinceMs !== undefined && Number.isFinite(ended) && ended < opts.sinceMs) return undefined;
 
-  const output = previous ?? join(target.dir, archiveFileName(prepared, ref));
+  // A rewritten file takes the session's current name: one whose project now resolves differently is moved to it. (An
+  // up-to-date file is skipped above without parsing anything, so it keeps its name until the session changes.)
+  const output = target.file ?? join(target.dir, archiveFileName(prepared, ref));
+  const movedFrom = previous && previous !== output && existsSync(previous) ? previous : undefined;
   const rules = [...new Set(report.findings.filter((f) => SECRET_CATEGORIES.has(f.category)).map((f) => f.rule))];
   const entry: ArchiveEntry = {
     ...base,
     output,
+    name: shownName(target, output),
     title: session.title,
     secrets: [...SECRET_CATEGORIES].reduce((n, c) => n + (report.counts[c] ?? 0), 0),
     rules,
@@ -125,15 +141,38 @@ export function archiveSession(ref: SessionRef, ctx: ArchiveContext, existing = 
   };
   if (report.blocked && !opts.force) return { ...entry, status: "held-back" };
 
-  const status: ArchiveStatus = existsSync(output) ? "updated" : "written";
-  if (opts.dryRun) return { ...entry, status };
+  const status: ArchiveStatus = existsSync(output) || movedFrom ? "updated" : "written";
+  const moved = movedFrom && shownName(target, movedFrom);
+  if (opts.dryRun) return { ...entry, status, movedFrom: moved };
   const fields = opts.frontmatter ? frontmatterFields(prepared, ref, entry, ctx) : undefined;
   try {
     writePrivateFile(output, renderMarkdown(session, { tools: opts.tools, frontmatter: fields }));
   } catch (err) {
     return { ...entry, status: "failed", error: (err as Error).message };
   }
-  return { ...entry, status };
+  if (movedFrom) {
+    // Left in place, the old file would keep its old name (perhaps one the denylist now redacts): say so.
+    const error = removeOld(movedFrom, target.dir);
+    if (error) return { ...entry, status: "failed", movedFrom: moved, error: `wrote the new file, but could not remove ${moved}: ${error}` };
+  }
+  return { ...entry, status, movedFrom: moved };
+}
+
+const shownName = (target: ArchiveTarget, path: string) => (target.file ? basename(path) : relative(target.dir, path));
+
+/** Remove the file a session moved away from, and its project folder once that is empty. Returns why it could not. */
+function removeOld(path: string, dir: string): string | undefined {
+  try {
+    rmSync(path, { force: true });
+  } catch (err) {
+    return (err as Error).message;
+  }
+  try {
+    if (dirname(path) !== dir) rmdirSync(dirname(path));
+  } catch {
+    // a folder that still holds files stays
+  }
+  return undefined;
 }
 
 // --- Names ---------------------------------------------------------------------------------------------------------
@@ -151,23 +190,34 @@ function safeId(id: string): string {
 const archiveKey = (harness: string, id: string) => `${harness}:${safeId(id)}`;
 const NAME = /^(?:\d{4}-\d{2}-\d{2}|undated)_([a-z-]+)_[^_]*_([A-Za-z0-9-]{1,8})\.md$/;
 
-/** Files already in the archive by harness and short id, so a session keeps its file when, say, its project is renamed. */
+/**
+ * Files already in the archive (in its project folders, or loose at the top from before there were any) by harness and
+ * short id: a session whose name changes is found under its old one, to be moved rather than copied.
+ */
 export function existingArchives(dir: string): Map<string, string> {
   const found = new Map<string, string>();
-  let names: string[];
-  try {
-    names = readdirSync(dir);
-  } catch {
-    return found;
-  }
-  for (const name of names) {
-    const m = NAME.exec(name);
-    if (m) found.set(`${m[1]}:${m[2]}`, join(dir, name));
-  }
+  const scan = (folder: string, depth: number) => {
+    let entries;
+    try {
+      entries = readdirSync(folder, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.isDirectory() && depth === 0) scan(join(folder, e.name), 1);
+      const m = e.isFile() ? NAME.exec(e.name) : null;
+      if (m) found.set(`${m[1]}:${m[2]}`, join(folder, e.name));
+    }
+  };
+  scan(dir, 0);
   return found;
 }
 
-/** `<YYYY-MM-DD>_<harness>_<project>_<id8>.md`. The start date, not the last activity, so a growing session keeps its name. */
+/**
+ * `<project>/<YYYY-MM-DD>_<harness>_<project>_<id8>.md`, relative to the archive folder. The project is in the file name
+ * too, so a file still says where it is from when copied out of its folder. The start date, not the last activity, so a
+ * growing session keeps its name.
+ */
 export function archiveFileName(prepared: PreparedShare, ref: SessionRef): string {
   const { session } = prepared;
   const date = /^\d{4}-\d{2}-\d{2}/.exec(session.startedAt ?? "")?.[0] ?? "undated";
@@ -177,8 +227,8 @@ export function archiveFileName(prepared: PreparedShare, ref: SessionRef): strin
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40)
-    .replace(/-+$/, "") || "session";
-  return `${date}_${ref.harness}_${project}_${safeId(ref.id)}.md`;
+    .replace(/-+$/, "");
+  return join(project || NO_PROJECT, `${date}_${ref.harness}_${project || NO_PROJECT.slice(1)}_${safeId(ref.id)}.md`);
 }
 
 // --- Up-to-date check ------------------------------------------------------------------------------------------------
@@ -247,6 +297,7 @@ function frontmatterFields(prepared: PreparedShare, ref: SessionRef, entry: Arch
     tools: opts.tools,
     settings: opts.settings,
     project: session.project?.name,
+    worktree: session.project?.worktree,
     cwd: session.project?.cwd,
     branch: session.project?.branch,
     // Left out when hostname redaction is on, rather than written as a placeholder.
@@ -311,7 +362,7 @@ const LABEL: Record<ArchiveStatus, string> = { written: "written", updated: "upd
 const DRY_LABEL: Partial<Record<ArchiveStatus, string>> = { written: "would write", updated: "would update" };
 
 const label = (e: ArchiveEntry, dryRun: boolean) => (dryRun ? DRY_LABEL[e.status] : undefined) ?? LABEL[e.status];
-const fileOf = (e: ArchiveEntry) => stripControls(e.output ? basename(e.output) : e.source);
+const fileOf = (e: ArchiveEntry) => stripControls(e.name ?? (e.output ? basename(e.output) : e.source));
 
 const MAX_RULES = 4;
 
@@ -322,11 +373,12 @@ function ruleList(rules: string[]): string {
 }
 
 /** What a file holds, in a few words: `2 secrets redacted (github-pat) · 1 suspicious value`. */
-function findingsText(e: ArchiveEntry): string {
+function findingsText(e: ArchiveEntry, dryRun = false): string {
   const parts: string[] = [];
   if (e.secrets) parts.push(`${plural(e.secrets, "secret")} redacted${e.rules.length ? ` (${ruleList(e.rules)})` : ""}`);
   if (e.suspicious.length) parts.push(`${plural(e.suspicious.length, "suspicious value")} left in`);
   if (e.status === "held-back") parts.push(`blocked: the final re-scan found ${plural(e.blocked, "unredacted secret")} (--force writes it anyway)`);
+  if (e.movedFrom) parts.push(`${dryRun ? "would move" : "moved"} from ${stripControls(e.movedFrom)}`);
   if (e.error) parts.push(stripControls(e.error).split("\n", 1)[0]!);
   return parts.join(" · ");
 }
@@ -334,7 +386,7 @@ function findingsText(e: ArchiveEntry): string {
 /** The line printed as a session is done (up-to-date sessions are only counted). */
 export function formatEntry(e: ArchiveEntry, dryRun: boolean): string | undefined {
   if (e.status === "up-to-date") return;
-  const findings = findingsText(e);
+  const findings = findingsText(e, dryRun);
   return `  ${label(e, dryRun).padEnd(12)} ${fileOf(e)}${findings ? `  ${findings}` : ""}`;
 }
 

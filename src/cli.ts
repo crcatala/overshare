@@ -201,7 +201,8 @@ withSessionOptions(program.command("archive"), "minimal")
   .addHelpText(
     "after",
     `
-Files are named <start date>_<harness>_<project>_<id>.md. A file whose session has not changed since it
+Files are named <project>/<start date>_<harness>_<project>_<id>.md, the project being the repository the
+session ran in (a worktree's main checkout). A file whose session has not changed since it
 was written (with the same options and redaction settings) is skipped; one whose session grew is rewritten.
 Redacted secrets and suspicious values do not stop a file from being written: the end summary (and, with
 --all, ${ARCHIVE_REPORT} in the folder) lists them for review. Exit codes: 0 done, 1 an error,

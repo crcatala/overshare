@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
+import { projectFromCwd } from "../../sessions/repo.js";
 import { PI_INPUT_PROVENANCE_TYPE, totalsOf, type ResponsePurpose, type ResponseUsage, type TokenRates, type ToolStep, type Usage } from "../../schema.js";
 import {
   TurnBuilder,
   baseSession,
   bump,
-  projectNameFromCwd,
   usageTokens,
   type AdapterOptions,
   type AdapterResult,
@@ -106,7 +106,7 @@ export function parsePi(raw: string, options: AdapterOptions = {}): AdapterResul
   session.harness.formatVersion = typeof header.version === "number" ? header.version : undefined;
   session.source.leafId = options.leafId;
   const cwd: string | undefined = header.cwd;
-  session.project = { cwd, name: projectNameFromCwd(cwd) };
+  session.project = { cwd, ...projectFromCwd(cwd) };
   session.startedAt = startedAt;
   session.endedAt = endedAt;
   session.models = models;

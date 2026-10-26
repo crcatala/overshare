@@ -19,14 +19,29 @@ overshare archive --current -o today.md
 ```
 
 Files go to `~/.local/share/overshare/archive` (`$XDG_DATA_HOME/overshare/archive`), unless config
-`archive.dir`, `$OVERSHARE_ARCHIVE_DIR` or `-o` says otherwise. Each one is named
-`<start date>_<harness>_<project>_<id>.md`, for example `2026-10-24_claude-code_overshare_3f9c2a1e.md`, and is
+`archive.dir`, `$OVERSHARE_ARCHIVE_DIR` or `-o` says otherwise. Each project gets a folder, and each file in it is
+named `<start date>_<harness>_<project>_<id>.md`, for example `overshare/2026-10-24_claude-code_overshare_3f9c2a1e.md`.
+The project is in the file name too, so a file copied out of its folder still says where it came from. Files are
 readable only by you (mode 0600).
+
+The project is the repository the session ran in, not just the last folder of its working directory: a session
+started in `overshare/packages/core` is filed under `overshare`, and one in a git worktree under the repository the
+worktree belongs to (the worktree's own folder name is kept in the frontmatter as `worktree`). A worktree that still
+exists is followed back to its main checkout through git's own files. One that has been removed leaves nothing to
+follow, so its path is read instead when it has a known layout: `…/worktrees/<repo>/<name>` (T3 Code, herdr),
+`<repo>/.claude/worktrees/<name>` (Claude Code) and `~/.codex/worktrees/<id>/<repo>` (Codex). Otherwise the last
+folder names it. A session with no working directory goes in `_no-project`. The folders in the archive are
+overshare's: keep copies of your own somewhere else, since a run moves (and so removes) a session's file found in
+any of them.
 
 ## Re-running
 
 Run it as often as you like. A file whose session has not changed since it was written is skipped without
-reading the session; a session that has grown since is written again, under the same name. Changing `--mode`
+reading the session; a session that has grown since is written again. When a rewrite gives a session a different
+name (its project now resolves differently, or a denylist entry redacts it), the old file is moved, not copied: the
+output says `moved from <old name>`. A file left loose at the top of the archive (from before project folders) is
+always rewritten into its folder. A name only changes on a rewrite: a file that is up to date keeps its name until
+its session changes, or until `--overwrite`. Changing `--mode`
 or `--tools` also rewrites a file, and so do changes to what redaction uses: the `redact` config (a new
 denylist entry, say), the contents of a `--secrets-file`, `--leaf`, `--include-system-prompt`, and a new
 overshare version. `--overwrite` rewrites every file regardless, and `--dry-run` lists what would be written and

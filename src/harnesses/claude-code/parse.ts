@@ -1,11 +1,11 @@
 import { totalsOf, type ResponseUsage } from "../../schema.js";
+import { projectFromCwd } from "../../sessions/repo.js";
 import { linkSubagentRuns, mapClaudeUsage, readSubagentRuns, responseKey, subagentCountsFrom } from "./usage.js";
 import {
   TurnBuilder,
   baseSession,
   bump,
   estimateCosts,
-  projectNameFromCwd,
   usageTokens,
   stripInjectedContext,
   type AdapterOptions,
@@ -278,7 +278,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   session.title = title ?? summaryTitle;
   session.harness.version = version;
   session.source.leafId = options.leafId;
-  session.project = { cwd, name: projectNameFromCwd(cwd), ...(branch ? { branch } : {}) };
+  session.project = { cwd, ...projectFromCwd(cwd), ...(branch ? { branch } : {}) };
   session.startedAt = startedAt;
   session.endedAt = endedAt;
   session.models = models;

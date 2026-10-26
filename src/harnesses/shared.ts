@@ -376,9 +376,3 @@ export function baseSession(harness: HarnessName, sessionId: string): Normalized
 export function bump(counts: DropCounts, key: string, n = 1): void {
   bumpOwn(counts, key, n);
 }
-
-export function projectNameFromCwd(cwd: string | undefined): string | undefined {
-  if (!cwd) return undefined;
-  const parts = cwd.split(/[\\/]/).filter(Boolean);
-  return parts.at(-1);
-}

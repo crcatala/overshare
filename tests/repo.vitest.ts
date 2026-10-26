@@ -86,6 +86,58 @@ describe("projectFromCwd", () => {
     expect(projectFromCwd(worktree(join(main, ".git"), "worktrees", "other-name", "wt"))).toEqual({ name: "real-name", worktree: "wt" });
   });
 
+  it.each([
+    ["a T3 Code thread without a project", "/home/u/.local/share/t3/scratch/2026-10-24-compare-csv-parsers-3f9e1c2a", "compare-csv-parsers"],
+    ["a T3 Code scratch folder whose name has no date or hash", "/home/u/.local/share/t3/scratch/notes", "notes"],
+    ["a folder in /tmp", "/tmp/try-a-lib/sub", "try-a-lib"],
+    ["a folder in /var/tmp", "/var/tmp/try-it", "try-it"],
+    ["macOS's temporary folder", "/private/var/folders/x1/abc123/T/try-it", "try-it"],
+    ["macOS's temporary folder as $TMPDIR spells it", "/var/folders/x1/abc123/T/try-it/sub", "try-it"],
+    ["a Claude Code scratchpad", "/tmp/claude-1000/-home-u-work-x-0f3c/scratchpad", "scratch"],
+    ["the temporary folder itself", "/tmp", "scratch"],
+  ])("marks %s as scratch", (_what, cwd, name) => {
+    expect(projectFromCwd(cwd)).toEqual({ name, scratch: true });
+  });
+
+  it("reads $TMPDIR as a temporary folder", () => {
+    const before = process.env.TMPDIR;
+    process.env.TMPDIR = "/home/u/.tmp";
+    try {
+      expect(projectFromCwd("/home/u/.tmp/claude-1000/x/scratchpad")).toEqual({ name: "scratch", scratch: true });
+    } finally {
+      if (before === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = before;
+    }
+  });
+
+  it("takes a $TMPDIR inside macOS's temporary folder as the deeper of the two", () => {
+    const before = process.env.TMPDIR;
+    process.env.TMPDIR = "/var/folders/x1/abc123/T/tool-tmp";
+    try {
+      expect(projectFromCwd("/var/folders/x1/abc123/T/tool-tmp/try-it")).toEqual({ name: "try-it", scratch: true });
+    } finally {
+      if (before === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = before;
+    }
+  });
+
+  it("keeps a repository cloned into a temporary folder, but not one the temporary folder is inside", () => {
+    // `root` is in the temporary folder: a checkout made there is a project.
+    expect(projectFromCwd(repo("clone"))).toEqual({ name: "clone" });
+    // A home folder in git with its own temporary folder: the scratchpad under it is not that repository.
+    const home = repo("home");
+    const scratch = join(home, ".tmp", "quick");
+    mkdirSync(scratch, { recursive: true });
+    const before = process.env.TMPDIR;
+    process.env.TMPDIR = join(home, ".tmp");
+    try {
+      expect(projectFromCwd(scratch)).toEqual({ name: "quick", scratch: true });
+    } finally {
+      if (before === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = before;
+    }
+  });
+
   it("is what the session list shows as the project", () => {
     const t = new PiTranscript("pi-1", "/home/u/.local/share/t3/worktrees/acme-api/t3-6c1e90ab");
     t.user("hello");

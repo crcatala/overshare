@@ -29,8 +29,10 @@ import { TOOL_VERSION } from "./version.js";
 export const ARCHIVE_REPORT = "_archive-report.md";
 /** The folder for sessions with no project (no working directory recorded). */
 export const NO_PROJECT = "_no-project";
+/** The one folder for sessions in throwaway workspaces, which would otherwise each get a folder of their own. */
+export const SCRATCH = "_scratch";
 /** Bump when where files go or how they are named changes, so every file is rewritten (and moved) on the next run. */
-const ARCHIVE_LAYOUT = 2;
+const ARCHIVE_LAYOUT = 3;
 
 /** `$OVERSHARE_ARCHIVE_DIR`, else config `archive.dir`, else `$XDG_DATA_HOME/overshare/archive`. */
 export function defaultArchiveDir(config: OvershareConfig, env: NodeJS.ProcessEnv = process.env): string {
@@ -177,16 +179,23 @@ function removeOld(path: string, dir: string): string | undefined {
 
 // --- Names ---------------------------------------------------------------------------------------------------------
 
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-([0-9a-f])[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
 /**
- * Eight characters of the session id that tell sessions apart. A UUIDv7 (pi) starts with a timestamp, so sessions
- * begun within a minute share their first eight; its last eight are random. Other ids (Claude Code's UUIDv4) keep their
- * first eight, as `overshare list` shows them.
+ * Eight characters of the session id that tell sessions apart. From a UUID, wherever it is in the id (a pi session
+ * started by a tool can be `<name>-<uuid>`, and the name is shared): a UUIDv7 (pi) starts with a timestamp, so sessions
+ * begun within a minute share their first eight, and its last eight are random; other UUIDs (Claude Code's v4) keep
+ * their first eight, as `overshare list` shows them. An id with no UUID is used as it is when it fits, else hashed:
+ * its first eight could be shared too.
  */
 function safeId(id: string): string {
+  const uuid = UUID.exec(id);
+  if (uuid) return uuid[1] === "7" ? uuid[0].replace(/-/g, "").slice(-8).toLowerCase() : uuid[0].slice(0, 8).toLowerCase();
   const clean = id.replace(/[^A-Za-z0-9-]/g, "");
-  const short = /^[0-9a-f]{8}-[0-9a-f]{4}-7/i.test(clean) ? clean.replace(/-/g, "").slice(-8) : clean.slice(0, 8);
-  return short || "session";
+  if (clean && clean.length <= 8) return clean;
+  return createHash("sha256").update(id).digest("hex").slice(0, 8);
 }
+
 const archiveKey = (harness: string, id: string) => `${harness}:${safeId(id)}`;
 const NAME = /^(?:\d{4}-\d{2}-\d{2}|undated)_([a-z-]+)_[^_]*_([A-Za-z0-9-]{1,8})\.md$/;
 
@@ -214,7 +223,8 @@ export function existingArchives(dir: string): Map<string, string> {
 }
 
 /**
- * `<project>/<YYYY-MM-DD>_<harness>_<project>_<id8>.md`, relative to the archive folder. The project is in the file name
+ * `<project>/<YYYY-MM-DD>_<harness>_<project>_<id8>.md`, relative to the archive folder (`_scratch/` for a scratch
+ * folder's sessions, all together). The project is in the file name
  * too, so a file still says where it is from when copied out of its folder. The start date, not the last activity, so a
  * growing session keeps its name.
  */
@@ -228,7 +238,8 @@ export function archiveFileName(prepared: PreparedShare, ref: SessionRef): strin
     .replace(/^-+|-+$/g, "")
     .slice(0, 40)
     .replace(/-+$/, "");
-  return join(project || NO_PROJECT, `${date}_${ref.harness}_${project || NO_PROJECT.slice(1)}_${safeId(ref.id)}.md`);
+  const folder = session.project?.scratch ? SCRATCH : project || NO_PROJECT;
+  return join(folder, `${date}_${ref.harness}_${project || folder.slice(1)}_${safeId(ref.id)}.md`);
 }
 
 // --- Up-to-date check ------------------------------------------------------------------------------------------------
@@ -298,6 +309,7 @@ function frontmatterFields(prepared: PreparedShare, ref: SessionRef, entry: Arch
     settings: opts.settings,
     project: session.project?.name,
     worktree: session.project?.worktree,
+    scratch: session.project?.scratch || undefined,
     cwd: session.project?.cwd,
     branch: session.project?.branch,
     // Left out when hostname redaction is on, rather than written as a placeholder.

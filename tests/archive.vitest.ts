@@ -35,7 +35,12 @@ function machine(): Machine {
  * A Claude Code session under the fake home's projects folder, its last entry a minute before `mtime` (default now),
  * since `--since` goes by the last entry's time. Returns its path.
  */
-function addSession(m: Machine, id: string, build: (t: ClaudeTranscript) => ClaudeTranscript, mtime = new Date(), cwd = join(m.home, "work", "demo")): string {
+function addSession(m: Machine, id: string, build: (t: ClaudeTranscript) => ClaudeTranscript, mtime = new Date(), cwd?: string): string {
+  if (cwd === undefined) {
+    // A checkout on disk: the fake home is in the temporary folder, where a folder that is not one counts as scratch.
+    cwd = join(m.home, "work", "demo");
+    mkdirSync(join(cwd, ".git"), { recursive: true });
+  }
   const dir = join(m.projects, cwd.replace(/[^A-Za-z0-9]/g, "-"));
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${id}.jsonl`);
@@ -376,6 +381,31 @@ describe("overshare archive", { timeout: 60_000 }, () => {
     expect(held.status).toBe(3);
     expect(held.stderr).not.toContain("moved from");
     expect(existsSync(loose)).toBe(true);
+  });
+
+  it("files sessions from throwaway folders together in _scratch, by a tidied name", () => {
+    const m = machine();
+    const t3 = addSession(m, ID, simple, new Date(), join(m.home, ".local", "share", "t3", "scratch", "2026-10-24-compare-csv-parsers-3f9e1c2a"));
+    const tmp = addSession(m, "bbbbbbbb-1111-4222-8333-444444444444", simple, new Date(), "/tmp/quick-test");
+    expect(m.run(["--all"]).status).toBe(0);
+    expect(archived(m)).toEqual(
+      [
+        join("_scratch", basename(nameFor(t3, "compare-csv-parsers"))),
+        join("_scratch", basename(nameFor(tmp, "quick-test"))),
+      ].sort(),
+    );
+    const md = readFileSync(join(m.archive, archived(m)[0]!), "utf8");
+    expect(md).toContain('project: "compare-csv-parsers"');
+    expect(md).toMatch(/^scratch: true$/m);
+  });
+
+  it("tells apart sessions whose ids share a name before their UUID", () => {
+    const m = machine();
+    const ids = ["review-run-1f0c9a2e-0000-4000-8000-000000000001", "review-run-2a7d4b31-0000-4000-8000-000000000002"];
+    const files = ids.map((id) => addSession(m, id, simple));
+    expect(m.run(["--all"]).status).toBe(0);
+    // `nameFor` takes the id's first eight, "review-r": what both used to be named, one overwriting the other.
+    expect(archived(m)).toEqual([nameFor(files[0]!).replace("_review-r.md", "_1f0c9a2e.md"), nameFor(files[1]!).replace("_review-r.md", "_2a7d4b31.md")]);
   });
 
   it("rejects option combinations that make no sense", () => {

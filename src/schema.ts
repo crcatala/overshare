@@ -182,8 +182,11 @@ export interface NormalizedSession {
   title?: string;
   harness: { name: HarnessName; version?: string; formatVersion?: number };
   source: { sessionId: string; leafId?: string };
-  /** `name` is the repository (a linked worktree's main checkout), `worktree` the worktree's own folder when it ran in one. */
-  project?: { cwd?: string; name?: string; worktree?: string; branch?: string };
+  /**
+   * `name` is the repository (a linked worktree's main checkout), `worktree` the worktree's own folder when it ran in
+   * one; `scratch` marks a throwaway workspace (a temporary folder, a T3 Code thread without a project).
+   */
+  project?: { cwd?: string; name?: string; worktree?: string; scratch?: boolean; branch?: string };
   startedAt?: string;
   endedAt?: string;
   durationMs?: number;

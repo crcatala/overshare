@@ -20,7 +20,8 @@ overshare archive --current -o today.md
 
 Files go to `~/.local/share/overshare/archive` (`$XDG_DATA_HOME/overshare/archive`), unless config
 `archive.dir`, `$OVERSHARE_ARCHIVE_DIR` or `-o` says otherwise. Each project gets a folder, and each file in it is
-named `<start date>_<harness>_<project>_<id>.md`, for example `overshare/2026-10-24_claude-code_overshare_3f9c2a1e.md`.
+named `<start date>_<harness>_<project>_<id>.md`, for example `overshare/2026-10-24_claude-code_overshare_3f9c2a1e.md`. `<id>` is eight characters of the session's UUID (its first eight, or for a pi session's time-ordered UUID its last
+eight), wherever the UUID is in the id; an id without one is used as it is, or hashed when it is longer.
 The project is in the file name too, so a file copied out of its folder still says where it came from. Files are
 readable only by you (mode 0600).
 
@@ -30,7 +31,14 @@ worktree belongs to (the worktree's own folder name is kept in the frontmatter a
 exists is followed back to its main checkout through git's own files. One that has been removed leaves nothing to
 follow, so its path is read instead when it has a known layout: `…/worktrees/<repo>/<name>` (T3 Code, herdr),
 `<repo>/.claude/worktrees/<name>` (Claude Code) and `~/.codex/worktrees/<id>/<repo>` (Codex). Otherwise the last
-folder names it. A session with no working directory goes in `_no-project`. The folders in the archive are
+folder names it. A session with no working directory goes in `_no-project`.
+
+Sessions in throwaway workspaces share one folder, `_scratch`, rather than each getting its own, and have
+`scratch: true` in the frontmatter. These are T3 Code threads started without a project
+(`~/.local/share/t3/scratch/<date>-<title>-<hash>`, named by the title: `compare-csv-parsers`) and folders in
+a temporary folder (`/tmp`, `/var/tmp`, macOS's `/private/var/folders/…/T`, `$TMPDIR`), named by the folder directly
+in it; Claude Code's scratchpads there are named `scratch`. A git repository cloned into a temporary folder is a
+project, and keeps its own folder. The folders in the archive are
 overshare's: keep copies of your own somewhere else, since a run moves (and so removes) a session's file found in
 any of them.
 

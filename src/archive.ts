@@ -29,8 +29,10 @@ import { TOOL_VERSION } from "./version.js";
 export const ARCHIVE_REPORT = "_archive-report.md";
 /** The folder for sessions with no project (no working directory recorded). */
 export const NO_PROJECT = "_no-project";
+/** The one folder for sessions in throwaway workspaces, which would otherwise each get a folder of their own. */
+export const SCRATCH = "_scratch";
 /** Bump when where files go or how they are named changes, so every file is rewritten (and moved) on the next run. */
-const ARCHIVE_LAYOUT = 2;
+const ARCHIVE_LAYOUT = 3;
 
 /** `$OVERSHARE_ARCHIVE_DIR`, else config `archive.dir`, else `$XDG_DATA_HOME/overshare/archive`. */
 export function defaultArchiveDir(config: OvershareConfig, env: NodeJS.ProcessEnv = process.env): string {
@@ -107,7 +109,7 @@ export interface ArchiveContext {
 export function archiveSession(ref: SessionRef, ctx: ArchiveContext, existing = existingArchives(ctx.target.dir)): ArchiveEntry | undefined {
   const { opts, target } = ctx;
   const base: ArchiveEntry = { status: "failed", source: ref.path, secrets: 0, rules: [], suspicious: [], blocked: 0 };
-  const previous = target.file ?? existing.get(archiveKey(ref.harness, ref.id));
+  const previous = target.file ?? existing.get(archiveKey(ref.harness, ref.id))?.[0];
   // A loose file at the top of the archive is from before project folders: never up to date, so it is moved even
   // without frontmatter (whose up-to-date check is only the file's mtime).
   const loose = !target.file && previous !== undefined && dirname(previous) === target.dir;
@@ -126,7 +128,8 @@ export function archiveSession(ref: SessionRef, ctx: ArchiveContext, existing = 
   // A rewritten file takes the session's current name: one whose project now resolves differently is moved to it. (An
   // up-to-date file is skipped above without parsing anything, so it keeps its name until the session changes.)
   const output = target.file ?? join(target.dir, archiveFileName(prepared, ref));
-  const movedFrom = previous && previous !== output && existsSync(previous) ? previous : undefined;
+  const old = previous ?? (target.file ? undefined : legacyFile(existing, ref, output));
+  const movedFrom = old && old !== output && existsSync(old) ? old : undefined;
   const rules = [...new Set(report.findings.filter((f) => SECRET_CATEGORIES.has(f.category)).map((f) => f.rule))];
   const entry: ArchiveEntry = {
     ...base,
@@ -177,25 +180,55 @@ function removeOld(path: string, dir: string): string | undefined {
 
 // --- Names ---------------------------------------------------------------------------------------------------------
 
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-([0-9a-f])[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
 /**
- * Eight characters of the session id that tell sessions apart. A UUIDv7 (pi) starts with a timestamp, so sessions
- * begun within a minute share their first eight; its last eight are random. Other ids (Claude Code's UUIDv4) keep their
- * first eight, as `overshare list` shows them.
+ * Eight characters of the session id that tell sessions apart. From a UUID, wherever it is in the id (a pi session
+ * started by a tool can be `<name>-<uuid>`, and the name is shared): a UUIDv7 (pi) starts with a timestamp, so sessions
+ * begun within a minute share their first eight, and its last eight are random; other UUIDs (Claude Code's v4) keep
+ * their first eight, as `overshare list` shows them. An id with no UUID is used as it is when it fits, else hashed:
+ * its first eight could be shared too.
  */
 function safeId(id: string): string {
+  const uuid = UUID.exec(id);
+  if (uuid) return uuid[1] === "7" ? uuid[0].replace(/-/g, "").slice(-8).toLowerCase() : uuid[0].slice(0, 8).toLowerCase();
+  const clean = id.replace(/[^A-Za-z0-9-]/g, "");
+  if (clean && clean.length <= 8) return clean;
+  return createHash("sha256").update(id).digest("hex").slice(0, 8);
+}
+
+/** The short id before ids with a name in front of their UUID were told apart, to find (and move) a file named with it. */
+function legacyId(id: string): string {
   const clean = id.replace(/[^A-Za-z0-9-]/g, "");
   const short = /^[0-9a-f]{8}-[0-9a-f]{4}-7/i.test(clean) ? clean.replace(/-/g, "").slice(-8) : clean.slice(0, 8);
   return short || "session";
 }
 const archiveKey = (harness: string, id: string) => `${harness}:${safeId(id)}`;
+
+/**
+ * The file an older version wrote for this session under its old short id, if any. Sessions that shared that id shared
+ * one file, possibly one per project, so only a file with this session's name but the old id counts, or else the one
+ * file of its harness started that day: never a file another session is likelier to own.
+ */
+function legacyFile(existing: Map<string, string[]>, ref: SessionRef, output: string): string | undefined {
+  const [id, old] = [safeId(ref.id), legacyId(ref.id)];
+  if (id === old) return undefined;
+  const candidates = (existing.get(`${ref.harness}:${old}`) ?? []).filter((p) => existsSync(p));
+  const sameName = basename(output).slice(0, -`${id}.md`.length) + `${old}.md`;
+  const exact = candidates.find((p) => basename(p) === sameName);
+  if (exact) return exact;
+  const sameDay = candidates.filter((p) => basename(p).startsWith(basename(output).split("_", 2).join("_") + "_"));
+  return sameDay.length === 1 ? sameDay[0] : undefined;
+}
 const NAME = /^(?:\d{4}-\d{2}-\d{2}|undated)_([a-z-]+)_[^_]*_([A-Za-z0-9-]{1,8})\.md$/;
 
 /**
  * Files already in the archive (in its project folders, or loose at the top from before there were any) by harness and
- * short id: a session whose name changes is found under its old one, to be moved rather than copied.
+ * short id: a session whose name changes is found under its old one, to be moved rather than copied. More than one
+ * file per id is left by older versions, whose short ids could be shared.
  */
-export function existingArchives(dir: string): Map<string, string> {
-  const found = new Map<string, string>();
+export function existingArchives(dir: string): Map<string, string[]> {
+  const found = new Map<string, string[]>();
   const scan = (folder: string, depth: number) => {
     let entries;
     try {
@@ -206,7 +239,9 @@ export function existingArchives(dir: string): Map<string, string> {
     for (const e of entries) {
       if (e.isDirectory() && depth === 0) scan(join(folder, e.name), 1);
       const m = e.isFile() ? NAME.exec(e.name) : null;
-      if (m) found.set(`${m[1]}:${m[2]}`, join(folder, e.name));
+      if (!m) continue;
+      const key = `${m[1]}:${m[2]}`;
+      found.set(key, [...(found.get(key) ?? []), join(folder, e.name)]);
     }
   };
   scan(dir, 0);
@@ -214,7 +249,8 @@ export function existingArchives(dir: string): Map<string, string> {
 }
 
 /**
- * `<project>/<YYYY-MM-DD>_<harness>_<project>_<id8>.md`, relative to the archive folder. The project is in the file name
+ * `<project>/<YYYY-MM-DD>_<harness>_<project>_<id8>.md`, relative to the archive folder (`_scratch/` for a scratch
+ * folder's sessions, all together). The project is in the file name
  * too, so a file still says where it is from when copied out of its folder. The start date, not the last activity, so a
  * growing session keeps its name.
  */
@@ -228,7 +264,8 @@ export function archiveFileName(prepared: PreparedShare, ref: SessionRef): strin
     .replace(/^-+|-+$/g, "")
     .slice(0, 40)
     .replace(/-+$/, "");
-  return join(project || NO_PROJECT, `${date}_${ref.harness}_${project || NO_PROJECT.slice(1)}_${safeId(ref.id)}.md`);
+  const folder = session.project?.scratch ? SCRATCH : project || NO_PROJECT;
+  return join(folder, `${date}_${ref.harness}_${project || folder.slice(1)}_${safeId(ref.id)}.md`);
 }
 
 // --- Up-to-date check ------------------------------------------------------------------------------------------------
@@ -298,6 +335,7 @@ function frontmatterFields(prepared: PreparedShare, ref: SessionRef, entry: Arch
     settings: opts.settings,
     project: session.project?.name,
     worktree: session.project?.worktree,
+    scratch: session.project?.scratch || undefined,
     cwd: session.project?.cwd,
     branch: session.project?.branch,
     // Left out when hostname redaction is on, rather than written as a placeholder.

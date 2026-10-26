@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Sessions in throwaway workspaces are marked as scratch instead of each counting as a project of its own: a T3 Code
+  thread started without a project (`…/t3/scratch/<date>-<title>-<hash>`, named by its title) and a folder in a
+  temporary folder (`/tmp`, `/var/tmp`, macOS's `/private/var/folders/…/T`, `$TMPDIR`; Claude Code's scratchpads
+  there are just `scratch`). A git repository cloned into a temporary folder keeps its name.
+- `overshare archive` files them all in one `_scratch` folder, with `scratch: true` in the frontmatter. The next run
+  moves files already archived elsewhere into it.
+
+### Fixed
+
+- `overshare archive` gave sessions whose ids share a name before their UUID (a pi session started by a tool, such
+  as `<name>-<uuid>`) the same short id, so they overwrote one file. The short id now comes from the UUID wherever it
+  is in the id, and an id without one that is longer than eight characters is hashed. Files written under the old
+  short id are moved to the new name on the next run.
+
 ## [0.4.1] - 2026-10-26
 
 ### Changed

@@ -35,7 +35,12 @@ function machine(): Machine {
  * A Claude Code session under the fake home's projects folder, its last entry a minute before `mtime` (default now),
  * since `--since` goes by the last entry's time. Returns its path.
  */
-function addSession(m: Machine, id: string, build: (t: ClaudeTranscript) => ClaudeTranscript, mtime = new Date(), cwd = join(m.home, "work", "demo")): string {
+function addSession(m: Machine, id: string, build: (t: ClaudeTranscript) => ClaudeTranscript, mtime = new Date(), cwd?: string): string {
+  if (cwd === undefined) {
+    // A checkout on disk: the fake home is in the temporary folder, where a folder that is not one counts as scratch.
+    cwd = join(m.home, "work", "demo");
+    mkdirSync(join(cwd, ".git"), { recursive: true });
+  }
   const dir = join(m.projects, cwd.replace(/[^A-Za-z0-9]/g, "-"));
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${id}.jsonl`);
@@ -376,6 +381,49 @@ describe("overshare archive", { timeout: 60_000 }, () => {
     expect(held.status).toBe(3);
     expect(held.stderr).not.toContain("moved from");
     expect(existsSync(loose)).toBe(true);
+  });
+
+  it("files sessions from throwaway folders together in _scratch, by a tidied name", () => {
+    const m = machine();
+    const t3 = addSession(m, ID, simple, new Date(), join(m.home, ".local", "share", "t3", "scratch", "2026-10-24-compare-csv-parsers-3f9e1c2a"));
+    const tmp = addSession(m, "bbbbbbbb-1111-4222-8333-444444444444", simple, new Date(), "/tmp/quick-test");
+    expect(m.run(["--all"]).status).toBe(0);
+    expect(archived(m)).toEqual(
+      [
+        join("_scratch", basename(nameFor(t3, "compare-csv-parsers"))),
+        join("_scratch", basename(nameFor(tmp, "quick-test"))),
+      ].sort(),
+    );
+    const md = readFileSync(join(m.archive, archived(m)[0]!), "utf8");
+    expect(md).toContain('project: "compare-csv-parsers"');
+    expect(md).toMatch(/^scratch: true$/m);
+  });
+
+  it("tells apart sessions whose ids share a name before their UUID, and moves the file the old short id named", () => {
+    const m = machine();
+    const fa = addSession(m, "review-run-1f0c9a2e-0000-4000-8000-000000000001", simple);
+    const fb = addSession(m, "review-run-2a7d4b31-0000-4000-8000-000000000002", simple);
+    // One in another project: older versions gave it a file of its own there, with the same short id.
+    const otherCwd = join(m.home, "work", "other");
+    mkdirSync(join(otherCwd, ".git"), { recursive: true });
+    const fc = addSession(m, "review-run-3b9e2c47-0000-4000-8000-000000000003", simple, new Date(), otherCwd);
+    // `nameFor` takes the id's first eight: what older versions named both sessions' one file.
+    const legacy = join(m.archive, nameFor(fa));
+    expect(legacy).toContain("_review-r.md");
+    mkdirSync(join(m.archive, "demo"), { recursive: true });
+    writeFileSync(legacy, '---\nsettings: "000000000000"\n---\n# old\n');
+    const otherLegacy = join(m.archive, nameFor(fc, "other"));
+    mkdirSync(join(m.archive, "other"), { recursive: true });
+    writeFileSync(otherLegacy, '---\nsettings: "000000000000"\n---\n# old\n');
+    const r = m.run(["--all"]);
+    expect(r.status, r.stderr).toBe(0);
+    expect(archived(m)).toEqual([
+      nameFor(fa).replace("_review-r.md", "_1f0c9a2e.md"),
+      nameFor(fb).replace("_review-r.md", "_2a7d4b31.md"),
+      nameFor(fc, "other").replace("_review-r.md", "_3b9e2c47.md"),
+    ]);
+    expect(existsSync(legacy)).toBe(false);
+    expect(existsSync(otherLegacy)).toBe(false);
   });
 
   it("rejects option combinations that make no sense", () => {

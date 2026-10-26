@@ -92,6 +92,7 @@ describe("projectFromCwd", () => {
     ["a folder in /tmp", "/tmp/try-a-lib/sub", "try-a-lib"],
     ["a folder in /var/tmp", "/var/tmp/try-it", "try-it"],
     ["macOS's temporary folder", "/private/var/folders/x1/abc123/T/try-it", "try-it"],
+    ["macOS's temporary folder as $TMPDIR spells it", "/var/folders/x1/abc123/T/try-it/sub", "try-it"],
     ["a Claude Code scratchpad", "/tmp/claude-1000/-home-u-work-x-0f3c/scratchpad", "scratch"],
     ["the temporary folder itself", "/tmp", "scratch"],
   ])("marks %s as scratch", (_what, cwd, name) => {
@@ -103,6 +104,17 @@ describe("projectFromCwd", () => {
     process.env.TMPDIR = "/home/u/.tmp";
     try {
       expect(projectFromCwd("/home/u/.tmp/claude-1000/x/scratchpad")).toEqual({ name: "scratch", scratch: true });
+    } finally {
+      if (before === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = before;
+    }
+  });
+
+  it("takes a $TMPDIR inside macOS's temporary folder as the deeper of the two", () => {
+    const before = process.env.TMPDIR;
+    process.env.TMPDIR = "/var/folders/x1/abc123/T/tool-tmp";
+    try {
+      expect(projectFromCwd("/var/folders/x1/abc123/T/tool-tmp/try-it")).toEqual({ name: "try-it", scratch: true });
     } finally {
       if (before === undefined) delete process.env.TMPDIR;
       else process.env.TMPDIR = before;

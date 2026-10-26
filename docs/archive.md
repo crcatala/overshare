@@ -36,7 +36,7 @@ folder names it. A session with no working directory goes in `_no-project`.
 Sessions in throwaway workspaces share one folder, `_scratch`, rather than each getting its own, and have
 `scratch: true` in the frontmatter. These are T3 Code threads started without a project
 (`~/.local/share/t3/scratch/<date>-<title>-<hash>`, named by the title: `compare-csv-parsers`) and folders in
-a temporary folder (`/tmp`, `/var/tmp`, macOS's `/private/var/folders/…/T`, `$TMPDIR`), named by the folder directly
+a temporary folder (`/tmp`, `/var/tmp`, macOS's `/var/folders/…/T`, `$TMPDIR`), named by the folder directly
 in it; Claude Code's scratchpads there are named `scratch`. A git repository cloned into a temporary folder is a
 project, and keeps its own folder. The folders in the archive are
 overshare's: keep copies of your own somewhere else, since a run moves (and so removes) a session's file found in

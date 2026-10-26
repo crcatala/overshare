@@ -15,7 +15,7 @@
  *    (Codex).
  * 3. A scratch folder: a throwaway workspace rather than a project, so many sessions share one place instead of each
  *    getting its own. T3 Code's `…/t3/scratch/<date>-<title>-<hash>` (a thread started without a project) is named by
- *    its title; a folder in the system's temporary folder (`/tmp`, `/var/tmp`, macOS's `/private/var/folders/…/T`,
+ *    its title; a folder in the system's temporary folder (`/tmp`, `/var/tmp`, macOS's `/var/folders/…/T`,
  *    `$TMPDIR`) by the folder directly in it. Claude Code's own scratchpads there (`claude-<uid>/…`) are just `scratch`.
  *    T3 Code's scratch folders are always scratch. In a temporary folder, a checkout found on disk (step 1) is used only
  *    when it lies inside it: a repository cloned into `/tmp` keeps its name, but a home folder kept in git (dotfiles)
@@ -113,9 +113,13 @@ function fromT3Scratch(cwd: string): ProjectIdentity | undefined {
 /** A path in a temporary folder: the deepest one it is in (`$TMPDIR` may be inside another), and its scratch identity. */
 function fromTempPath(cwd: string): { root: string; identity: ProjectIdentity } | undefined {
   const parts = segments(cwd);
-  // `/private/var/folders/<xx>/<id>/T/<name>`: macOS's temporary folder, whatever the user's `$TMPDIR` says now.
-  const mac = parts[0] === "private" && parts[1] === "var" && parts[2] === "folders" && parts[5] === "T" ? 6 : -1;
-  const depth = mac >= 0 ? mac : Math.max(-1, ...tempRoots().filter((r) => r.every((p, i) => parts[i] === p)).map((r) => r.length));
+  const roots = tempRoots();
+  // macOS's temporary folder, whatever `$TMPDIR` says now: `/var/folders/<xx>/<id>/T`, or the same through the
+  // `/private` that `/var` links to (a working directory can be recorded either way).
+  const mac = parts[0] === "private" ? 1 : 0;
+  if (parts[mac] === "var" && parts[mac + 1] === "folders" && parts[mac + 4] === "T") roots.push(parts.slice(0, mac + 5));
+  // The deepest that contains it: `$TMPDIR` may be inside another.
+  const depth = Math.max(-1, ...roots.filter((r) => r.every((p, i) => parts[i] === p)).map((r) => r.length));
   if (depth < 0) return undefined;
   const first = parts[depth];
   return { root: `/${parts.slice(0, depth).join("/")}`, identity: { name: !first || /^claude-\d+$/.test(first) ? "scratch" : first, scratch: true } };

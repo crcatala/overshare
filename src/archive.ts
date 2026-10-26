@@ -109,7 +109,7 @@ export interface ArchiveContext {
 export function archiveSession(ref: SessionRef, ctx: ArchiveContext, existing = existingArchives(ctx.target.dir)): ArchiveEntry | undefined {
   const { opts, target } = ctx;
   const base: ArchiveEntry = { status: "failed", source: ref.path, secrets: 0, rules: [], suspicious: [], blocked: 0 };
-  const previous = target.file ?? existing.get(archiveKey(ref.harness, ref.id))?.[0];
+  const previous = target.file ?? existing.get(archiveKey(ref.harness, ref.id));
   // A loose file at the top of the archive is from before project folders: never up to date, so it is moved even
   // without frontmatter (whose up-to-date check is only the file's mtime).
   const loose = !target.file && previous !== undefined && dirname(previous) === target.dir;
@@ -128,8 +128,7 @@ export function archiveSession(ref: SessionRef, ctx: ArchiveContext, existing = 
   // A rewritten file takes the session's current name: one whose project now resolves differently is moved to it. (An
   // up-to-date file is skipped above without parsing anything, so it keeps its name until the session changes.)
   const output = target.file ?? join(target.dir, archiveFileName(prepared, ref));
-  const old = previous ?? (target.file ? undefined : legacyFile(existing, ref, output));
-  const movedFrom = old && old !== output && existsSync(old) ? old : undefined;
+  const movedFrom = previous && previous !== output && existsSync(previous) ? previous : undefined;
   const rules = [...new Set(report.findings.filter((f) => SECRET_CATEGORIES.has(f.category)).map((f) => f.rule))];
   const entry: ArchiveEntry = {
     ...base,
@@ -197,38 +196,15 @@ function safeId(id: string): string {
   return createHash("sha256").update(id).digest("hex").slice(0, 8);
 }
 
-/** The short id before ids with a name in front of their UUID were told apart, to find (and move) a file named with it. */
-function legacyId(id: string): string {
-  const clean = id.replace(/[^A-Za-z0-9-]/g, "");
-  const short = /^[0-9a-f]{8}-[0-9a-f]{4}-7/i.test(clean) ? clean.replace(/-/g, "").slice(-8) : clean.slice(0, 8);
-  return short || "session";
-}
 const archiveKey = (harness: string, id: string) => `${harness}:${safeId(id)}`;
-
-/**
- * The file an older version wrote for this session under its old short id, if any. Sessions that shared that id shared
- * one file, possibly one per project, so only a file with this session's name but the old id counts, or else the one
- * file of its harness started that day: never a file another session is likelier to own.
- */
-function legacyFile(existing: Map<string, string[]>, ref: SessionRef, output: string): string | undefined {
-  const [id, old] = [safeId(ref.id), legacyId(ref.id)];
-  if (id === old) return undefined;
-  const candidates = (existing.get(`${ref.harness}:${old}`) ?? []).filter((p) => existsSync(p));
-  const sameName = basename(output).slice(0, -`${id}.md`.length) + `${old}.md`;
-  const exact = candidates.find((p) => basename(p) === sameName);
-  if (exact) return exact;
-  const sameDay = candidates.filter((p) => basename(p).startsWith(basename(output).split("_", 2).join("_") + "_"));
-  return sameDay.length === 1 ? sameDay[0] : undefined;
-}
 const NAME = /^(?:\d{4}-\d{2}-\d{2}|undated)_([a-z-]+)_[^_]*_([A-Za-z0-9-]{1,8})\.md$/;
 
 /**
  * Files already in the archive (in its project folders, or loose at the top from before there were any) by harness and
- * short id: a session whose name changes is found under its old one, to be moved rather than copied. More than one
- * file per id is left by older versions, whose short ids could be shared.
+ * short id: a session whose name changes is found under its old one, to be moved rather than copied.
  */
-export function existingArchives(dir: string): Map<string, string[]> {
-  const found = new Map<string, string[]>();
+export function existingArchives(dir: string): Map<string, string> {
+  const found = new Map<string, string>();
   const scan = (folder: string, depth: number) => {
     let entries;
     try {
@@ -239,9 +215,7 @@ export function existingArchives(dir: string): Map<string, string[]> {
     for (const e of entries) {
       if (e.isDirectory() && depth === 0) scan(join(folder, e.name), 1);
       const m = e.isFile() ? NAME.exec(e.name) : null;
-      if (!m) continue;
-      const key = `${m[1]}:${m[2]}`;
-      found.set(key, [...(found.get(key) ?? []), join(folder, e.name)]);
+      if (m) found.set(`${m[1]}:${m[2]}`, join(folder, e.name));
     }
   };
   scan(dir, 0);

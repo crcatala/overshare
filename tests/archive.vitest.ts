@@ -399,31 +399,13 @@ describe("overshare archive", { timeout: 60_000 }, () => {
     expect(md).toMatch(/^scratch: true$/m);
   });
 
-  it("tells apart sessions whose ids share a name before their UUID, and moves the file the old short id named", () => {
+  it("tells apart sessions whose ids share a name before their UUID", () => {
     const m = machine();
-    const fa = addSession(m, "review-run-1f0c9a2e-0000-4000-8000-000000000001", simple);
-    const fb = addSession(m, "review-run-2a7d4b31-0000-4000-8000-000000000002", simple);
-    // One in another project: older versions gave it a file of its own there, with the same short id.
-    const otherCwd = join(m.home, "work", "other");
-    mkdirSync(join(otherCwd, ".git"), { recursive: true });
-    const fc = addSession(m, "review-run-3b9e2c47-0000-4000-8000-000000000003", simple, new Date(), otherCwd);
-    // `nameFor` takes the id's first eight: what older versions named both sessions' one file.
-    const legacy = join(m.archive, nameFor(fa));
-    expect(legacy).toContain("_review-r.md");
-    mkdirSync(join(m.archive, "demo"), { recursive: true });
-    writeFileSync(legacy, '---\nsettings: "000000000000"\n---\n# old\n');
-    const otherLegacy = join(m.archive, nameFor(fc, "other"));
-    mkdirSync(join(m.archive, "other"), { recursive: true });
-    writeFileSync(otherLegacy, '---\nsettings: "000000000000"\n---\n# old\n');
-    const r = m.run(["--all"]);
-    expect(r.status, r.stderr).toBe(0);
-    expect(archived(m)).toEqual([
-      nameFor(fa).replace("_review-r.md", "_1f0c9a2e.md"),
-      nameFor(fb).replace("_review-r.md", "_2a7d4b31.md"),
-      nameFor(fc, "other").replace("_review-r.md", "_3b9e2c47.md"),
-    ]);
-    expect(existsSync(legacy)).toBe(false);
-    expect(existsSync(otherLegacy)).toBe(false);
+    const ids = ["review-run-1f0c9a2e-0000-4000-8000-000000000001", "review-run-2a7d4b31-0000-4000-8000-000000000002"];
+    const files = ids.map((id) => addSession(m, id, simple));
+    expect(m.run(["--all"]).status).toBe(0);
+    // `nameFor` takes the id's first eight, "review-r": what both used to be named, one overwriting the other.
+    expect(archived(m)).toEqual([nameFor(files[0]!).replace("_review-r.md", "_1f0c9a2e.md"), nameFor(files[1]!).replace("_review-r.md", "_2a7d4b31.md")]);
   });
 
   it("rejects option combinations that make no sense", () => {

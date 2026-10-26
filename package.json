@@ -1,6 +1,6 @@
 {
   "name": "overshare",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Share coding-agent session transcripts (Claude Code, pi) with redaction, share modes, and a static viewer",
   "keywords": [
     "claude-code",

@@ -3,9 +3,9 @@
  * or rewrites, and how findings are reported. Each test gets its own fake home, so nothing touches the real machine.
  */
 import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ClaudeTranscript, ccUsage, fake, randomish } from "./helpers.js";
 
@@ -35,8 +35,7 @@ function machine(): Machine {
  * A Claude Code session under the fake home's projects folder, its last entry a minute before `mtime` (default now),
  * since `--since` goes by the last entry's time. Returns its path.
  */
-function addSession(m: Machine, id: string, build: (t: ClaudeTranscript) => ClaudeTranscript, mtime = new Date()): string {
-  const cwd = join(m.home, "work", "demo");
+function addSession(m: Machine, id: string, build: (t: ClaudeTranscript) => ClaudeTranscript, mtime = new Date(), cwd = join(m.home, "work", "demo")): string {
   const dir = join(m.projects, cwd.replace(/[^A-Za-z0-9]/g, "-"));
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${id}.jsonl`);
@@ -49,10 +48,10 @@ function addSession(m: Machine, id: string, build: (t: ClaudeTranscript) => Clau
   return file;
 }
 
-/** The archive name of a session file: `<start date>_claude-code_demo_<id8>.md`. */
-function nameFor(file: string): string {
+/** The archive name of a session file: `<project>/<start date>_claude-code_<project>_<id8>.md`. */
+function nameFor(file: string, project = "demo"): string {
   const first = JSON.parse(readFileSync(file, "utf8").split("\n", 1)[0]!) as { timestamp: string; sessionId: string };
-  return `${first.timestamp.slice(0, 10)}_claude-code_demo_${first.sessionId.slice(0, 8)}.md`;
+  return join(project, `${first.timestamp.slice(0, 10)}_claude-code_${project}_${first.sessionId.slice(0, 8)}.md`);
 }
 
 const simple = (t: ClaudeTranscript) =>
@@ -63,7 +62,9 @@ const simple = (t: ClaudeTranscript) =>
     .assistant("m2", [{ type: "text", text: "Fixed it." }], ccUsage(10, 5));
 
 const ID = "aaaaaaaa-1111-4222-8333-444444444444";
-const archived = (m: Machine) => (existsSync(m.archive) ? readdirSync(m.archive).filter((f) => f.endsWith(".md") && !f.startsWith("_")) : []);
+/** The session files in an archive folder, relative to it (`<project>/<file>.md`), without the report. */
+const filesIn = (dir: string) => (existsSync(dir) ? (readdirSync(dir, { recursive: true }) as string[]).filter((f) => f.endsWith(".md") && !basename(f).startsWith("_")).sort() : []);
+const archived = (m: Machine) => filesIn(m.archive);
 
 describe("overshare archive", { timeout: 60_000 }, () => {
   it("writes one session to the default folder as minimal markdown with redacted frontmatter, private", () => {
@@ -133,7 +134,7 @@ describe("overshare archive", { timeout: 60_000 }, () => {
 
     const week = m.run(["--all", "--since", "7d", "-o", out]);
     expect(week.status, week.stderr).toBe(0);
-    expect(readdirSync(out).filter((f) => f.endsWith(".md") && !f.startsWith("_"))).toEqual([nameFor(recent)]);
+    expect(filesIn(out)).toEqual([nameFor(recent)]);
 
     const month = m.run(["--all", "-o", out]);
     expect(month.stderr).toContain("1 written, 1 up to date.");
@@ -207,7 +208,7 @@ describe("overshare archive", { timeout: 60_000 }, () => {
     mkdirSync(join(m.home, ".config", "overshare"), { recursive: true });
     writeFileSync(join(m.home, ".config", "overshare", "config.json"), JSON.stringify({ archive: { dir: "~/notes/sessions" }, redact: { hostname: true } }));
     expect(m.run([ID]).status).toBe(0);
-    const [name] = readdirSync(dir);
+    const [name] = filesIn(dir);
     const md = readFileSync(join(dir, name!), "utf8");
     expect(md).not.toMatch(/^machine:/m);
     expect(md).toMatch(/^source_size: \d+$/m);
@@ -247,8 +248,9 @@ describe("overshare archive", { timeout: 60_000 }, () => {
     const report = readFileSync(join(m.archive, "_archive-report.md"), "utf8");
     expect(report).toContain("## Suspicious values to review");
     expect(report).toContain("-home-[user]-work-[REDACTED]/bbbbbbbb");
-    // Only the first file's name keeps "demo": it was named before the denylist, and a file keeps its name.
-    expect(report.replaceAll(`_demo_${ID.slice(0, 8)}.md`, "")).not.toContain("demo");
+    // The first file was named before the denylist: rewritten with it, it moved to the redacted name.
+    expect(report).not.toContain("demo");
+    expect(archived(m)).toEqual([nameFor(risky, "redacted"), nameFor(file, "redacted")].sort());
     expect(file).toContain("demo");
   });
 
@@ -267,6 +269,113 @@ describe("overshare archive", { timeout: 60_000 }, () => {
     expect(m.run([ID, "-m", "full", "--include-system-prompt"]).stderr).toContain("1 updated.");
     const md = readFileSync(out, "utf8");
     expect(md).toContain("## System prompt\n\n```text\nYou are an interactive agent.\n# Not a heading\n```\n\n````text\n```js\nfence();\n```\n````\n\n## User (Turn 1)");
+  });
+
+  it("names and files a worktree session after its repository, and records the worktree", () => {
+    const m = machine();
+    // Gone from disk, as most worktrees are by the time they are archived: the path's layout names the repository.
+    const file = addSession(m, ID, simple, new Date(), join(m.home, ".local", "share", "t3", "worktrees", "acme-api", "t3-6c1e90ab", "packages", "core"));
+    const r = m.run([ID]);
+    expect(r.status, r.stderr).toBe(0);
+    expect(archived(m)).toEqual([nameFor(file, "acme-api")]);
+    const md = readFileSync(join(m.archive, archived(m)[0]!), "utf8");
+    expect(md).toContain('project: "acme-api"');
+    expect(md).toContain('worktree: "t3-6c1e90ab"');
+  });
+
+  it("moves a file whose name changed (a loose file from before project folders) instead of writing a second one", () => {
+    const m = machine();
+    const file = addSession(m, ID, simple);
+    expect(m.run([ID]).status).toBe(0);
+    const loose = join(m.archive, basename(nameFor(file)));
+    renameSync(join(m.archive, nameFor(file)), loose);
+    // Written by an older layout: its settings stamp differs, so it is not up to date.
+    writeFileSync(loose, readFileSync(loose, "utf8").replace(/^settings: .*$/m, 'settings: "000000000000"'));
+    const r = m.run([ID]);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stderr).toContain(`updated      ${nameFor(file)}  moved from ${basename(nameFor(file))}`);
+    expect(archived(m)).toEqual([nameFor(file)]);
+    expect(existsSync(loose)).toBe(false);
+    expect(m.run([ID]).stderr).toContain("1 up to date.");
+  });
+
+  it("names a session in a live worktree after its main checkout, followed through git's files", () => {
+    const m = machine();
+    const main = join(m.home, "work", "acme-api");
+    const gitdir = join(main, ".git", "worktrees", "feature-x");
+    mkdirSync(gitdir, { recursive: true });
+    writeFileSync(join(gitdir, "commondir"), "../..\n");
+    // Somewhere no path layout would recognise: only the .git file says where it belongs.
+    const wt = join(m.home, "scratch", "feature-x");
+    mkdirSync(wt, { recursive: true });
+    writeFileSync(join(wt, ".git"), `gitdir: ${gitdir}\n`);
+    const file = addSession(m, ID, simple, new Date(), wt);
+    expect(m.run([ID]).status).toBe(0);
+    expect(archived(m)).toEqual([nameFor(file, "acme-api")]);
+    expect(readFileSync(join(m.archive, archived(m)[0]!), "utf8")).toContain('worktree: "feature-x"');
+  });
+
+  it("moves a loose file written without frontmatter, though its mtime says it is up to date", () => {
+    const m = machine();
+    const file = addSession(m, ID, simple, new Date(Date.now() - 3_600_000));
+    expect(m.run([ID, "--no-frontmatter"]).status).toBe(0);
+    const loose = join(m.archive, basename(nameFor(file)));
+    renameSync(join(m.archive, nameFor(file)), loose);
+    const r = m.run([ID, "--no-frontmatter"]);
+    expect(r.stderr).toContain(`moved from ${basename(nameFor(file))}`);
+    expect(archived(m)).toEqual([nameFor(file)]);
+    expect(m.run([ID, "--no-frontmatter"]).stderr).toContain("1 up to date.");
+  });
+
+  it("removes the project folder a file moved out of once it is empty, and says a dry run would move it", () => {
+    const m = machine();
+    const file = addSession(m, ID, simple);
+    expect(m.run([ID]).status).toBe(0);
+    const old = join(m.archive, "old-name", basename(nameFor(file)));
+    mkdirSync(join(m.archive, "old-name"));
+    renameSync(join(m.archive, nameFor(file)), old);
+    writeFileSync(old, readFileSync(old, "utf8").replace(/^settings: .*$/m, 'settings: "000000000000"'));
+    expect(m.run([ID, "--dry-run"]).stderr).toContain(`would update ${nameFor(file)}  would move from ${join("old-name", basename(nameFor(file)))}`);
+    expect(existsSync(old)).toBe(true);
+    expect(m.run([ID]).status).toBe(0);
+    expect(existsSync(join(m.archive, "old-name"))).toBe(false);
+    expect(archived(m)).toEqual([nameFor(file)]);
+  });
+
+  it("fails, naming the file, when the old file cannot be removed after a move", () => {
+    const m = machine();
+    const file = addSession(m, ID, simple);
+    expect(m.run([ID]).status).toBe(0);
+    const folder = join(m.archive, "old-name");
+    mkdirSync(folder);
+    const old = join(folder, basename(nameFor(file)));
+    renameSync(join(m.archive, nameFor(file)), old);
+    writeFileSync(old, readFileSync(old, "utf8").replace(/^settings: .*$/m, 'settings: "000000000000"'));
+    chmodSync(folder, 0o500);
+    try {
+      const r = m.run([ID]);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain(`could not remove ${join("old-name", basename(nameFor(file)))}`);
+      expect(existsSync(join(m.archive, nameFor(file)))).toBe(true);
+    } finally {
+      chmodSync(folder, 0o700);
+    }
+  });
+
+  it("does not report a move for a session held back, and leaves its old file", () => {
+    const m = machine();
+    const secret = fake.envValue();
+    const secrets = join(m.home, "secrets.env");
+    writeFileSync(secrets, `LEAKED=${secret}\n`);
+    addSession(m, ID, (t) => new ClaudeTranscript(secret, t.cwd).user("hi").assistant("m1", [{ type: "text", text: "hello" }], ccUsage(1, 1)));
+    expect(m.run(["--all", "--secrets-file", secrets, "--force"]).status).toBe(0);
+    const [written] = archived(m);
+    const loose = join(m.archive, basename(written!));
+    renameSync(join(m.archive, written!), loose);
+    const held = m.run(["--all", "--secrets-file", secrets]);
+    expect(held.status).toBe(3);
+    expect(held.stderr).not.toContain("moved from");
+    expect(existsSync(loose)).toBe(true);
   });
 
   it("rejects option combinations that make no sense", () => {

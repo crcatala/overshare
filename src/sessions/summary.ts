@@ -8,11 +8,11 @@
  */
 import { readFileSync } from "node:fs";
 import { HARNESSES } from "../harnesses/index.js";
-import { projectNameFromCwd } from "../harnesses/shared.js";
 import { Collector, oneLine } from "../harnesses/summary-kit.js";
 import { stripControls } from "../sanitize.js";
 import type { HarnessName } from "../schema.js";
 import { guessBranch } from "./branch.js";
+import { projectFromCwd } from "./repo.js";
 
 export interface SessionSummary {
   harness: HarnessName;
@@ -83,7 +83,7 @@ function sanitized(s: SessionSummary): SessionSummary {
 export function summarizeRaw(ref: SummarizeInput, raw: string): SessionSummary {
   const c = new Collector();
   HARNESSES[ref.harness].summarize(raw, c);
-  const project = projectNameFromCwd(c.cwd);
+  const project = projectFromCwd(c.cwd).name;
   // Without a recorded title, name the session after what was asked; a bare slash command ("/model") says little.
   const asked = c.promptHead.find((p) => !p.startsWith("/")) ?? c.first;
   // Raw prompt text, cut at 80: local display only (the list, the preview, the cache file), never published. The share

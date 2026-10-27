@@ -109,7 +109,7 @@ describe("markdown tables", () => {
     const grid = md.querySelector(".atable .at-grid");
     expect(grid?.getAttribute("aria-hidden")).toBe("true");
     expect(grid?.textContent).toContain("│ a │ b │");
-    expect(md.querySelector(".atable table.sr-only")).not.toBeNull();
+    expect(md.querySelector(".atable .sr-only > table")).not.toBeNull();
   });
 
   it("do not let cell content carry classes or unsafe links", () => {

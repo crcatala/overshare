@@ -151,7 +151,9 @@ function docked(): boolean {
 function updateDock(): void {
   // Rails float beside the centered transcript only when both fit without covering it.
   const need = cssPx("--content-w") + 2 * (cssPx("--rail-w") + cssPx("--rail-gap")) + 24;
-  root.dataset.dock = window.innerWidth >= need ? "docked" : "overlay";
+  // A media query, not innerWidth: on phones innerWidth grows as the reader pinch-zooms
+  // out, which would dock the rails over a page laid out for the narrow screen.
+  root.dataset.dock = matchMedia(`(min-width: ${need}px)`).matches ? "docked" : "overlay";
   syncRails();
 }
 

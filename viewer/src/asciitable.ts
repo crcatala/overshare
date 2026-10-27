@@ -455,11 +455,12 @@ export function asciiTable(table: HTMLTableElement): HTMLElement {
   const model = tableModel(table);
   const probe = h("span", { class: "at-probe", "aria-hidden": "true" }, "0".repeat(20));
   const grid = h("pre", { class: "at-grid", "aria-hidden": "true" });
-  table.classList.add("sr-only");
   // Links are clickable (and tabbable) in the grid; the hidden table's copies stay
   // readable by screen readers but out of the tab order, so each link is one tab stop.
   for (const a of table.querySelectorAll("a")) a.setAttribute("tabindex", "-1");
-  const wrap = h("div", { class: "atable" }, grid, probe, table);
+  // Hidden by a wrapper, not on the table itself: a table ignores `width: 1px` and
+  // `overflow: hidden`, so a wide one would still widen the page on narrow screens.
+  const wrap = h("div", { class: "atable" }, grid, probe, h("div", { class: "sr-only" }, table));
   let last = "";
   const relayout = () => {
     const charW = probe.getBoundingClientRect().width / 20;

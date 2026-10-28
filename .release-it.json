@@ -14,8 +14,7 @@
     "releaseName": "v${version}"
   },
   "npm": {
-    "publish": true,
-    "publishArgs": ["--access", "public"]
+    "publish": false
   },
   "hooks": {
     "before:init": ["bash scripts/check-changelog.sh", "npm run verify"],

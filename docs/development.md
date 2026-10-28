@@ -10,6 +10,7 @@ cd overshare
 npm install
 npm run build
 npm link            # optional: puts this checkout's `overshare` and `ovs` on PATH
+overshare --version # overshare X.Y.Z (sha7 YYYY-MM-DD): the commit this checkout is running
 ```
 
 ```bash

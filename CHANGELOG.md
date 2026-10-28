@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `overshare update` updates overshare the way it was installed: from a source checkout it pulls
+  `origin/main`, installs and rebuilds; from npm, pnpm, bun or mise it reinstalls the latest version. It
+  refuses to update a checkout that is dirty or not on `main`. `overshare update --check` only reports
+  (exit 0 up to date, 1 update available, 2 could not tell), and `--force` updates anyway.
+- `overshare version` prints the version, commit, commit date, dirty state, install method and install
+  path; add `--json` for one JSON object.
+
+### Changed
+
+- `overshare --version` (and `overshare -V`) now prints `<tool> X.Y.Z (sha7 YYYY-MM-DD)` with the commit
+  and commit date the build came from (`-dirty` when built from uncommitted changes), the same line for a
+  registry install and a local build.
+
 ## [0.4.2] - 2026-10-26
 
 ### Changed

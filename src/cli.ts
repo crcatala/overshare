@@ -4,6 +4,7 @@ import { dirname, join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError, Option } from "commander";
 import { ARCHIVE_REPORT, archiveExitCode, archiveSession, defaultArchiveDir, existingArchives, formatEntry, formatReportFile, formatSummary, personalRedactor, settingsHash, summaryJson, type ArchiveEntry, type ArchiveTarget } from "./archive.js";
+import { runUpdate, versionDetails, versionLine } from "./cli-meta.js";
 import { SHARE_TARGETS, loadConfig, type OvershareConfig, type ShareTarget } from "./config.js";
 import { exportFixtureShares, generateFixtures } from "./fixtures/index.js";
 import { formatBytes, plural } from "./format.js";
@@ -21,7 +22,6 @@ import { parseSince } from "./sessions/query.js";
 import { HARNESS_NAMES, loadSubagentFiles } from "./harnesses/index.js";
 import { SHARE_MODES, type HarnessName, type ShareMode } from "./schema.js";
 import { DEFAULT_HOST, startViewerServer } from "./serve.js";
-import { TOOL_VERSION } from "./version.js";
 
 /** Exit codes, stable for wrappers (skill / pi extension). */
 const EXIT = { ok: 0, error: 1, needsReview: 2, blocked: 3, declined: 4 } as const;
@@ -101,7 +101,7 @@ const program = new Command();
 program
   .name("overshare")
   .description("Share coding-agent session transcripts with redaction, share modes and a static viewer")
-  .version(TOOL_VERSION)
+  .version(versionLine("overshare"), "-V, --version", "print the version and commit")
   .addHelpText(
     "after",
     `
@@ -110,6 +110,24 @@ Credential files (pi/Claude/Codex auth, gh hosts.yml, ~/.npmrc, ~/.netrc) and \`
 set redact.knownSources.credentialFiles / .ghToken to true in ~/.config/overshare/config.json (or $OVERSHARE_CONFIG). 'overshare report' shows which
 sources were read. Use --secrets-file for values you know are sensitive. See https://github.com/crcatala/overshare/blob/main/docs/redaction.md#what-this-tool-reads-and-why`,
   );
+
+program
+  .command("update")
+  .description("update overshare the way it was installed")
+  .option("--check", "report only: exit 0 up to date, 1 update available, 2 unknown")
+  .option("--force", "update even when already up to date")
+  .action((opts: { check?: boolean; force?: boolean }) => {
+    process.exitCode = runUpdate("overshare", opts);
+  });
+
+program
+  .command("version")
+  .description("print version details: commit, date, install method and path")
+  .option("--json", "print them as one JSON object")
+  .action((opts: { json?: boolean }) => {
+    const details = versionDetails();
+    console.log(opts.json ? JSON.stringify(details) : Object.entries(details).map(([k, v]) => `${k}: ${v}`).join("\n"));
+  });
 
 program
   .command("list")

@@ -260,6 +260,40 @@ describe("cli", { timeout: 30_000 }, () => {
   });
 });
 
+describe("cli version and update", { timeout: 30_000 }, () => {
+  const pkgVersion = (JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string }).version;
+
+  it("--version and -V print the standard line with this checkout's commit", () => {
+    for (const flag of ["--version", "-V"]) {
+      const r = cli([flag]);
+      expect(r.status, r.stderr).toBe(0);
+      expect(r.stdout.trim()).toMatch(new RegExp(`^overshare ${pkgVersion.replace(/\./g, "\\.")} \\([0-9a-f]{7}(-dirty)? \\d{4}-\\d{2}-\\d{2}\\)$`));
+    }
+  });
+
+  it("version prints the details, and --json prints them as one object", () => {
+    const plain = cli(["version"]);
+    expect(plain.status, plain.stderr).toBe(0);
+    expect(plain.stdout).toContain(`version: ${pkgVersion}`);
+    expect(plain.stdout).toContain("install: checkout");
+
+    const json = cli(["version", "--json"]);
+    expect(json.status, json.stderr).toBe(0);
+    const details = JSON.parse(json.stdout);
+    expect(details.version).toBe(pkgVersion);
+    expect(details.commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(details.install).toBe("checkout");
+    expect(existsSync(join(details.path, "package.json"))).toBe(true);
+  });
+
+  it("update --check exits 2, not 1, when it cannot tell whether an update is available", () => {
+    // No git on PATH: the checkout cannot be compared with origin/main.
+    const r = cli(["update", "--check"], { PATH: "/nonexistent" });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("cannot tell whether an update is available");
+  });
+});
+
 describe("cli browse", { timeout: 30_000 }, () => {
   it("refuses to run without an interactive terminal and points to `list`", () => {
     const r = cli(["browse"]);

@@ -28,10 +28,32 @@ Requires Node.js 22.19 or newer.
 
 ```bash
 npm install -g overshare     # installs `overshare` and the short alias `ovs`
+npx overshare --help         # run without installing
 ```
 
 Publishing to a gist uses the [GitHub CLI](https://cli.github.com/): run `gh auth login` once.
-Without installing, use `npx overshare <command>`.
+
+### From source
+
+```bash
+git clone https://github.com/crcatala/overshare.git
+cd overshare
+npm install
+npm run build
+npm link                     # puts `overshare` (and `ovs`) on your PATH, pointing at this clone
+overshare --version          # overshare X.Y.Z (sha7 YYYY-MM-DD): the commit you built
+```
+
+Rebuild after pulling (`npm run build`); the link keeps pointing at the clone. If `overshare` is also
+installed globally, remove that copy so the linked build is the one on `PATH` (`command -v overshare`
+should resolve inside the clone).
+
+### Updating
+
+```bash
+overshare update --check     # exit 0: up to date, 1: update available, 2: could not tell
+overshare update             # updates the same way it was installed
+```
 
 ## Quick start
 

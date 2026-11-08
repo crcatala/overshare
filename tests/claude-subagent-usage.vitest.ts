@@ -496,17 +496,18 @@ describe("linking through the task notification", () => {
   it("matches a notification that names only the agent, when the launch's tool result gave that agent id", () => {
     const t = mainWithLaunch({ kind: "async" }, { agentId: "a1" });
     t.user("<task-notification>\n<task-id>a1</task-id>\n<result>ANSWER-by-agent-id</result>\n</task-notification>", { origin: { kind: "task-notification" } });
-    const { session: s, dropped } = parse(t, undefined);
+    const { session: s } = parse(t, undefined);
     expect(subagentSteps(s)[0]!.result!.text).toBe("ANSWER-by-agent-id");
-    expect(dropped["task-notification"]).toBe(1);
+    // Matched: it leaves a subagent notice.
+    expect(s.turns.flatMap((x) => x.steps).find((x) => x.kind === "event")).toMatchObject({ event: "subagent_notice" });
   });
 
-  it("still drops a notification that names no known launch", () => {
+  it("keeps a notification that names no known launch off every step, as a plain notice", () => {
     const t = launchOnly();
     t.user("<task-notification>\n<task-id>stranger</task-id>\n<tool-use-id>toolu_nowhere</tool-use-id>\n<result>UNMATCHED-answer</result>\n</task-notification>", { origin: { kind: "task-notification" } });
-    const { session: s, dropped } = parse(t, undefined);
+    const { session: s } = parse(t, undefined);
     expect(JSON.stringify(s)).not.toContain("UNMATCHED-answer");
-    expect(dropped["task-notification:unmatched"]).toBe(1);
+    expect(s.turns.flatMap((x) => x.steps).find((x) => x.kind === "event")).toMatchObject({ event: "notification" });
   });
 });
 

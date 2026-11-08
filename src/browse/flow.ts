@@ -28,7 +28,7 @@ export type FlowStep = "mode" | "suspicious" | "confirm" | "busy" | "done" | "er
 export const MODE_HINT: Record<ShareMode, string> = {
   full: "everything, after redaction",
   brief: "prompts + replies, tool calls collapsed",
-  minimal: "prompts + final reply per turn",
+  minimal: "prompts + final reply per turn (two after a wake-up)",
   prompts: "only what you typed",
 };
 

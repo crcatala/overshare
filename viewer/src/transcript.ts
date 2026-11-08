@@ -373,7 +373,9 @@ function renderEvent(e: EventStep, id: string): HTMLElement {
     el.classList.add("is-wake");
     el.title = "The agent had finished its reply; this message started another one without a prompt";
   }
-  expandable(el, h("span", {}, h("span", { class: "ev-text" }, e.text)), {
+  // The gutter label is hidden from assistive tech, so a wake-up says what it is in text too.
+  const wakeNote = e.wake ? h("span", { class: "sr-only" }, " (the agent had finished; this started a new reply without a prompt)") : null;
+  expandable(el, h("span", {}, h("span", { class: "ev-text" }, e.text), wakeNote), {
     build: e.detail ? () => (e.event === "compaction" ? markdown(e.detail ?? "") : pre(e.detail ?? "")) : undefined,
   });
   return el;

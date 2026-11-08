@@ -183,19 +183,31 @@ export class TurnBuilder {
   /** Steps whose answer came from a task-notification, which is the subagent's real final message. */
   private readonly answered = new Set<SubagentStep>();
   private stepSeq = 0;
+  private finished = false;
   /**
-   * The agent has finished its reply and nothing is pending (no tool result, no prompt). Adapters set it after each
-   * model response; a new prompt clears it. A notice that arrives while it is set may be a wake-up.
+   * Notices that arrived while the agent was idle; the next model response confirms they woke it. `at` is where a
+   * deferred one goes in the turn's steps once confirmed, so it keeps its place among the notices after it.
    */
-  idle = false;
-  /** Notices that arrived while the agent was idle; the next model response confirms they woke it. */
-  private waking: { step: EventStep; deferred: boolean }[] = [];
+  private waking: { step: EventStep; deferred: boolean; at: number }[] = [];
 
   constructor(private readonly opts: { subagentUsage?: (details: unknown) => SubagentStep["usage"] | undefined } = {}) {}
 
+  /**
+   * The agent has finished its reply and nothing is pending (no tool result, no prompt). Adapters set it after each
+   * model response and clear it on a tool result; a new prompt clears it. A notice that arrives while it is set may be
+   * a wake-up. Clearing it means something other than a notice (a tool result, a prompt) is what the next reply
+   * answers, so notices still waiting did not wake the agent.
+   */
+  get idle(): boolean {
+    return this.finished;
+  }
+
+  set idle(value: boolean) {
+    this.finished = value;
+    if (!value) this.waking = [];
+  }
+
   startTurn(user: UserPrompt, timestamp?: string): Turn {
-    // A prompt, not a notice, is what the next reply answers; a notice still waiting for one did not wake the agent.
-    this.waking = [];
     this.idle = false;
     const turn: Turn = { index: this.turns.length, timestamp, user, steps: [] };
     this.turns.push(turn);
@@ -241,17 +253,19 @@ export class TurnBuilder {
     opts: { onlyIfWakes?: boolean } = {},
   ): void {
     const step: EventStep = { kind: "event", id: this.nextId("e"), event, text, timestamp, ...(detail ? { detail } : {}) };
+    const at = this.current.steps.length;
     if (!opts.onlyIfWakes) this.addStep(step);
-    if (this.idle) this.waking.push({ step, deferred: !!opts.onlyIfWakes });
+    if (this.idle) this.waking.push({ step, deferred: !!opts.onlyIfWakes, at });
   }
 
   /** A model response is starting (calling it again for the same response is harmless). Notices since the agent went idle woke it. */
   responseStarted(): void {
+    let inserted = 0;
     for (const w of this.waking) {
-      if (w.deferred) this.addStep(w.step);
+      // In arrival order: each one inserted earlier moves the later places along by one.
+      if (w.deferred) this.current.steps.splice(w.at + inserted++, 0, w.step);
       w.step.wake = true;
     }
-    this.waking = [];
     this.idle = false;
   }
 

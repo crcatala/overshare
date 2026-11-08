@@ -210,19 +210,21 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
         }
         continue;
       }
-      // Harness-generated user lines (background task completions) are not prompts. Each leaves an event in its
-      // place: one that reaches an idle agent wakes it, and the reply that follows is not an answer to the prompt.
+      // Harness-generated user lines (background task completions, monitor events) are not prompts. Each leaves an
+      // event in its place: one that reaches an idle agent wakes it, and the reply that follows is not an answer to the
+      // prompt. A task notification's event carries its summary, so it is not counted as dropped; any other line's text
+      // is never shared, so it is.
       if (!isHumanOrigin(e.origin)) {
         const kind = originLabel(e.origin);
         const notification = kind === "task-notification" ? parseTaskNotification(rawText) : undefined;
         const subagent = !!notification && b.completeSubagent(notification, notification.result);
-        if (subagent) bump(dropped, "task-notification");
-        else bump(dropped, notification ? "task-notification:unmatched" : `origin:${kind}`);
-        const status = notification?.status ?? "finished";
+        // Monitor events carry no status: they report progress, not an end.
+        const status = notification?.status ?? "update";
         if (notification) {
           b.addNotice(subagent ? "subagent_notice" : "notification", `Background ${subagent ? "agent" : "task"} ${status}`, timestamp, notification.summary);
         } else {
           // Never the text: a producer we don't know may carry anything.
+          bump(dropped, `origin:${kind}`);
           b.addNotice("notification", `Harness message (${/^[\w-]{1,40}$/.test(kind) ? kind : "unknown"})`, timestamp);
         }
         continue;

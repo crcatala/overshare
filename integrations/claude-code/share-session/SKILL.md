@@ -12,7 +12,7 @@ leftover secret.
 Modes (default `brief`):
 - `full` — everything after redaction (tool inputs/outputs truncated to 20k chars each)
 - `brief` — prompts + replies; tool calls grouped (e.g. `Bash ×5 · Edit ×3`), no tool output
-- `minimal` — prompts, the final reply per turn, and counts
+- `minimal` — prompts, the final reply per turn (and the one before it if a background task woke the agent), and counts
 - `prompts` — only the user's typed prompts, each with a one-line activity summary
 
 ## Steps

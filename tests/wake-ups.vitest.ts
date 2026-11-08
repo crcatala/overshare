@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parseClaudeCode } from "../src/harnesses/claude-code/parse.js";
 import { parsePi } from "../src/harnesses/pi/parse.js";
+import { DEFAULT_CONFIG } from "../src/config.js";
+import { SUMMARY_MAX, prepareShare } from "../src/pipeline.js";
 import { renderMarkdown } from "../src/markdown.js";
 import { projectSession } from "../src/modes.js";
 import type { EventStep, NormalizedSession, Step, Turn } from "../src/schema.js";
@@ -153,6 +155,44 @@ describe("Claude Code wake-ups", () => {
     expect(events(lastTurn(session).steps).find((e) => e.event === "notification")).toMatchObject({ wake: true });
   });
 
+  it("a monitor event carries no status, so it is an update, not a finish", () => {
+    const t = new ClaudeTranscript().user("watch the capture");
+    stop(t.assistant("m1", [{ type: "text", text: "Waiting on the capture monitor." }], ccUsage(1, 1)), "end_turn");
+    t.user(`<task-notification>\n<task-id>bmon1</task-id>\n<summary>Monitor event: "capture progress"</summary>\n<event>main: 300/719</event>\n</task-notification>`, { origin: NOTIFICATION_ORIGIN });
+    stop(t.assistant("m2", [{ type: "text", text: "300 of 719 frames so far." }], ccUsage(1, 1)), "end_turn");
+    const { session, dropped } = parseClaudeCode(t.toJsonl());
+    expect(events(lastTurn(session).steps)).toEqual([expect.objectContaining({ text: "Background task update", detail: 'Monitor event: "capture progress"', wake: true })]);
+    expect(dropped).not.toHaveProperty("task-notification:unmatched");
+  });
+
+  it("a notice that a tool result follows before any reply did not wake the agent", () => {
+    // Out of the usual order (a malformed or interleaved transcript): the reply answers the tool result.
+    const t = new ClaudeTranscript().user("go");
+    stop(t.assistant("m1", [{ type: "text", text: "Checking." }], ccUsage(1, 1)), "end_turn");
+    t.user(bashNotification("bg0", "completed", "done"), { origin: NOTIFICATION_ORIGIN });
+    t.toolResult("late", "late output");
+    stop(t.assistant("m2", [{ type: "text", text: "Done." }], ccUsage(1, 1)), "end_turn");
+    const { session } = parseClaudeCode(t.toJsonl());
+    expect(events(lastTurn(session).steps)[0]!.wake).toBeUndefined();
+    expect(texts(lastTurn(projectSession(session, "minimal")).steps)).toEqual(["Done."]);
+  });
+
+  it("the summary is capped like other one-line texts when shared, and is in full mode only", () => {
+    const long = `Background command "${"x".repeat(400)}" was stopped`;
+    const t = new ClaudeTranscript().user("go");
+    stop(t.assistant("m1", [{ type: "text", text: "Done." }], ccUsage(1, 1)), "end_turn");
+    t.user(bashNotification("bg0", "killed", long), { origin: NOTIFICATION_ORIGIN });
+    stop(t.assistant("m2", [{ type: "text", text: "Stray job." }], ccUsage(1, 1)), "end_turn");
+    const share = (mode: "full" | "brief") =>
+      prepareShare(t.toJsonl(), { mode, config: DEFAULT_CONFIG, harness: "claude-code", machine: { homeDir: "/home/tester", username: "tester", hostname: "box" }, knownSecrets: [] });
+    const full = share("full");
+    const event = events(lastTurn(full.session).steps)[0]!;
+    expect(event.detail!.length).toBeLessThanOrEqual(SUMMARY_MAX);
+    expect(event.detail!.endsWith("…")).toBe(true);
+    expect(full.report.dropped).not.toHaveProperty("task-notification:unmatched");
+    expect(share("brief").json).not.toContain("xxxxxxxx");
+  });
+
   it("a harness message from an unknown producer is shown by its kind, never its text", () => {
     const t = new ClaudeTranscript().user("go");
     stop(t.assistant("m1", [{ type: "text", text: "Done." }], ccUsage(1, 1)), "end_turn");
@@ -201,6 +241,22 @@ describe("pi wake-ups", () => {
     expect(JSON.stringify(session)).not.toContain("SECRET");
     expect(dropped["custom_message:claude-rules"]).toBe(1);
     expect(dropped["custom_message:file-trigger"]).toBe(1);
+  });
+
+  it("an extension message keeps its place among the notices after it", () => {
+    const t = new PiTranscript().user("watch");
+    stopped(t, "Watching.");
+    t.entry("custom_message", { customType: "file-trigger", content: "External trigger", display: true });
+    t.entry("custom_message", { customType: "subagent-notify", content: "Scout done", display: true });
+    stopped(t, "Handled both.");
+    const { session } = parsePi(t.toJsonl());
+    expect(events(lastTurn(session).steps).map((e) => [e.text, e.wake])).toEqual([
+      ["Extension message (file-trigger)", true],
+      ["Scout done", true],
+    ]);
+    const minimal = lastTurn(projectSession(session, "minimal")).steps;
+    // The marker takes the first wake-up's place and time.
+    expect(minimal.at(-2)).toMatchObject({ id: events(lastTurn(session).steps)[0]!.id, text: "Resumed after 2 background updates" });
   });
 
   it("an extension message that a prompt follows, not a reply, is left out", () => {
@@ -262,6 +318,22 @@ describe("minimal closing replies", () => {
 });
 
 describe("markdown", () => {
+  it("writes each wake-up in a brief turn before the reply it caused, and no other notice", () => {
+    const t = strayJobSession();
+    t.user("next");
+    stop(t.assistant("m5", [{ type: "text", text: "Starting." }, { type: "tool_use", id: "x9", name: "Bash", input: { command: "make" } }], ccUsage(1, 1)), "tool_use");
+    t.toolResult("x9", "ok");
+    t.user(bashNotification("bg9", "completed", "mid-work"), { origin: NOTIFICATION_ORIGIN });
+    stop(t.assistant("m6", [{ type: "text", text: "Built." }], ccUsage(1, 1)), "end_turn");
+    const { session } = parseClaudeCode(t.toJsonl());
+    const md = renderMarkdown(projectSession(session, "brief"));
+    expect(md.indexOf("_— Background task completed —_")).toBeGreaterThan(md.indexOf("Waiting on the capture monitor."));
+    expect(md.indexOf("_— Background task killed —_")).toBeGreaterThan(md.indexOf("The pitch page is live"));
+    expect(md.indexOf("That stopped background job")).toBeGreaterThan(md.indexOf("_— Background task killed —_"));
+    // The mid-work notice in the second turn is not a wake-up, so it is not written.
+    expect(md.match(/_— Background task/g)).toHaveLength(2);
+  });
+
   it("writes the wake-up between the two replies of a minimal turn", () => {
     const { session } = parseClaudeCode(strayJobSession().toJsonl());
     const md = renderMarkdown(projectSession(session, "minimal"));

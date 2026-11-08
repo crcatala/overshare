@@ -77,6 +77,7 @@ const EVENT_LABEL: Record<string, string> = {
   command: "command",
   skill: "skill",
   subagent_notice: "notice",
+  notification: "notice",
   interrupted: "interrupted",
   error: "error",
 };
@@ -364,9 +365,14 @@ function renderSubagent(s: SubagentStep, id: string): HTMLElement {
 }
 
 function renderEvent(e: EventStep, id: string): HTMLElement {
-  const el = entry("event", id, EVENT_LABEL[e.event] ?? "event", e.timestamp);
+  // A wake-up: the agent had finished its reply and this message started another one without a prompt.
+  const el = entry("event", id, e.wake ? "woke" : (EVENT_LABEL[e.event] ?? "event"), e.timestamp);
   el.dataset.event = e.event;
   if (e.event === "error" || e.event === "interrupted") el.classList.add("is-error");
+  if (e.wake) {
+    el.classList.add("is-wake");
+    el.title = "The agent had finished its reply; this message started another one without a prompt";
+  }
   expandable(el, h("span", {}, h("span", { class: "ev-text" }, e.text)), {
     build: e.detail ? () => (e.event === "compaction" ? markdown(e.detail ?? "") : pre(e.detail ?? "")) : undefined,
   });

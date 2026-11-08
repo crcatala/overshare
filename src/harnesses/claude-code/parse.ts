@@ -45,15 +45,21 @@ const originLabel = (origin: unknown): string => {
   return typeof kind === "string" && kind ? kind : "unknown";
 };
 
-/** Background subagent completion: `<task-notification>` with the agent's final answer in `<result>`. */
-function parseTaskNotification(text: string): { toolUseId?: string; agentId?: string; result: string } {
+/**
+ * Background task completion (a subagent, or a shell job run in the background): `<task-notification>` with the
+ * task's status and summary, and for a subagent its final answer in `<result>`.
+ */
+function parseTaskNotification(text: string): { toolUseId?: string; agentId?: string; status?: string; summary?: string; result: string } {
   const at = text.indexOf("<result>");
   // Read ids only from the header so text inside the answer cannot redirect it to another step.
   const header = at === -1 ? text : text.slice(0, at);
   const toolUseId = /<tool-use-id>\s*([^<\s]+)\s*<\/tool-use-id>/.exec(header)?.[1];
   const agentId = /<task-id>\s*([^<\s]+)\s*<\/task-id>/.exec(header)?.[1];
+  // A status is a word the harness chose (completed, killed, failed); anything else is not shown.
+  const status = /<status>\s*([a-z][a-z_ -]{0,23})\s*<\/status>/.exec(header)?.[1];
+  const summary = /<summary>([\s\S]*?)<\/summary>/.exec(header)?.[1]?.trim();
   const result = at === -1 ? "" : (/^<result>([\s\S]*)<\/result>/.exec(text.slice(at))?.[1] ?? "");
-  return { toolUseId, agentId, result: stripInjectedContext(result) };
+  return { toolUseId, agentId, status, summary: summary ? stripInjectedContext(summary) : undefined, result: stripInjectedContext(result) };
 }
 
 const CONVERSATION_TYPES = new Set(["user", "assistant", "system"]);
@@ -182,6 +188,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
             e.toolUseResult,
           );
         }
+        b.idle = false;
         continue;
       }
       const { text: rawText, images } = flattenContent(content);
@@ -203,17 +210,27 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
         }
         continue;
       }
-      // Harness-generated user lines (background subagent completions) are not prompts.
+      // Harness-generated user lines (background task completions) are not prompts. Each leaves an event in its
+      // place: one that reaches an idle agent wakes it, and the reply that follows is not an answer to the prompt.
       if (!isHumanOrigin(e.origin)) {
         const kind = originLabel(e.origin);
         const notification = kind === "task-notification" ? parseTaskNotification(rawText) : undefined;
-        if (notification && b.completeSubagent(notification, notification.result)) bump(dropped, "task-notification");
+        const subagent = !!notification && b.completeSubagent(notification, notification.result);
+        if (subagent) bump(dropped, "task-notification");
         else bump(dropped, notification ? "task-notification:unmatched" : `origin:${kind}`);
+        const status = notification?.status ?? "finished";
+        if (notification) {
+          b.addNotice(subagent ? "subagent_notice" : "notification", `Background ${subagent ? "agent" : "task"} ${status}`, timestamp, notification.summary);
+        } else {
+          // Never the text: a producer we don't know may carry anything.
+          b.addNotice("notification", `Harness message (${/^[\w-]{1,40}$/.test(kind) ? kind : "unknown"})`, timestamp);
+        }
         continue;
       }
       if (handleCommandMarkup(rawText, timestamp)) continue;
       if (/^\[Request interrupted by user/.test(rawText.trim())) {
         b.addEvent("interrupted", "Interrupted by user", timestamp);
+        b.idle = true;
         continue;
       }
       const text = stripInjectedContext(rawText);
@@ -238,8 +255,11 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
     if (model === "<synthetic>") {
       const text = blocks.filter((c) => c?.type === "text").map((c) => c.text).join("\n").trim();
       if (text) b.addEvent(e.isApiErrorMessage ? "error" : "interrupted", text.split("\n")[0] ?? text, timestamp);
+      // The harness wrote it in place of a reply: the agent has stopped.
+      b.idle = true;
       continue;
     }
+    b.responseStarted();
     if (model && !models.includes(model)) models.push(model);
     for (const block of blocks) {
       if (block?.type === "text") {
@@ -253,6 +273,9 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
       }
     }
     if (msg.usage) b.setResponseUsage(responseId, mapClaudeUsage(msg.usage), { model, timestamp });
+    // One line per block: the last line of a response decides. Older transcripts leave `stop_reason` empty, so a tool call
+    // in the line also counts as not finished.
+    b.idle = msg.stop_reason !== "tool_use" && !blocks.some((c) => c?.type === "tool_use");
   }
   if (pendingCommand) b.addEvent("command", pendingCommand.name, pendingCommand.timestamp);
   b.finalizeThinking();

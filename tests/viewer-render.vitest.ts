@@ -1173,3 +1173,35 @@ describe("token rail skills", () => {
     expect(section(rail(projectSession(typedAndModel(), "minimal")))).toBeUndefined();
   });
 });
+
+describe("wake-up events", () => {
+  const woken = () =>
+    session([
+      turn(0, [
+        { kind: "text", id: "a", text: "The page is live." },
+        { kind: "event", id: "w", event: "notification", text: "Background task killed", detail: "summary", wake: true },
+        { kind: "text", id: "b", text: "That job was a stray." },
+        { kind: "event", id: "n", event: "subagent_notice", text: "Scout is halfway" },
+      ]),
+    ]);
+
+  it("label a wake-up as one and set it apart; a plain notice stays a notice", () => {
+    const { el } = renderTranscript(woken());
+    const wake = el.querySelector<HTMLElement>(".k-event.is-wake")!;
+    expect(wake.textContent).toContain("woke");
+    expect(wake.textContent).toContain("Background task killed");
+    expect(wake.dataset.event).toBe("notification");
+    const notice = el.querySelectorAll<HTMLElement>(".k-event")[1]!;
+    expect(notice.classList.contains("is-wake")).toBe(false);
+    expect(notice.textContent).toContain("notice");
+  });
+
+  it("minimal draws both closing replies with the marker between them", () => {
+    const { el } = renderTranscript(projectSession(woken(), "minimal"));
+    const order = [...el.querySelectorAll<HTMLElement>(".k-text, .k-event")].map((n) => n.textContent ?? "");
+    expect(order).toHaveLength(3);
+    expect(order[0]).toContain("The page is live.");
+    expect(order[1]).toContain("Resumed after a background update");
+    expect(order[2]).toContain("That job was a stray.");
+  });
+});

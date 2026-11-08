@@ -324,6 +324,8 @@ export type EventKind =
   | "command"
   | "skill"
   | "subagent_notice"
+  /** A message the harness or an extension injected that is not a subagent notice (e.g. a background shell job finishing). */
+  | "notification"
   | "interrupted"
   | "error";
 
@@ -337,6 +339,13 @@ export interface EventStep extends StepBase {
    * picked up itself. Absent from shares written before it existed; their `text` is `Skill loaded: <name>`.
    */
   skill?: { name: string; invokedBy: "user" | "model" };
+  /**
+   * On a `subagent_notice` or `notification` event: the message reached the agent after it had finished its reply
+   * and started a new reply without a prompt (a "wake-up"). The agent then finished more than once in the turn, so
+   * minimal mode keeps the last two replies it finished on, not only the last. Absent from shares written before it
+   * existed.
+   */
+  wake?: true;
 }
 
 export type Step = TextStep | ThinkingStep | ToolStep | ToolGroupStep | SubagentStep | EventStep;

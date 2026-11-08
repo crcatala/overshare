@@ -79,10 +79,15 @@ export function parsePi(raw: string, options: AdapterOptions = {}): AdapterResul
         recordUsage(b, e, inherited(e));
         break;
       case "custom_message":
+        // An extension's message. With `triggerTurn` it can wake an agent that has finished its reply.
         if (typeof e.customType === "string" && e.customType.startsWith("subagent")) {
           const text = contentText(e.content).trim().split("\n")[0] ?? "";
-          b.addEvent("subagent_notice", text || "Subagent update", timestamp);
+          b.addNotice("subagent_notice", text || "Subagent update", timestamp);
         } else {
+          // Mostly context an extension injects, which stays out. One that wakes the agent is shown by its type only,
+          // so the reply that follows does not read as an answer to the prompt.
+          const type = typeof e.customType === "string" && /^[\w.:-]{1,60}$/.test(e.customType) ? e.customType : "unknown";
+          b.addNotice("notification", `Extension message (${type})`, timestamp, undefined, { onlyIfWakes: true });
           bump(dropped, `custom_message:${e.customType ?? "?"}`);
         }
         break;
@@ -183,6 +188,7 @@ function handleMessage(e: Entry, b: TurnBuilder, models: string[], dropped: Drop
     return;
   }
   if (msg.role === "toolResult") {
+    b.idle = false;
     const images = countImages(msg.content);
     const step = b.attachToolResult(
       msg.toolCallId,
@@ -198,6 +204,7 @@ function handleMessage(e: Entry, b: TurnBuilder, models: string[], dropped: Drop
   }
   if (msg.role !== "assistant") return void bump(dropped, `message:${msg.role ?? "?"}`);
 
+  b.responseStarted();
   const responseId: string = e.id;
   const model: string | undefined = msg.model;
   if (model && !models.includes(model)) models.push(model);
@@ -216,6 +223,8 @@ function handleMessage(e: Entry, b: TurnBuilder, models: string[], dropped: Drop
   if (msg.stopReason === "aborted") b.addEvent("interrupted", "Interrupted by user", timestamp);
   const usage = callUsage(msg);
   if (usage) b.setResponseUsage(responseId, usage, { model, timestamp, inherited });
+  // Tool calls (`toolUse`) and a reply still to be fetched (`deferred`) leave the agent working; any other stop ends its reply.
+  b.idle = msg.stopReason !== "toolUse" && msg.stopReason !== "deferred";
 }
 
 /** The skill a successful `read` of `<dir>/<skill>/SKILL.md` loaded. */

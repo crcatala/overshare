@@ -4,6 +4,7 @@ import {
   SCHEMA_VERSION,
   emptyUsage,
   type EventKind,
+  type EventStep,
   type HarnessName,
   type NormalizedSession,
   type ResponsePurpose,
@@ -182,10 +183,20 @@ export class TurnBuilder {
   /** Steps whose answer came from a task-notification, which is the subagent's real final message. */
   private readonly answered = new Set<SubagentStep>();
   private stepSeq = 0;
+  /**
+   * The agent has finished its reply and nothing is pending (no tool result, no prompt). Adapters set it after each
+   * model response; a new prompt clears it. A notice that arrives while it is set may be a wake-up.
+   */
+  idle = false;
+  /** Notices that arrived while the agent was idle; the next model response confirms they woke it. */
+  private waking: { step: EventStep; deferred: boolean }[] = [];
 
   constructor(private readonly opts: { subagentUsage?: (details: unknown) => SubagentStep["usage"] | undefined } = {}) {}
 
   startTurn(user: UserPrompt, timestamp?: string): Turn {
+    // A prompt, not a notice, is what the next reply answers; a notice still waiting for one did not wake the agent.
+    this.waking = [];
+    this.idle = false;
     const turn: Turn = { index: this.turns.length, timestamp, user, steps: [] };
     this.turns.push(turn);
     return turn;
@@ -215,6 +226,33 @@ export class TurnBuilder {
 
   addEvent(event: EventKind, text: string, timestamp?: string, detail?: string): void {
     this.addStep({ kind: "event", id: this.nextId("e"), event, text, timestamp, ...(detail ? { detail } : {}) });
+  }
+
+  /**
+   * A message the harness or an extension injected. While the agent is idle it may be a wake-up, which is only
+   * known once a reply follows it (`responseStarted`). An `onlyIfWakes` notice is kept only then and otherwise
+   * dropped, for sources that mostly inject context rather than news.
+   */
+  addNotice(
+    event: "subagent_notice" | "notification",
+    text: string,
+    timestamp?: string,
+    detail?: string,
+    opts: { onlyIfWakes?: boolean } = {},
+  ): void {
+    const step: EventStep = { kind: "event", id: this.nextId("e"), event, text, timestamp, ...(detail ? { detail } : {}) };
+    if (!opts.onlyIfWakes) this.addStep(step);
+    if (this.idle) this.waking.push({ step, deferred: !!opts.onlyIfWakes });
+  }
+
+  /** A model response is starting (calling it again for the same response is harmless). Notices since the agent went idle woke it. */
+  responseStarted(): void {
+    for (const w of this.waking) {
+      if (w.deferred) this.addStep(w.step);
+      w.step.wake = true;
+    }
+    this.waking = [];
+    this.idle = false;
   }
 
   addSkill(name: string, invokedBy: "user" | "model", timestamp?: string): void {

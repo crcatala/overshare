@@ -120,7 +120,9 @@ The flake comes from the backoff timer…
 src/publish/r2.ts
 ````
 
-- **Mode.** `minimal` by default: each prompt and the final reply of its turn. `--mode brief` keeps every reply
+- **Mode.** `minimal` by default: each prompt and the final reply of its turn (the last two replies it
+  finished on, with a `_— Resumed after a background update —_` line between them, when a background task woke the
+  agent after it had finished; see [Wake-ups](sharing.md#wake-ups)). `--mode brief` keeps every reply
   of a turn (under one Assistant heading); `full` and `prompts` work too. See [Share modes](sharing.md#share-modes).
 - **Tool lines.** Off by default. `--tools` adds one line per group of tool calls
   (`` _Tools: Read ×6, Bash ×4 (1 error) · edited `src/x.ts`_ ``), the commands in `brief` mode, subagent launches,

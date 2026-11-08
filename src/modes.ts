@@ -5,6 +5,7 @@
  * Browser-safe: no Node imports.
  */
 import type {
+  EventStep,
   NormalizedSession,
   ShareMode,
   Step,
@@ -235,8 +236,46 @@ function briefTurn(turn: Turn): Turn {
   return { ...turn, user, steps };
 }
 
+const isWake = (s: Step): s is EventStep => s.kind === "event" && s.wake === true;
+
+/**
+ * The turn's closing replies. Usually that is its last reply. In a turn where something woke the agent after it had
+ * finished (a background task reporting back), the agent finished more than once, and the reply it finished on before
+ * the last wake-up can be the real answer ("the page is live", then a note on a stray job) just as the last can
+ * ("I've started three agents", then their results). So the last two replies it finished on are kept, with one marker
+ * for the wake-ups between them. Earlier ones ("waiting on the capture", "still waiting on two more") are left out,
+ * as minimal leaves out every other reply.
+ */
+function closingReplies(steps: Step[]): Step[] {
+  // Split at wake-ups: each stretch is one run of the agent, and its last reply is the one it finished on.
+  const runs: { wakes: EventStep[]; reply?: Step }[] = [{ wakes: [] }];
+  for (const s of steps) {
+    if (isWake(s)) runs.push({ wakes: [s] });
+    else if (s.kind === "text") runs.at(-1)!.reply = s;
+  }
+  const ended = runs.map((r, i) => ({ ...r, i })).filter((r) => r.reply);
+  const last = ended.at(-1);
+  if (!last) return [];
+  const before = ended.at(-2);
+  const out: Step[] = before ? [before.reply!] : [];
+  // The wake-ups between the two replies (or before the last, when it is the only one).
+  const between = runs.slice((before?.i ?? 0) + 1, last.i + 1).flatMap((r) => r.wakes);
+  if (between.length) {
+    const head = between[0]!;
+    out.push({
+      kind: "event",
+      id: head.id,
+      event: "notification",
+      text: between.length === 1 ? "Resumed after a background update" : `Resumed after ${between.length} background updates`,
+      timestamp: head.timestamp,
+      wake: true,
+    });
+  }
+  out.push(last.reply!);
+  return out;
+}
+
 function minimalTurn(turn: Turn): Turn {
-  const lastText = [...turn.steps].reverse().find((s) => s.kind === "text");
   const work = collapseWork(
     turn.steps.filter((s) => isWork(s)),
     false,
@@ -251,8 +290,7 @@ function minimalTurn(turn: Turn): Turn {
     const { detail: _detail, ...rest } = s as Extract<Step, { kind: "event" }>;
     return rest;
   });
-  const steps: Step[] = [...compactions, ...work, ...subagents];
-  if (lastText) steps.push(lastText);
+  const steps: Step[] = [...compactions, ...work, ...subagents, ...closingReplies(turn.steps)];
   const user = turn.user ? { ...turn.user, expanded: undefined } : undefined;
   return { ...turn, user, steps };
 }

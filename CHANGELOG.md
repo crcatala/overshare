@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Background-task messages are recorded for Claude Code (task notifications, including background shell jobs and
+  monitor events, which were dropped before) and pi (extension messages that start a reply). `full` and `brief`
+  show each one as an event. One that woke the agent after it had finished is marked "woke" and sits before the
+  reply it caused, so that reply no longer reads as an answer to the prompt. Claude Code notifications that arrived
+  while the agent was still working are shown too, as plain notices. Brief shows only a one-line status such as
+  `Background task killed`; the harness's summary of the task is in `full` only, capped like other one-line texts.
+  A pi extension message that didn't wake the agent (usually injected context) is still left out, and one that did
+  is shown by its type only. The report no longer lists Claude Code task notifications under "Dropped (never shared)".
+
+### Fixed
+
+- `minimal` mode (and `overshare archive`, which uses it by default) could keep the wrong reply for a turn where a
+  background task woke the agent after it had finished, for example a stopped background job reporting in minutes
+  after the agent announced its result. It kept only the agent's note about the job. A turn like that now keeps the
+  last two replies the agent finished on, with a "Resumed after a background update" marker between them, so
+  `minimal` shares can carry one more reply per such turn than before. Shares published before this change are
+  shown as before; publish again to get the fix.
+
 ## [0.4.2] - 2026-10-26
 
 ### Changed

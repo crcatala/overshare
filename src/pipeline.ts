@@ -174,7 +174,10 @@ function reportStats(stats: SessionStats): SessionStats {
   };
 }
 
-/** Cap the one-line texts the adapters keep whole: tool summaries, subagent descriptions and the commands of a tool group. */
+/**
+ * Cap the one-line texts the adapters keep whole: tool summaries, subagent descriptions, the commands of a tool group,
+ * and a notice's line and detail (a pi subagent message's first line, Claude Code's summary of a background task).
+ */
 function capSummaries(session: NormalizedSession): NormalizedSession {
   const cap = (text: string) => capRedacted(text, SUMMARY_MAX);
   const turns = session.turns.map((turn) => ({
@@ -184,6 +187,9 @@ function capSummaries(session: NormalizedSession): NormalizedSession {
       if (s.kind === "tool") return s.action === "read" || s.action === "edit" || s.action === "write" ? s : { ...s, summary: cap(s.summary) };
       if (s.kind === "subagent") return s.description ? { ...s, description: cap(s.description) } : s;
       if (s.kind === "toolGroup") return { ...s, commands: s.commands.map(cap) };
+      if (s.kind === "event" && (s.event === "notification" || s.event === "subagent_notice")) {
+        return { ...s, text: cap(s.text), ...(s.detail ? { detail: cap(s.detail) } : {}) };
+      }
       return s;
     }),
   }));

@@ -42,7 +42,8 @@ describe("claude background-subagent task notifications", () => {
     expect(b).toMatchObject({ id: "tu_b", async: true, result: { text: ANSWER_B } });
     // The closing answer belongs to the same turn as the launches.
     expect(session.turns[0]!.steps.at(-1)).toMatchObject({ kind: "text", text: "Both modules described." });
-    expect(dropped["task-notification"]).toBe(2);
+    // Each leaves an event (with the harness's summary in full mode), so the report does not call it dropped.
+    expect(dropped["task-notification"]).toBeUndefined();
     expect(computeStats(session).userPrompts).toBe(1);
   });
 
@@ -75,14 +76,15 @@ describe("claude background-subagent task notifications", () => {
     expect(subagents(projectSession(session, "brief").turns[0]!.steps)).toHaveLength(2);
   });
 
-  it("with an id no launch matches are dropped, not turned into turns", () => {
+  it("with an id no launch matches leave a notice, not a turn", () => {
     const t = asyncSession();
     t.user(notification("tu_missing", "ANSWER-C orphan"), { origin: NOTIFICATION_ORIGIN });
     t.user(notification("", "ANSWER-D no id"), { origin: NOTIFICATION_ORIGIN });
     const { session, dropped } = parseClaudeCode(t.toJsonl());
     expect(session.turns).toHaveLength(1);
-    expect(dropped["task-notification"]).toBe(2);
-    expect(dropped["task-notification:unmatched"]).toBe(2);
+    expect(dropped["task-notification"]).toBeUndefined();
+    expect(dropped["task-notification:unmatched"]).toBeUndefined();
+    expect(session.turns[0]!.steps.filter((s) => s.kind === "event" && s.event === "notification")).toHaveLength(2);
     const prompts = JSON.stringify(projectSession(session, "prompts"));
     expect(prompts).not.toContain("ANSWER-C");
     expect(prompts).not.toContain("ANSWER-D");

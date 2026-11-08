@@ -63,7 +63,9 @@ function stepBlock(s: Step, tools: boolean): string | undefined {
       // Closed per message, so a fence the model left open cannot swallow what follows it.
       return closeOpenFence(s.text.trim()) || undefined;
     case "event":
-      return s.event === "compaction" ? "_— context compacted —_" : undefined;
+      if (s.event === "compaction") return "_— context compacted —_";
+      // A wake-up: the replies after it answer a background task, not the prompt.
+      return s.wake ? `_— ${inlineText(s.text)} —_` : undefined;
     case "toolGroup":
       return tools ? toolGroupBlock(s) : undefined;
     case "subagent": {

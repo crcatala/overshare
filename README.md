@@ -97,7 +97,7 @@ The mode is applied **before** redaction and upload, so what a mode leaves out n
 | --- | --- |
 | `full` | Everything after redaction, with long tool inputs and outputs truncated. |
 | `brief` (default) | Prompts and replies. Tool calls collapse into summaries like `Bash ×5 · Edit ×3`; no tool output. |
-| `minimal` | Prompts, the final reply of each turn, and tool counts. |
+| `minimal` | Prompts, the final reply of each turn (and the one before it, if a background task woke the agent), and tool counts. |
 | `prompts` | Only the prompts you typed, each with a one-line activity summary. |
 
 Every mode keeps session metadata: agent, models, repo and branch, duration, token usage and estimated

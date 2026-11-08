@@ -120,6 +120,13 @@
 [data-variant="cli"] .k-event[data-event="thinking_level"]::before {
   content: "◉";
 }
+[data-variant="cli"] .k-event.is-wake::before {
+  content: "↻";
+}
+/* The cli marker already says it. */
+[data-variant="cli"] .k-event.is-wake .ev-text::before {
+  content: none;
+}
 [data-variant="cli"] .k-tool .targ {
   margin-left: 0;
 }

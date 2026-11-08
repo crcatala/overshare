@@ -12,7 +12,7 @@ not merely hidden by the viewer.
 | --- | --- |
 | `full` | Everything after redaction. Tool inputs/results are truncated per string (`maxToolChars`, default 20k). |
 | `brief` (default for `publish`) | Prompts and assistant replies. Consecutive tool calls collapse into groups such as `Bash ×5 · Edit ×3`, with file lists and one-line commands; thinking becomes a count/token chip. No tool output. |
-| `minimal` | Prompts, the final reply per turn, and per-turn tool counts. |
+| `minimal` | Prompts, the final reply per turn, and per-turn tool counts. If a background task woke the agent after it had finished replying, the turn keeps the last two replies it finished on, with a "Resumed after a background update" marker between them ([Wake-ups](#wake-ups)). |
 | `prompts` | Only authored user prompts, followed by a compact, non-expandable activity line: tool calls/errors, unique files read/edited/written, thinking tokens and output tokens. No replies, thinking text, filenames, commands, tool inputs/results, subagent descriptions/results, event details, or expanded template/skill instructions. |
 
 Instruction files (`CLAUDE.md`, `AGENTS.md`) and other injected context are never shared, in any
@@ -38,6 +38,26 @@ and binds it to the exact message by parent, timestamp, and content hash. Histor
 sessions, queued expansions, and extension-injected messages cannot be verified reliably;
 `prompts` export, publish, report, and viewer projection **fail closed** for those prompts
 instead of guessing. Other modes still show the stored text and must be reviewed.
+
+### Wake-ups
+
+An agent can be woken after it has finished replying, with no new prompt: a background job or
+subagent finishes (Claude Code's task notifications), or an extension sends pi a message that
+triggers a turn. Its reply to that is part of the same turn, but it doesn't answer the prompt.
+`full` and `brief` show each such message as a "woke" event before the reply it caused. Brief
+keeps only the event's one-line text (e.g. `Background task killed`); the harness's summary of
+the task is in `full` only. Messages that arrive while the agent is still working are shown as
+plain notices, and other extension messages are left out unless they woke the agent; then
+only their type is shown.
+
+In a turn like that the agent finished more than once. `minimal` would otherwise keep only
+the last reply, which can be the agent's note about a stray background job instead of its
+answer. Picking the reply before the wake-up instead fails the other way: "I've started three
+agents, I'll report back" comes first and the agents' results come last. So `minimal` keeps
+the last two replies the agent finished on, with one marker for the wake-ups between them, and
+leaves out earlier ones ("waiting on the monitor", "still waiting on two more") as it leaves
+out every other reply. This adds at most one reply per turn. Shares published before this
+change have no wake-up events, so the viewer shows them as before.
 
 ## Branches
 

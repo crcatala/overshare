@@ -55,7 +55,7 @@ the last reply, which can be the agent's note about a stray background job inste
 answer. Picking the reply before the wake-up instead fails the other way: "I've started three
 agents, I'll report back" comes first and the agents' results come last. So `minimal` keeps
 the last two replies the agent finished on, with one marker for the wake-ups between them, and
-leaves out earlier ones ("waiting on the capture", "still waiting on two more") as it leaves
+leaves out earlier ones ("waiting on the monitor", "still waiting on two more") as it leaves
 out every other reply. This adds at most one reply per turn. Shares published before this
 change have no wake-up events, so the viewer shows them as before.
 

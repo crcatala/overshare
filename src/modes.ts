@@ -241,9 +241,9 @@ const isWake = (s: Step): s is EventStep => s.kind === "event" && s.wake === tru
 /**
  * The turn's closing replies. Usually that is its last reply. In a turn where something woke the agent after it had
  * finished (a background task reporting back), the agent finished more than once, and the reply it finished on before
- * the last wake-up can be the real answer ("the page is live", then a note on a stray job) just as the last can
+ * the last wake-up can be the real answer ("the report is ready", then a note on a stray job) just as the last can
  * ("I've started three agents", then their results). So the last two replies it finished on are kept, with one marker
- * for the wake-ups between them. Earlier ones ("waiting on the capture", "still waiting on two more") are left out,
+ * for the wake-ups between them. Earlier ones ("waiting on the monitor", "still waiting on two more") are left out,
  * as minimal leaves out every other reply.
  */
 function closingReplies(steps: Step[]): Step[] {

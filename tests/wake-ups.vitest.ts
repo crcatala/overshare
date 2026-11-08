@@ -36,20 +36,20 @@ const events = (steps: Step[]) => steps.filter((s): s is EventStep => s.kind ===
 const lastTurn = (s: NormalizedSession): Turn => s.turns.at(-1)!;
 
 /**
- * The shape of the session behind the report: the agent waits on a capture monitor and stops; the monitor wakes it, it
- * publishes the page; minutes later a stopped background job wakes it again.
+ * The shape of the session behind the report: the agent waits on a benchmark monitor and stops; the monitor wakes it, it
+ * writes the report; minutes later a stopped background job wakes it again.
  */
 function strayJobSession(): ClaudeTranscript {
-  const t = new ClaudeTranscript().user("build the pitch page and publish it");
-  stop(t.assistant("m1", [{ type: "tool_use", id: "bg1", name: "Bash", input: { command: "capture.sh", run_in_background: true } }], ccUsage(1, 1)), "tool_use");
-  t.toolResult("bg1", "Command running in background with ID: bqru3pr3h");
-  stop(t.assistant("m1b", [{ type: "text", text: "Waiting on the capture monitor." }], ccUsage(1, 1)), "end_turn");
+  const t = new ClaudeTranscript().user("benchmark the tokenizer and write up a report");
+  stop(t.assistant("m1", [{ type: "tool_use", id: "bg1", name: "Bash", input: { command: "bench.sh", run_in_background: true } }], ccUsage(1, 1)), "tool_use");
+  t.toolResult("bg1", "Command running in background with ID: b1");
+  stop(t.assistant("m1b", [{ type: "text", text: "Waiting on the benchmark monitor." }], ccUsage(1, 1)), "end_turn");
   t.user(bashNotification("mon1", "completed", "Monitor finished"), { origin: NOTIFICATION_ORIGIN });
-  stop(t.assistant("m2", [{ type: "tool_use", id: "p1", name: "Bash", input: { command: "pagedrop publish" } }], ccUsage(1, 1)), "tool_use");
-  t.toolResult("p1", "https://example.test/p/abc");
-  stop(t.assistant("m3", [{ type: "thinking", thinking: "", signature: "s" }, { type: "text", text: "The pitch page is live: https://example.test/p/abc" }], ccUsage(1, 1)), "end_turn");
-  t.user(bashNotification("bg1", "killed", 'Background command "capture.sh --secret-flag" was stopped'), { origin: NOTIFICATION_ORIGIN });
-  stop(t.assistant("m4", [{ type: "text", text: "That stopped background job was my first capture attempt; nothing to do." }], ccUsage(1, 1)), "end_turn");
+  stop(t.assistant("m2", [{ type: "tool_use", id: "p1", name: "Bash", input: { command: "npm run report" } }], ccUsage(1, 1)), "tool_use");
+  t.toolResult("p1", "docs/benchmark.md");
+  stop(t.assistant("m3", [{ type: "thinking", thinking: "", signature: "s" }, { type: "text", text: "The report is written: docs/benchmark.md" }], ccUsage(1, 1)), "end_turn");
+  t.user(bashNotification("bg1", "killed", 'Background command "bench.sh --secret-flag" was stopped'), { origin: NOTIFICATION_ORIGIN });
+  stop(t.assistant("m4", [{ type: "text", text: "That stopped job was the first benchmark run; nothing to do." }], ccUsage(1, 1)), "end_turn");
   return t;
 }
 
@@ -59,7 +59,7 @@ describe("Claude Code wake-ups", () => {
     expect(session.turns).toHaveLength(1);
     const [monitor, stray] = events(lastTurn(session).steps);
     expect(monitor).toMatchObject({ event: "notification", text: "Background task completed", wake: true, detail: "Monitor finished" });
-    expect(stray).toMatchObject({ event: "notification", text: "Background task killed", wake: true, detail: 'Background command "capture.sh --secret-flag" was stopped' });
+    expect(stray).toMatchObject({ event: "notification", text: "Background task killed", wake: true, detail: 'Background command "bench.sh --secret-flag" was stopped' });
     // Each wake-up sits between the reply the agent finished on and the work it caused.
     const kinds = lastTurn(session).steps.map((s) => (s.kind === "event" ? "wake" : s.kind));
     expect(kinds).toEqual(["tool", "text", "wake", "tool", "thinking", "text", "wake", "text"]);
@@ -76,8 +76,8 @@ describe("Claude Code wake-ups", () => {
 
     const minimal = projectSession(session, "minimal");
     const steps = lastTurn(minimal).steps;
-    // Not "Waiting on the capture monitor.": the page went live after the first wake-up.
-    expect(texts(steps)).toEqual(["The pitch page is live: https://example.test/p/abc", "That stopped background job was my first capture attempt; nothing to do."]);
+    // Not "Waiting on the benchmark monitor.": the report was written after the first wake-up.
+    expect(texts(steps)).toEqual(["The report is written: docs/benchmark.md", "That stopped job was the first benchmark run; nothing to do."]);
     expect(steps.at(-2)).toMatchObject({ kind: "event", event: "notification", text: "Resumed after a background update", wake: true });
     expect(steps.at(-2)).not.toHaveProperty("detail");
     // Stepping down from a brief share (what the viewer does) gives the same.
@@ -89,7 +89,7 @@ describe("Claude Code wake-ups", () => {
     const { session } = parseClaudeCode(strayJobSession().toJsonl());
     const json = JSON.stringify(projectSession(session, "prompts"));
     expect(json).not.toContain("Background task");
-    expect(json).not.toContain("pitch page is live");
+    expect(json).not.toContain("report is written");
   });
 
   it("a background agent reporting to a finished agent is a subagent notice that wakes it", () => {
@@ -156,12 +156,12 @@ describe("Claude Code wake-ups", () => {
   });
 
   it("a monitor event carries no status, so it is an update, not a finish", () => {
-    const t = new ClaudeTranscript().user("watch the capture");
-    stop(t.assistant("m1", [{ type: "text", text: "Waiting on the capture monitor." }], ccUsage(1, 1)), "end_turn");
-    t.user(`<task-notification>\n<task-id>bmon1</task-id>\n<summary>Monitor event: "capture progress"</summary>\n<event>main: 300/719</event>\n</task-notification>`, { origin: NOTIFICATION_ORIGIN });
+    const t = new ClaudeTranscript().user("watch the benchmark");
+    stop(t.assistant("m1", [{ type: "text", text: "Waiting on the benchmark monitor." }], ccUsage(1, 1)), "end_turn");
+    t.user(`<task-notification>\n<task-id>bmon1</task-id>\n<summary>Monitor event: "benchmark progress"</summary>\n<event>main: 300/719</event>\n</task-notification>`, { origin: NOTIFICATION_ORIGIN });
     stop(t.assistant("m2", [{ type: "text", text: "300 of 719 frames so far." }], ccUsage(1, 1)), "end_turn");
     const { session, dropped } = parseClaudeCode(t.toJsonl());
-    expect(events(lastTurn(session).steps)).toEqual([expect.objectContaining({ text: "Background task update", detail: 'Monitor event: "capture progress"', wake: true })]);
+    expect(events(lastTurn(session).steps)).toEqual([expect.objectContaining({ text: "Background task update", detail: 'Monitor event: "benchmark progress"', wake: true })]);
     expect(dropped).not.toHaveProperty("task-notification:unmatched");
   });
 
@@ -327,9 +327,9 @@ describe("markdown", () => {
     stop(t.assistant("m6", [{ type: "text", text: "Built." }], ccUsage(1, 1)), "end_turn");
     const { session } = parseClaudeCode(t.toJsonl());
     const md = renderMarkdown(projectSession(session, "brief"));
-    expect(md.indexOf("_— Background task completed —_")).toBeGreaterThan(md.indexOf("Waiting on the capture monitor."));
-    expect(md.indexOf("_— Background task killed —_")).toBeGreaterThan(md.indexOf("The pitch page is live"));
-    expect(md.indexOf("That stopped background job")).toBeGreaterThan(md.indexOf("_— Background task killed —_"));
+    expect(md.indexOf("_— Background task completed —_")).toBeGreaterThan(md.indexOf("Waiting on the benchmark monitor."));
+    expect(md.indexOf("_— Background task killed —_")).toBeGreaterThan(md.indexOf("The report is written"));
+    expect(md.indexOf("That stopped job")).toBeGreaterThan(md.indexOf("_— Background task killed —_"));
     // The mid-work notice in the second turn is not a wake-up, so it is not written.
     expect(md.match(/_— Background task/g)).toHaveLength(2);
   });
@@ -337,9 +337,9 @@ describe("markdown", () => {
   it("writes the wake-up between the two replies of a minimal turn", () => {
     const { session } = parseClaudeCode(strayJobSession().toJsonl());
     const md = renderMarkdown(projectSession(session, "minimal"));
-    const live = md.indexOf("The pitch page is live");
+    const live = md.indexOf("The report is written");
     const marker = md.indexOf("_— Resumed after a background update —_");
-    const stray = md.indexOf("That stopped background job");
+    const stray = md.indexOf("That stopped job");
     expect(live).toBeGreaterThan(-1);
     expect(marker).toBeGreaterThan(live);
     expect(stray).toBeGreaterThan(marker);

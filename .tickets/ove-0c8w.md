@@ -1,6 +1,6 @@
 ---
 id: ove-0c8w
-status: in_progress
+status: closed
 deps: [ove-hfgj]
 links: []
 created: 2026-11-13T15:33:47Z
@@ -64,3 +64,17 @@ PAT created 2026-11-13 by the owner and stored as repo secret PRICES_BOT_TOKEN (
 **2026-11-13T16:50:24Z**
 
 Acceptance criteria updated 2026-11-13 before implementation: the original first criterion (a dispatch on today's data opens a PR with the Haiku 5.5 / Fable 5.2 / Sonnet 5.5 diff) no longer holds because ove-hfgj (#102) already committed that table. The PR base is the dispatched ref, so the end-to-end test uses a throwaway branch with a stale table, after the workflow is on main.
+
+**2026-11-13T17:15:48Z**
+
+End-to-end test passed 2026-11-13, after #103 merged (workflow on main), against a throwaway branch test/price-bot-e2e (Sonnet 5.5 cacheRead set back to 0.2, Fable 5.2 removed). No fixes were needed.
+
+1. Dispatch on main (table current): success, "main already has the current prices", no PR. https://github.com/crcatala/overshare/actions/runs/43469422379
+2. Dispatch on the stale branch: opened #104 (bot/update-prices -> test/price-bot-e2e) listing claude-fable-5-2 added and claude-sonnet-5-5 cacheRead 0.2 -> 0.1, LiteLLM no disagreements, tests pass. https://github.com/crcatala/overshare/actions/runs/43469571051
+   CI ran on #104 (pull_request event, success): https://github.com/crcatala/overshare/actions/runs/43469918255
+3. Second dispatch, no source change: "Updated #104", no second PR, bot/update-prices SHA unchanged (22e0d87, not re-pushed). https://github.com/crcatala/overshare/actions/runs/43470045317
+4. Forced generator failure (a SUPPLEMENTAL_PRICES entry shadowing claude-opus-5-5, exit 2): first run opened #105 "Price table update is failing" (label prices) https://github.com/crcatala/overshare/actions/runs/43470571376 ; second run commented on #105, no second issue https://github.com/crcatala/overshare/actions/runs/43470703363
+5. Branch brought up to date: "Closed #104", "Deleted bot/update-prices". https://github.com/crcatala/overshare/actions/runs/43470849791
+
+Cleanup: test/price-bot-e2e deleted, #104 closed by the bot (comment added), #105 closed with a comment. The prices label stays (the bot uses it).
+Not tested live: an expired/revoked PRICES_BOT_TOKEN (would need a broken secret) and the "models.dev unreachable twice" path; both are covered by tests/price-bot.vitest.ts.

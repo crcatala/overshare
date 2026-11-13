@@ -256,7 +256,18 @@ To sync with a new Betterleaks release, follow [Maintaining the Betterleaks rule
 - `npm run update:prices` regenerates `src/pricing-data.ts`, the model price table behind the
   viewer's estimated cost (see [Price table](#price-table)).
 - `npm run audit:usage` checks the usage and cost overshare computes against the sessions on your
-  machine (Claude Code's own `cost-state` totals, pi's raw usage entries). Not run in CI.
+  machine (Claude Code's own `cost-state` totals, pi's raw usage entries). Not run in CI. It first
+  checks the committed price table against models.dev, so it never quietly measures a stale table:
+  - a stale table is a warning naming the models that changed and the fix (`npm run update:prices`);
+    the audit still runs, on the committed table;
+  - offline (or if the check fails), a warning, and the audit still runs;
+  - `--refresh` regenerates the table first (it rewrites `src/pricing-data.ts`, nothing else);
+  - a model in your local sessions with no price fails the audit, naming the model and its call
+    count (fix: `npm run update:prices`, or `SUPPLEMENTAL_PRICES` in `src/pricing.ts` for a model
+    models.dev does not list); `--allow-unpriced` turns that into a warning.
+
+  It never checks or upgrades your installed pi or Claude Code: the audit reads sessions already on
+  disk, so their versions don't change the result.
 - `npm run update:betterleaks` converts the vendored Betterleaks rule file into a rule table (see
   [Betterleaks rules](#betterleaks-rules)).
 - `npm run audit:redaction -- --base main` compares redaction between a ref and the working tree over the

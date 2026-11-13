@@ -2,7 +2,7 @@
 id: ass-zr02
 status: open
 deps: []
-links: [ass-lq0c, ass-jx4l, ass-75mx, ass-cjrn]
+links: [ass-lq0c, ass-jx4l, ass-75mx, ass-cjrn, ove-izka]
 created: 2026-09-30T02:57:41Z
 type: task
 priority: 3
@@ -55,3 +55,7 @@ REGIONAL 1.1x: no signal. inference_geo is 'not_available' in all 11.8k local us
 LONG-CONTEXT >200k: no evidence locally beyond the earlier note (Opus 5.5 with [1m] fit a single rate). No cheap way to generate a >200k session on demand; leave as-is, keep the caveat.
 
 Also relevant to price checks: opus-5-5 entry ($4/$20, cacheRead 0.2, write 5) reproduced cost-state exactly on standard speed with 1h and 5m writes, so it is confirmed for both write TTLs.
+
+**2026-11-13T15:33:48Z**
+
+Part 2 (price drift) moved to epic ove-izka (models.dev source, LiteLLM cross-check, pinned verified prices, scheduled update PR). Parts 1 and 3 stay here.

@@ -1,0 +1,57 @@
+#!/usr/bin/env node
+// A stand-in for the GitHub CLI in tests/price-bot.vitest.ts. State (PRs, issues, labels, previous run, a rejected
+// token) lives in $GH_STUB_STATE; every call is appended to its `calls`. Only what scripts/price-bot.sh uses.
+import { readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+const file = process.env.GH_STUB_STATE;
+const state = JSON.parse(readFileSync(file, "utf8"));
+const args = process.argv.slice(2);
+state.calls.push({ args, token: process.env.GH_TOKEN });
+const save = () => writeFileSync(file, JSON.stringify(state, null, 2));
+const opt = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
+const fail = (msg) => { save(); process.stderr.write(`${msg}\n`); process.exit(1); };
+// The --jq expressions the bot uses, evaluated on `rows`.
+function jq(expr, rows) {
+  if (expr === undefined) return JSON.stringify(rows);
+  if (expr === ".full_name") return rows.full_name;
+  let m = /^\[\.\[\] \| select\(\.(\w+) (==|!=) "([^"]*)"\)\]\[0\]\.(\w+) \/\/ empty$/.exec(expr);
+  if (m) { const r = rows.find((x) => (m[2] === "==" ? x[m[1]] === m[3] : x[m[1]] !== m[3])); return r ? String(r[m[4]]) : ""; }
+  m = /^\.\[0\]\.(\w+) \/\/ empty$/.exec(expr);
+  if (m) return rows[0] ? String(rows[0][m[1]]) : "";
+  throw new Error(`stub gh: unsupported --jq ${expr}`);
+}
+const print = (s) => { if (s) process.stdout.write(`${s}\n`); };
+const [a, b] = args;
+if (a === "api") {
+  if (process.env.GH_TOKEN === state.badToken) fail("HTTP 401: Bad credentials");
+  if (b === "-X" && args[2] === "DELETE") {
+    const ref = args[3].replace(/^repos\/[^/]+\/[^/]+\/git\//, "");
+    execFileSync("git", ["--git-dir", state.origin, "update-ref", "-d", ref]);
+  } else if (/\/labels\//.test(b)) {
+    if (!state.labels.includes(b.split("/").pop())) fail("HTTP 404");
+  } else print(jq(opt("--jq"), { full_name: b.replace(/^repos\//, "") }));
+} else if (a === "pr" && b === "list") {
+  const rows = state.prs.filter((p) => p.state === "open" && p.headRefName === opt("--head") && (!opt("--base") || p.baseRefName === opt("--base")));
+  print(jq(opt("--jq"), rows));
+} else if (a === "pr" && b === "create") {
+  const number = state.next++;
+  state.prs.push({ number, state: "open", headRefName: opt("--head"), baseRefName: opt("--base"), title: opt("--title"), body: readFileSync(opt("--body-file"), "utf8") });
+  print(`https://github.com/o/r/pull/${number}`);
+} else if (a === "pr" && b === "edit") {
+  Object.assign(state.prs.find((p) => p.number === Number(args[2])), { title: opt("--title"), body: readFileSync(opt("--body-file"), "utf8") });
+} else if (a === "pr" && b === "close") {
+  state.prs.find((p) => p.number === Number(args[2])).state = "closed";
+} else if (a === "issue" && b === "list") {
+  print(jq(opt("--jq"), state.issues.filter((i) => i.state === "open")));
+} else if (a === "issue" && b === "create") {
+  const number = state.next++;
+  state.issues.push({ number, state: "open", title: opt("--title"), labels: opt("--label") ? [opt("--label")] : [], comments: [opt("--body")] });
+  print(`https://github.com/o/r/issues/${number}`);
+} else if (a === "issue" && b === "comment") {
+  state.issues.find((i) => i.number === Number(args[2])).comments.push(opt("--body"));
+} else if (a === "label" && b === "create") {
+  state.labels.push(args[2]);
+} else if (a === "run" && b === "list") {
+  print(jq(opt("--jq"), state.previousRun ? [{ conclusion: state.previousRun }] : []));
+} else throw new Error(`stub gh: unsupported ${args.join(" ")}`);
+save();

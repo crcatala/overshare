@@ -6,8 +6,13 @@
 #   price-bot.sh report    open or update the single `prices` issue about a failure (reads FAILURE, DETAIL)
 #
 # Environment: GH_REPO (owner/repo), BASE (branch the PR targets), BOT_TOKEN (PRICES_BOT_TOKEN: push and PR,
-# so CI runs on the PR), GITHUB_TOKEN (issues and run history only), RUN_URL, RUNNER_TEMP.
+# so CI runs on the PR), GH_TOKEN (the workflow's GITHUB_TOKEN: issues and run history only), RUN_URL, RUNNER_TEMP.
+# PRICE_BOT_UPDATE and PRICE_BOT_TESTS replace the generator and test commands (tests/price-bot.vitest.ts).
 set -euo pipefail
+
+SCRIPTS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+UPDATE_CMD=${PRICE_BOT_UPDATE:-"npm run --silent update:prices -- --json"}
+TESTS_CMD=${PRICE_BOT_TESTS:-"npm run --silent typecheck && npm run --silent build && npm test --silent"}
 
 BRANCH=bot/update-prices
 TITLE="chore(prices): update model price table"
@@ -45,7 +50,7 @@ delete_branch() {
 run() {
   check_token
   set +e
-  npm run --silent update:prices -- --json "$TMP/prices.json" 2>&1 | tee "$TMP/update.log"
+  bash -c "$UPDATE_CMD \"\$1\"" _ "$TMP/prices.json" 2>&1 | tee "$TMP/update.log"
   local code=${PIPESTATUS[0]}
   set -e
   if [[ $code -ne 0 ]]; then
@@ -67,15 +72,26 @@ run() {
     return
   fi
 
+  # One branch, so one PR: never force-push it while it backs an open PR against another base (say, a test
+  # dispatch on another branch while the main PR is open), which would replace that PR's changes.
+  local other
+  other=$(bot_gh pr list --head "$BRANCH" --state open --json number,baseRefName --jq "[.[] | select(.baseRefName != \"$BASE\")][0].number // empty")
+  if [[ -n "$other" ]]; then
+    echo "::error::$BRANCH already backs open PR #$other against another base; merge or close it before updating prices on $BASE."
+    out failure conflict
+    out detail "$BRANCH already backs open PR #$other against another base; merge or close it before updating prices on \`$BASE\`."
+    exit 1
+  fi
+
   # Typecheck and tests on the new table; a failure still opens the PR, marked failing, so it is seen.
   local tests=pass
-  { npm run --silent typecheck && npm run --silent build && npm test --silent; } >"$TMP/tests.log" 2>&1 || tests=fail
+  bash -c "$TESTS_CMD" >"$TMP/tests.log" 2>&1 || tests=fail
   if [[ $tests == fail ]]; then
     echo "::warning::Typecheck or tests fail with the new price table; see the PR."
     tail -n 40 "$TMP/tests.log"
   fi
 
-  npx tsx scripts/price-pr-body.ts "$TMP/prices.json" --tests "$tests" --run-url "$RUN_URL" --base "$BASE" >"$TMP/body.md"
+  (cd "$SCRIPTS/.." && npx --no-install tsx scripts/price-pr-body.ts "$TMP/prices.json" --tests "$tests" --run-url "$RUN_URL" --base "$BASE") >"$TMP/body.md"
 
   git config user.name "github-actions[bot]"
   git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

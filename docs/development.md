@@ -313,6 +313,10 @@ on Mondays and Thursdays (06:17 UTC) and on demand, and keeps **exactly one PR**
 - The generator fails (an unknown tier type, a schema change, a shadowed hand-kept price, the token
   being rejected, or models.dev unreachable on two runs in a row): it opens one issue titled *Price
   table update is failing* (label `prices`), or comments on the open one.
+- There is one branch, so one PR: while `bot/update-prices` backs an open PR against one branch, a
+  run on another branch fails (and reports in the issue) instead of repointing it.
+
+`tests/price-bot.vitest.ts` runs the script against a local repository and a stub `gh`.
 
 Run it by hand from the Actions tab (*Update prices*, *Run workflow*) or with:
 

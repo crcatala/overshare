@@ -106,9 +106,11 @@ session forked from another, history *inherited* from the parent (drawn muted in
 charts). Subagent usage is kept out of these totals too, and shown on its own (next paragraph). *est. cost* is an estimate at API
 list price, not a bill: pi records a cost for every call, while Claude Code records only
 tokens, so its cost is computed from the token counts, the model and the 5-minute/1-hour
-cache-write split with the price table in `src/pricing-data.ts` (regenerate it with
-`node scripts/update-prices.mjs`; older models pi's catalog lacks are kept by hand in
-`src/pricing.ts`). A model with no known price adds no cost rather than zero, and the
+cache-write split with the price table in `src/pricing-data.ts`, generated from
+[models.dev](https://models.dev) and cross-checked against LiteLLM's price list (regenerate it
+with `npm run update:prices`; older models neither lists are kept by hand in `src/pricing.ts`).
+The table is a snapshot in the repo, never fetched at run time: the cost is computed when the
+share is made and stored in it. A model with no known price adds no cost rather than zero, and the
 total then ends in `+`. A model with long-context rates (Haiku 5.5: higher rates above 100k
 prompt tokens) is billed at the higher rate for the whole call once its prompt (uncached
 input plus cache read and write, as in *peak context*) passes the threshold, which is how

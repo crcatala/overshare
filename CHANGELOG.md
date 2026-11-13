@@ -11,8 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The estimated cost of Claude Code sessions supports long-context price tiers. A model whose price table entry
   lists them (Haiku 5.5: higher rates once a call's prompt passes 100k tokens) is billed at the tier's rates for the
-  whole call, which matches Claude Code's own cost totals; cache-miss extra cost uses the same tier. The price table
-  itself is refreshed separately.
+  whole call, which matches Claude Code's own cost totals; cache-miss extra cost uses the same tier.
+
+### Changed
+
+- The Claude price table is generated from models.dev and cross-checked against LiteLLM (`npm run update:prices`,
+  with `--check` and `--json`), instead of from the locally installed pi's catalog. Refreshed 2026-11-13: Claude
+  Haiku 5.5 (with its long-context tier) and Claude Fable 5.2 now get an estimated cost instead of a partial `$X+`
+  total, and Claude Sonnet 5.5 cache reads are priced at $0.10 per million instead of $0.20, so its estimates go
+  down. Shares made before keep the cost they were made with.
 
 ## [0.5.0] - 2026-11-08
 

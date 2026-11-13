@@ -150,7 +150,7 @@ if (errors.length) {
   const above = errors.filter((e) => e.error > 0.005);
   if (above.length) console.log(`  ABOVE cost-state (price table too high?): ${above.map((e) => `${e.id} ${pct(e.error)}`).join(", ")}`);
 }
-for (const [m, n] of unpriced) console.log(`  no price for ${m} (${n} calls): run scripts/update-prices.mjs or extend src/pricing.ts`);
+for (const [m, n] of unpriced) console.log(`  no price for ${m} (${n} calls): run npm run update:prices or add it to SUPPLEMENTAL_PRICES in src/pricing.ts`);
 
 type Raw = { type?: string; message?: { role?: string; usage?: Record<string, number> }; usage?: Record<string, number>; parentSession?: string };
 const rawTokens = (u: Record<string, number> | undefined): number => {

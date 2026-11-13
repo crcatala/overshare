@@ -26,7 +26,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
 import type { NormalizedSession } from "../src/schema.ts";
-import { pricePreflight, unpricedProblem } from "./price-preflight.ts";
+import { countUnpriced, pricePreflight, unpricedProblem } from "./price-preflight.ts";
 
 const { values: opts } = parseArgs({
   options: {
@@ -44,6 +44,7 @@ const { formatCost, formatDuration, formatTokens } = await import("../src/format
 const { defaultRoots } = await import("../src/resolve.ts");
 const { contextTokens, totalTokens } = await import("../src/schema.ts");
 const { computeStats } = await import("../src/stats.ts");
+const { findPrice } = await import("../src/pricing.ts");
 
 const roots = defaultRoots();
 
@@ -143,7 +144,8 @@ for (const file of jsonl(roots["claude-code"])) {
   const raw = readFileSync(file, "utf8");
   const { session } = parseClaudeCode(raw);
   claude += 1;
-  for (const r of session.responses) if (r.usage.cost === undefined && r.model && r.model !== "<synthetic>") unpriced.set(r.model, (unpriced.get(r.model) ?? 0) + 1);
+  // Every branch of the file, not only the one shown: a model used only on a rewound branch is unpriced spend too.
+  countUnpriced(raw, (m) => findPrice(m) !== undefined, unpriced);
   const state = raw
     .split("\n")
     .filter((l) => l.startsWith('{"type":"cost-state"'))

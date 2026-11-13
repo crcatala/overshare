@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { pricePreflight, unpricedProblem } from "../scripts/price-preflight.ts";
+import { countUnpriced, pricePreflight, unpricedProblem } from "../scripts/price-preflight.ts";
 import { fromModelsDev, renderTable } from "../scripts/prices.ts";
 import { ClaudeTranscript, ccUsage } from "./helpers.js";
 
@@ -69,6 +69,24 @@ describe("unpriced models", () => {
   });
 });
 
+describe("counting unpriced calls", () => {
+  const priced = (m: string) => m === "claude-opus-5-5";
+
+  it("counts every branch once per message id, and skips subagent and synthetic lines", () => {
+    const t = new ClaudeTranscript();
+    t.user("hi").assistant("msg_1", [{ type: "text", text: "a" }, { type: "text", text: "b" }], ccUsage(10, 20), "claude-opus-5-5");
+    const fork = t.lastUuid;
+    // A branch later rewound: the only calls on the unpriced model.
+    t.user("try this").assistant("msg_2", [{ type: "text", text: "c" }, { type: "text", text: "d" }], ccUsage(10, 20), "claude-new-1");
+    t.rewindTo(fork).user("no, this").assistant("msg_3", [{ type: "text", text: "e" }], ccUsage(10, 20), "claude-opus-5-5");
+    t.meta("assistant", { isSidechain: true, message: { id: "msg_4", model: "claude-new-2", usage: ccUsage(1, 1) } });
+    t.meta("assistant", { message: { id: "msg_5", model: "<synthetic>", usage: ccUsage(0, 0) } });
+    expect(countUnpriced(t.toJsonl(), priced)).toEqual(new Map([["claude-new-1", 1]]));
+    // Adds to an existing count.
+    expect(countUnpriced(t.toJsonl(), priced, new Map([["claude-new-1", 2]]))).toEqual(new Map([["claude-new-1", 3]]));
+  });
+});
+
 describe("audit:usage end to end (synthetic sessions, offline)", { timeout: 120_000 }, () => {
   function sessions(model: string) {
     const dir = mkdtempSync(join(tmpdir(), "audit-"));
@@ -94,6 +112,20 @@ describe("audit:usage end to end (synthetic sessions, offline)", { timeout: 120_
     expect(allowed.status, allowed.stderr).toBe(0);
     expect(allowed.stdout).toContain("WARNING: models with no price (allowed by --allow-unpriced):\n  claude-unreleased-9 (2 calls)");
     expect(allowed.stdout).toContain("pi: 0 sessions");
+  });
+
+  it("fails on an unpriced model used only on a rewound branch", () => {
+    const env = sessions("claude-opus-5-5");
+    const project = join(env.OVERSHARE_CLAUDE_PROJECTS!, "-home-tester-work-demo");
+    const t = new ClaudeTranscript("22222222-2222-3333-4444-555555555555");
+    t.user("hi").assistant("msg_a", [{ type: "text", text: "a" }], ccUsage(10, 20), "claude-opus-5-5");
+    const fork = t.lastUuid;
+    t.user("try").assistant("msg_b", [{ type: "text", text: "b" }], ccUsage(10, 20), "claude-unreleased-9");
+    t.rewindTo(fork).user("again").assistant("msg_c", [{ type: "text", text: "c" }], ccUsage(10, 20), "claude-opus-5-5");
+    writeFileSync(join(project, `${t.sessionId}.jsonl`), t.toJsonl());
+    const r = audit(env);
+    expect(r.status, r.stderr).toBe(1);
+    expect(r.stdout).toContain("  claude-unreleased-9 (1 call)");
   });
 
   it("passes when every model is priced, even offline", () => {

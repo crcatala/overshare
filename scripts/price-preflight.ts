@@ -84,3 +84,28 @@ export function unpricedProblem(unpriced: Map<string, number>, allow: boolean): 
     ],
   };
 }
+
+/**
+ * Model calls per model with no price in one Claude Code transcript, across every branch (a rewound or abandoned
+ * branch is real spend too), counted once per message id. Subagent (sidechain) lines and `<synthetic>` messages are
+ * not counted, as in the cost totals.
+ */
+export function countUnpriced(raw: string, isPriced: (model: string) => boolean, into: Map<string, number> = new Map()): Map<string, number> {
+  const seen = new Set<string>();
+  for (const line of raw.split("\n")) {
+    if (!line.includes('"assistant"')) continue;
+    let e: { type?: string; isSidechain?: boolean; uuid?: string; message?: { id?: string; model?: string; usage?: unknown } };
+    try {
+      e = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const msg = e.message;
+    if (e.type !== "assistant" || e.isSidechain || !msg?.usage || !msg.model || msg.model === "<synthetic>") continue;
+    const id = msg.id ?? e.uuid ?? line;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (!isPriced(msg.model)) into.set(msg.model, (into.get(msg.model) ?? 0) + 1);
+  }
+  return into;
+}

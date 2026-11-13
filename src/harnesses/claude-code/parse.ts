@@ -98,12 +98,26 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   // figures are not shown as one; the totals come from the subagent transcripts (see claude-usage.ts).
   const b = new TurnBuilder({ subagentUsage: subagentCountsFrom });
   const models: string[] = [];
-  let pendingCommand: { name: string; args?: string; timestamp?: string } | undefined;
+  // `ran`: the command ran locally (its output, if any, is `output`). Only a meta line handing the agent something to act
+  // on makes it a prompt (`/goal` sets a goal, then starts work on it); anything else leaves it an event.
+  let pendingCommand: { name: string; args?: string; timestamp?: string; ran?: true; output?: string } | undefined;
   let startedAt: string | undefined;
   let endedAt: string | undefined;
 
+  // What was typed, args included: they are the user's words, so even a command that only ran locally keeps them.
+  const commandEvent = () => {
+    if (!pendingCommand) return;
+    const { name, args, timestamp, output } = pendingCommand;
+    pendingCommand = undefined;
+    b.addEvent("command", args ? `${name} ${args}` : name, timestamp, output);
+  };
+  const flushLocalCommand = () => {
+    if (pendingCommand?.ran) commandEvent();
+  };
+
   const promptFromCommand = (expanded?: string) => {
     if (!pendingCommand) return;
+    if (pendingCommand.ran && expanded === undefined) return commandEvent();
     const { name, args, timestamp } = pendingCommand;
     pendingCommand = undefined;
     b.startTurn(
@@ -115,16 +129,21 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
   const handleCommandMarkup = (text: string, timestamp?: string): boolean => {
     const name = /<command-name>([\s\S]*?)<\/command-name>/.exec(text)?.[1]?.trim();
     if (name) {
-      if (pendingCommand) b.addEvent("command", pendingCommand.name, pendingCommand.timestamp);
+      commandEvent();
       const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(text)?.[1]?.trim();
       pendingCommand = { name: name.startsWith("/") ? name : `/${name}`, args: args || undefined, timestamp };
       return true;
     }
     const stdout = /<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/.exec(text);
     if (stdout) {
-      const label = pendingCommand?.name ?? "command";
-      pendingCommand = undefined;
-      b.addEvent("command", label, timestamp, stdout[1]?.trim() || undefined);
+      const output = stdout[1]?.trim() || undefined;
+      if (!pendingCommand || pendingCommand.ran) {
+        commandEvent();
+        b.addEvent("command", "command", timestamp, output);
+      } else {
+        pendingCommand.ran = true;
+        if (output) pendingCommand.output = output;
+      }
       return true;
     }
     return false;
@@ -140,6 +159,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
       const a = e.attachment ?? {};
       // Prompts typed while the agent was busy arrive as queued_command attachments.
       if (a.type === "queued_command" && a.commandMode === "prompt" && typeof a.prompt === "string" && a.prompt.trim()) {
+        flushLocalCommand();
         if (!isHumanOrigin(a.origin)) {
           bump(dropped, `origin:${originLabel(a.origin)}`);
           continue;
@@ -163,6 +183,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
     }
 
     if (e.type === "system") {
+      flushLocalCommand();
       if (e.subtype === "compact_boundary") {
         const pre = e.compactMetadata?.preTokens;
         b.addEvent("compaction", "Context compacted", timestamp, typeof pre === "number" ? `${pre} tokens before` : undefined);
@@ -179,6 +200,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
     if (e.type === "user") {
       const content = e.message?.content;
       if (Array.isArray(content) && content.some((c: Entry) => c?.type === "tool_result")) {
+        flushLocalCommand();
         for (const block of content) {
           if (block?.type !== "tool_result") continue;
           const { text, images } = flattenContent(block.content);
@@ -198,6 +220,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
       }
       if (e.isMeta) {
         if (rawText.startsWith("Base directory for this skill:")) {
+          flushLocalCommand();
           // A Skill tool call's body names the call; a typed `/skill` arrives right after its command markup.
           const invokedBy = pendingCommand && !e.sourceToolUseID ? "user" : "model";
           promptFromCommand();
@@ -215,6 +238,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
       // prompt. A task notification's event carries its summary, so it is not counted as dropped; any other line's text
       // is never shared, so it is.
       if (!isHumanOrigin(e.origin)) {
+        flushLocalCommand();
         const kind = originLabel(e.origin);
         const notification = kind === "task-notification" ? parseTaskNotification(rawText) : undefined;
         const subagent = !!notification && b.completeSubagent(notification, notification.result);
@@ -231,6 +255,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
       }
       if (handleCommandMarkup(rawText, timestamp)) continue;
       if (/^\[Request interrupted by user/.test(rawText.trim())) {
+        flushLocalCommand();
         b.addEvent("interrupted", "Interrupted by user", timestamp);
         b.idle = true;
         continue;
@@ -240,10 +265,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
         bump(dropped, "empty-user");
         continue;
       }
-      if (pendingCommand) {
-        b.addEvent("command", pendingCommand.name, pendingCommand.timestamp);
-        pendingCommand = undefined;
-      }
+      commandEvent();
       b.startTurn({ text, ...(images ? { images } : {}) }, timestamp);
       continue;
     }
@@ -279,7 +301,7 @@ export function parseClaudeCode(raw: string, options: AdapterOptions = {}): Adap
     // in the line also counts as not finished.
     b.idle = msg.stop_reason !== "tool_use" && !blocks.some((c) => c?.type === "tool_use");
   }
-  if (pendingCommand) b.addEvent("command", pendingCommand.name, pendingCommand.timestamp);
+  commandEvent();
   b.finalizeThinking();
   estimateCosts(b.responses);
   // A call the main transcript also holds is counted there, not again from a subagent file.

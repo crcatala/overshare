@@ -4,6 +4,7 @@ import { detectHarness } from "../src/harnesses/index.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { prepareShare } from "../src/pipeline.js";
 import { computeStats } from "../src/stats.js";
+import { projectSession } from "../src/modes.js";
 import { ClaudeTranscript, ccUsage } from "./helpers.js";
 
 describe("claude-code adapter", () => {
@@ -65,6 +66,40 @@ describe("claude-code adapter", () => {
     expect(turn0!.user).toBeUndefined();
     expect(turn0!.steps[0]).toMatchObject({ kind: "event", event: "command", text: "/effort", detail: "Set effort level to high" });
     expect(turn1!.user).toMatchObject({ text: "/workflow:review PR 12", command: { name: "/workflow:review", args: "PR 12" }, expanded: "Review the PR carefully." });
+  });
+
+  it("makes a local command the agent is then handed (/goal) the turn's prompt, args and all", () => {
+    const goal = "Ship the four PRs in order.\n\n1. Hosting setting.";
+    const t = new ClaudeTranscript()
+      .user(`<command-name>/goal</command-name>\n            <command-message>goal</command-message>\n            <command-args>${goal}</command-args>`)
+      .system("local_command", { content: `<local-command-stdout>Goal set: ${goal}</local-command-stdout>` })
+      .user(`A session-scoped Stop hook is now active with condition: "${goal}"`, { isMeta: true })
+      .assistant("m1", [{ type: "text", text: "Goal acknowledged." }], ccUsage(1, 1));
+    const { session } = parseClaudeCode(t.toJsonl());
+    expect(session.turns).toHaveLength(1);
+    const user = session.turns[0]!.user;
+    expect(user).toMatchObject({ text: `/goal ${goal}`, command: { name: "/goal", args: goal } });
+    expect(user?.expanded).toContain("Stop hook is now active");
+    expect(session.turns[0]!.steps.map((s) => s.kind)).toEqual(["text"]);
+    // Brief drops the expansion but keeps what was typed.
+    expect(projectSession(session, "brief").turns[0]!.user).toMatchObject({ text: `/goal ${goal}`, command: { args: goal } });
+  });
+
+  it("keeps a local command's args on its event", () => {
+    const t = new ClaudeTranscript()
+      .user("first")
+      .assistant("m1", [{ type: "text", text: "a1" }], ccUsage(1, 1))
+      .user("<command-name>/model</command-name>\n<command-args>sonnet</command-args>")
+      .system("local_command", { content: "<local-command-stdout>Set model to sonnet</local-command-stdout>" })
+      .user("<command-name>/rename</command-name>\n<command-args>my session</command-args>")
+      .user("second")
+      .assistant("m2", [{ type: "text", text: "a2" }], ccUsage(1, 1));
+    const { session } = parseClaudeCode(t.toJsonl());
+    expect(session.turns.map((x) => x.user?.text)).toEqual(["first", "second"]);
+    expect(session.turns[0]!.steps.filter((s) => s.kind === "event")).toMatchObject([
+      { event: "command", text: "/model sonnet", detail: "Set model to sonnet" },
+      { event: "command", text: "/rename my session" },
+    ]);
   });
 
   it("records skills, interruptions, synthetic errors and compaction", () => {

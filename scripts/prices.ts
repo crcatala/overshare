@@ -162,7 +162,9 @@ const perMillion = (v: unknown): number | undefined => (typeof v === "number" ? 
 export interface Disagreement {
   id: string;
   field: string;
+  /** Undefined: models.dev has no such tier. */
   ours?: number;
+  /** Undefined: LiteLLM does not list this rate or tier. */
   litellm?: number;
 }
 export interface CrossCheck {
@@ -175,7 +177,8 @@ export interface CrossCheck {
 /**
  * Compare the table with LiteLLM's Anthropic entries: base rates, every tier's rates (`*_above_<size/1000>k_tokens`),
  * and the 1-hour write (`cache_creation_input_token_cost_above_1hr`, per tier too), which should be 2x input. A tier
- * only one side lists is a disagreement. Only models both list are compared.
+ * only one side lists, or a rate LiteLLM leaves out, is a disagreement (`litellm` undefined). Only models both list
+ * are compared.
  */
 export function crossCheck(prices: PriceTable, litellm: unknown): CrossCheck {
   const theirs: Record<string, Json> = {};
@@ -184,9 +187,12 @@ export function crossCheck(prices: PriceTable, litellm: unknown): CrossCheck {
   for (const [id, p] of Object.entries(prices)) {
     const m = theirs[id];
     if (!m) continue;
+    // A rate LiteLLM does not list (or lists as something other than a number) is a disagreement too, so a
+    // partial comparison never reads as agreement.
     const compare = (field: string, ours: number, value: unknown) => {
       const v = perMillion(value);
-      if (v !== undefined && Math.abs(v - ours) > 1e-9) disagreements.push({ id, field, ours, litellm: v });
+      if (v === undefined || !Number.isFinite(v)) disagreements.push({ id, field, ours });
+      else if (Math.abs(v - ours) > 1e-9) disagreements.push({ id, field, ours, litellm: v });
     };
     const levels = [{ suffix: "", name: "", r: p as PriceRates }, ...(p.tiers ?? []).map((t) => ({ suffix: `_above_${t.above / 1000}k_tokens`, name: ` above ${t.above / 1000}k`, r: t as PriceRates }))];
     for (const { suffix, name, r } of levels) {

@@ -83,7 +83,8 @@ async function main(): Promise<number> {
   if (crossError) log(`LiteLLM cross-check skipped: ${crossError}`);
   else if (cross) {
     log(`LiteLLM cross-check: ${cross.disagreements.length ? `${cross.disagreements.length} disagreement(s)` : "no disagreements"}`);
-    for (const d of cross.disagreements) log(`  ${d.id} ${d.field}: models.dev ${fmt(d.ours)}, LiteLLM ${fmt(d.litellm)}`);
+    const rateOr = (v: number | undefined) => (v === undefined ? "not listed" : `${v}`);
+    for (const d of cross.disagreements) log(`  ${d.id} ${d.field}: models.dev ${rateOr(d.ours)}, LiteLLM ${rateOr(d.litellm)}`);
     if (cross.onlyOurs.length) log(`  only in models.dev: ${cross.onlyOurs.join(", ")}`);
     if (cross.onlyLitellm.length) log(`  only in LiteLLM: ${cross.onlyLitellm.join(", ")}`);
   }

@@ -121,6 +121,18 @@ describe("LiteLLM cross-check", () => {
     expect(r.onlyLitellm).toEqual(["claude-legacy-1"]);
   });
 
+  it("reports a rate LiteLLM leaves out or lists as something other than a number", () => {
+    const ll = litellm();
+    delete ll["claude-opus-5-5"].cache_read_input_token_cost;
+    ll["claude-opus-5-5"].output_cost_per_token = "2e-5";
+    delete ll["claude-haiku-5-5"].cache_creation_input_token_cost_above_1hr_above_100k_tokens;
+    expect(crossCheck(fromModelsDev(modelsDev()).prices, ll).disagreements).toEqual([
+      { id: "claude-haiku-5-5", field: "1h cacheWrite above 100k", ours: 1 },
+      { id: "claude-opus-5-5", field: "output", ours: 20 },
+      { id: "claude-opus-5-5", field: "cacheRead", ours: 0.2 },
+    ]);
+  });
+
   it("reports a tier LiteLLM does not list", () => {
     const ll = litellm();
     for (const k of Object.keys(ll["claude-haiku-5-5"])) if (k.includes("above_100k")) delete ll["claude-haiku-5-5"][k];

@@ -42,7 +42,7 @@ export function formatUsageTotals(t: UsageTotals): string {
 }
 
 /** The caveat on every cost computed from token counts (Claude Code's main conversation and its subagents). */
-export const COST_UNDERCOUNT_NOTE = "Can undercount: long-context, fast-mode and regional price surcharges are not modelled.";
+export const COST_UNDERCOUNT_NOTE = "Can undercount: fast-mode and regional price surcharges are not modelled, and long-context rates only for models whose price table lists them.";
 
 /** What the cost figure means, and what it leaves out. The first line is a title. */
 export function describeCost(stats: SessionStats): string[] {

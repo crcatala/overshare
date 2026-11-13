@@ -13,7 +13,7 @@
  * is per model).
  */
 import { metaOf } from "./harnesses/meta.js";
-import { cacheWrite1hRate, findPrice } from "./pricing.js";
+import { cacheWrite1hRate, findPrice, ratesFor } from "./pricing.js";
 import { contextTokens, totalTokens, type CacheEvent, type CacheSummary, type NormalizedSession, type ResponseUsage, type TokenRates, type Usage } from "./schema.js";
 
 /**
@@ -49,8 +49,10 @@ function extraCost(model: string | undefined, u: Usage, recached: number, rates:
     ({ input, cacheRead: read } = recorded);
     write5 = write1 = recorded.cacheWrite ?? recorded.input;
   } else {
-    const p = findPrice(model);
-    if (!p) return undefined;
+    const price = findPrice(model);
+    if (!price) return undefined;
+    // The call's long-context tier, if any: it billed the whole call at that tier, and a cache read of the same prompt would have been too.
+    const p = ratesFor(price, u);
     ({ input, cacheRead: read, cacheWrite: write5 } = p);
     write1 = cacheWrite1hRate(p);
   }

@@ -254,7 +254,8 @@ To sync with a new Betterleaks release, follow [Maintaining the Betterleaks rule
 ## Maintenance scripts
 
 - `npm run update:prices` regenerates `src/pricing-data.ts`, the model price table behind the
-  viewer's estimated cost.
+  viewer's estimated cost, including long-context price tiers where the source lists them
+  (`src/pricing.ts` bills the whole call at a tier's rates once its prompt is above the tier's size).
 - `npm run audit:usage` checks the usage and cost overshare computes against the sessions on your
   machine (Claude Code's own `cost-state` totals, pi's raw usage entries). Not run in CI.
 - `npm run update:betterleaks` converts the vendored Betterleaks rule file into a rule table (see

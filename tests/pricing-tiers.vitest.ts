@@ -1,25 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { markCacheEvents } from "../src/cache.js";
 import { cacheWrite1hRate, estimateCost, findPrice, ratesFor, type ModelPrice } from "../src/pricing.js";
 import type { ResponseUsage, Turn, Usage } from "../src/schema.js";
 
 // Haiku 5.5 list prices (Anthropic, models.dev, LiteLLM agree): $0.10 / $0.50 / $0.01 / $0.125 per million up to a
-// 100k-token prompt, $0.50 / $2.50 / $0.05 / $0.625 above. Added to the generated table here so these tests do not
-// depend on when the table was last regenerated.
-const { HAIKU, HAIKU_PRICE } = vi.hoisted(() => ({
-  HAIKU: "claude-haiku-5-5",
-  HAIKU_PRICE: {
-    input: 0.1,
-    output: 0.5,
-    cacheRead: 0.01,
-    cacheWrite: 0.125,
-    tiers: [{ above: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 }],
-  } satisfies ModelPrice,
-}));
-vi.mock("../src/pricing-data.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/pricing-data.js")>();
-  return { ...actual, ANTHROPIC_PRICES: { ...actual.ANTHROPIC_PRICES, [HAIKU]: HAIKU_PRICE } };
-});
+// 100k-token prompt, $0.50 / $2.50 / $0.05 / $0.625 above. Pinned in tests/pricing.vitest.ts.
+const HAIKU = "claude-haiku-5-5";
+const HAIKU_PRICE: ModelPrice = {
+  input: 0.1,
+  output: 0.5,
+  cacheRead: 0.01,
+  cacheWrite: 0.125,
+  tiers: [{ above: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 }],
+};
 
 const usage = (u: Partial<Usage>): Usage => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, ...u });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ANTHROPIC_PRICES } from "../src/pricing-data.js";
-import { estimateCost, findPrice } from "../src/pricing.js";
+import { estimateCost, findPrice, type ModelPrice } from "../src/pricing.js";
 import { emptyUsage } from "../src/schema.js";
 import { CLAUDE_FIXTURE_MODEL } from "../src/fixtures/claude-code.js";
 
@@ -38,7 +38,7 @@ describe("pricing", () => {
     expect(estimateCost("claude-opus-5-5", usage({ ...base, reasoning: 30 }))).toBeCloseTo(2240 / 1e6, 12);
   });
 
-  it("prices older models pi's catalog lacks from the hand-kept supplement", () => {
+  it("prices older models the sources lack from the hand-kept supplement", () => {
     const expected: Record<string, [number, number]> = {
       "claude-3-5-sonnet-20241022": [3, 15],
       "claude-3-5-sonnet-latest": [3, 15],
@@ -63,11 +63,38 @@ describe("pricing", () => {
   });
 
   it("lists only positive prices", () => {
-    for (const [id, p] of Object.entries(ANTHROPIC_PRICES)) {
-      expect(p.input, id).toBeGreaterThan(0);
-      expect(p.output, id).toBeGreaterThan(p.input);
-      expect(p.cacheRead, id).toBeLessThan(p.input);
-      expect(p.cacheWrite, id).toBeGreaterThanOrEqual(p.input);
+    for (const [id, price] of Object.entries(ANTHROPIC_PRICES)) {
+      for (const p of [price, ...(price.tiers ?? [])]) {
+        expect(p.input, id).toBeGreaterThan(0);
+        expect(p.output, id).toBeGreaterThan(p.input);
+        expect(p.cacheRead, id).toBeLessThan(p.input);
+        expect(p.cacheWrite, id).toBeGreaterThanOrEqual(p.input);
+      }
+      // Tiers are sorted, and each costs more than the one below it.
+      let below: ModelPrice = price;
+      for (const t of price.tiers ?? []) {
+        expect(t.above, id).toBeGreaterThan(0);
+        expect(t.input, id).toBeGreaterThan(below.input);
+        below = t;
+      }
     }
+  });
+
+  // Prices confirmed against Claude Code's own cost-state on local sessions. This guards against a typo in the
+  // generated source, not against price changes: if Anthropic changes one of these, update it here on purpose.
+  it("keeps the prices verified against Claude Code's cost-state", () => {
+    expect(ANTHROPIC_PRICES["claude-opus-5-5"]).toEqual({ input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 });
+    expect(ANTHROPIC_PRICES["claude-haiku-4-5"]).toEqual({ input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 });
+    // Tiers confirmed in ove-xxsk (whole-call billing above a 100k-token prompt).
+    expect(ANTHROPIC_PRICES["claude-haiku-5-5"]).toEqual({
+      input: 0.1,
+      output: 0.5,
+      cacheRead: 0.01,
+      cacheWrite: 0.125,
+      tiers: [{ above: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 }],
+    });
+    // Opus 5.5 at both cache-write lifetimes: 1,000 tokens at $5 (5 minutes) and at $8 (1 hour).
+    expect(estimateCost("claude-opus-5-5", usage({ cacheWrite: 1000 }))).toBeCloseTo(0.005, 12);
+    expect(estimateCost("claude-opus-5-5", usage({ cacheWrite: 1000, cacheWrite1h: 1000 }))).toBeCloseTo(0.008, 12);
   });
 });

@@ -47,11 +47,12 @@ export function ratesFor(p: ModelPrice, u: Usage): PriceRates {
 const PRICES: Record<string, ModelPrice> = ANTHROPIC_PRICES;
 
 /**
- * Older models pi's catalog does not list (so the generated table lacks them), kept by hand
- * from Anthropic's published list prices. Keyed by family, without date stamps. Kept apart
- * from `pricing-data.ts` so `scripts/update-prices.mjs` cannot overwrite it.
+ * Older models neither models.dev nor LiteLLM lists (so the generated table lacks them), kept by
+ * hand from Anthropic's published list prices. Keyed by family, without date stamps. Kept apart
+ * from `pricing-data.ts` so `scripts/update-prices.ts` cannot overwrite it; the generator refuses
+ * to emit an id that would shadow one of these with different prices.
  */
-const SUPPLEMENTAL_PRICES: Record<string, ModelPrice> = {
+export const SUPPLEMENTAL_PRICES: Record<string, ModelPrice> = {
   "claude-3-haiku": { input: 0.25, output: 1.25, cacheRead: 0.03, cacheWrite: 0.3 },
   "claude-3-5-haiku": { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 },
   "claude-3-5-sonnet": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },

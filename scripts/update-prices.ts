@@ -10,18 +10,24 @@
  *   npm run update:prices -- --no-cross-check   skip LiteLLM
  *   npm run update:prices -- --table <file>     read and write this table instead of src/pricing-data.ts (tests)
  *
- * Exit codes: 0 done (with --check: up to date); 1 --check found a difference; 2 the generator failed (fetch error,
- * schema change, unknown tier type, a price that would shadow a hand-kept one). LiteLLM disagreements, and a failed
- * LiteLLM fetch, are reported but never fatal. The report goes to stderr; `--json -` puts the summary on stdout.
+ * Exit codes: 0 done (with --check: up to date); 1 --check found a difference; 2 the generator failed (schema change,
+ * unknown tier type, a price that would shadow a hand-kept one); 3 models.dev could not be fetched (offline, an outage).
+ * LiteLLM disagreements, and a failed LiteLLM fetch, are reported but never fatal. The report goes to stderr;
+ * `--json -` puts the summary on stdout.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { SUPPLEMENTAL_PRICES } from "../src/pricing.ts";
-import { LITELLM_URL, MODELS_DEV_URL, crossCheck, diffTables, fromModelsDev, parseTable, renderTable, shadowedSupplements, type CrossCheck, type TableDiff } from "./prices.ts";
+import { LITELLM_URL, MODELS_DEV_URL, crossCheck, diffTables, fromModelsDev, parseTable, renderTable, shadowedSupplements, type CrossCheck, type PriceTable, type TableDiff } from "./prices.ts";
+
+/** models.dev could not be reached: exit 3, which the update bot tells apart from a real generator failure. */
+class FetchError extends Error {}
 
 export interface PriceSummary extends TableDiff {
   snapshot: string;
+  /** The table the source generates (what the bot's PR describes). */
+  prices: PriceTable;
   source: string;
   /** The committed table is byte-identical to what the source generates. */
   upToDate: boolean;
@@ -43,9 +49,19 @@ const tablePath = opts.table ?? join(import.meta.dirname, "..", "src", "pricing-
 
 async function load(file: string | undefined, url: string): Promise<unknown> {
   if (file) return JSON.parse(readFileSync(file, "utf8"));
-  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
-  return res.json();
+  let res: Response;
+  try {
+    res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+  } catch (e) {
+    const cause = e instanceof Error ? ((e.cause as { code?: string } | undefined)?.code ?? e.message) : String(e);
+    throw new FetchError(`could not fetch ${url} (${cause})`);
+  }
+  if (!res.ok) throw new FetchError(`${url}: HTTP ${res.status}`);
+  try {
+    return await res.json();
+  } catch (e) {
+    throw new Error(`${url}: not JSON (${e instanceof Error ? e.message : String(e)})`);
+  }
 }
 
 const fmt = (v: unknown) => (v === undefined ? "-" : typeof v === "number" ? `${v}` : JSON.stringify(v));
@@ -90,7 +106,7 @@ async function main(): Promise<number> {
   }
 
   if (opts.json) {
-    const summary: PriceSummary = { snapshot: table.snapshot, source, upToDate, ...diff, crossCheck: cross, ...(crossError ? { crossCheckError: crossError } : {}) };
+    const summary: PriceSummary = { snapshot: table.snapshot, source, upToDate, ...diff, prices: table.prices, crossCheck: cross, ...(crossError ? { crossCheckError: crossError } : {}) };
     const out = `${JSON.stringify(summary, null, 2)}\n`;
     if (opts.json === "-") process.stdout.write(out);
     else writeFileSync(opts.json, out);
@@ -111,6 +127,6 @@ main().then(
   (code) => process.exit(code),
   (e: unknown) => {
     console.error(`update-prices failed: ${e instanceof Error ? e.message : String(e)}`);
-    process.exit(2);
+    process.exit(e instanceof FetchError ? 3 : 2);
   },
 );

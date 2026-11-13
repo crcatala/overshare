@@ -1,6 +1,6 @@
 ---
 id: ove-0c8w
-status: open
+status: in_progress
 deps: [ove-hfgj]
 links: []
 created: 2026-11-13T15:33:47Z
@@ -44,10 +44,14 @@ PRs opened with the default `GITHUB_TOKEN` do not trigger `pull_request` workflo
 
 ## Acceptance criteria
 
-- Manual dispatch on today's data opens one PR with the expected diff (Haiku 5.5, Fable 5.2, Sonnet 5.5 cacheRead) and CI runs on it.
+(Updated 2026-11-13: ove-hfgj already committed today's table to main, so a dispatch on main now finds nothing to do. The PR targets the ref the workflow ran on, so the end-to-end test runs against a throwaway branch whose table is deliberately stale; it can only run once the workflow file is on main.)
+
+- A dispatch on main with the table current opens no PR (and closes any stale bot PR).
+- Dispatched against a throwaway branch with a deliberately stale table: opens exactly one PR from `bot/update-prices` against that branch, with the expected diff in the PR body, and CI runs on it.
 - A second dispatch with no source change updates the same PR (no second PR).
-- With main already up to date (simulate by merging), the next run closes the PR and deletes the branch.
-- A forced generator failure opens or updates exactly one issue.
+- With the branch brought up to date, the next run closes the PR and deletes `bot/update-prices`.
+- A forced generator failure opens or updates exactly one `prices` issue.
+- The test branch, PRs and issues are cleaned up afterwards; the run URLs are recorded here as proof.
 - `docs/development.md` describes the workflow and how to trigger it by hand.
 
 
@@ -56,3 +60,7 @@ PRs opened with the default `GITHUB_TOKEN` do not trigger `pull_request` workflo
 **2026-11-13T16:10:47Z**
 
 PAT created 2026-11-13 by the owner and stored as repo secret PRICES_BOT_TOKEN (scoped to this repo; Contents, Pull requests, Issues read & write). Expires 2027-11-13; renew about a week before. Record the expiry in docs/development.md when the workflow lands.
+
+**2026-11-13T16:50:24Z**
+
+Acceptance criteria updated 2026-11-13 before implementation: the original first criterion (a dispatch on today's data opens a PR with the Haiku 5.5 / Fable 5.2 / Sonnet 5.5 diff) no longer holds because ove-hfgj (#102) already committed that table. The PR base is the dispatched ref, so the end-to-end test uses a throwaway branch with a stale table, after the workflow is on main.

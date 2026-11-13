@@ -3,7 +3,7 @@ import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { crossCheck, diffTables, fromModelsDev, parseTable, renderTable, shadowedSupplements } from "../scripts/prices.ts";
+import { crossCheck, diffTables, fromModelsDev, parseTable, renderPrBody, renderTable, shadowedSupplements } from "../scripts/prices.ts";
 import { ANTHROPIC_PRICES } from "../src/pricing-data.js";
 import { SUPPLEMENTAL_PRICES } from "../src/pricing.js";
 
@@ -140,6 +140,36 @@ describe("LiteLLM cross-check", () => {
   });
 });
 
+describe("bot PR body", () => {
+  const { prices, snapshot } = fromModelsDev(modelsDev());
+  const base = { snapshot, prices, added: [] as string[], removed: [] as string[], changed: [] as { id: string; fields: Record<string, [unknown, unknown]> }[], crossCheck: crossCheck(prices, litellm()) };
+  const opts = { tests: "pass" as const, runUrl: "https://example.invalid/runs/1", base: "main" };
+
+  it("lists every added, changed and removed model with its rates and tiers", () => {
+    const body = renderPrBody({ ...base, added: ["claude-haiku-5-5"], changed: [{ id: "claude-sonnet-5-5", fields: { cacheRead: [0.2, 0.1] } }], removed: ["claude-old-1"] }, opts);
+    expect(body).toContain("snapshot **2026-10-07**");
+    expect(body).toContain("| `claude-haiku-5-5` | added | $0.1 / $0.5 / $0.01 / $0.125 | above 100k: $0.5 / $2.5 / $0.05 / $0.625 |");
+    expect(body).toContain("| `claude-sonnet-5-5` | cacheRead $0.2 → $0.1 | $2 / $10 / $0.1 / $2.5 |  |");
+    expect(body).toContain("| `claude-old-1` | removed | | |");
+    expect(body).toContain("No disagreements.");
+    expect(body).toContain("[this run](https://example.invalid/runs/1)");
+    expect(body).toContain("base `main`");
+    expect(body).not.toContain("WARNING");
+  });
+
+  it("puts failing tests at the top and lists disagreements, including rates LiteLLM leaves out", () => {
+    const cross = { disagreements: [{ id: "claude-opus-5-5", field: "cacheRead", ours: 0.2, litellm: 0.3 }, { id: "claude-opus-5-5", field: "output", ours: 20 }], onlyOurs: ["claude-new-1"], onlyLitellm: [] };
+    const body = renderPrBody({ ...base, crossCheck: cross }, { ...opts, tests: "fail" });
+    expect(body.startsWith("> [!WARNING]")).toBe(true);
+    expect(body).toContain("No price changed (header or format only).");
+    expect(body).toContain("**2 disagreements**");
+    expect(body).toContain("| `claude-opus-5-5` | cacheRead | $0.2 | $0.3 |");
+    expect(body).toContain("| `claude-opus-5-5` | output | $20 | not listed |");
+    expect(body).toContain("Only in models.dev: `claude-new-1`");
+    expect(renderPrBody({ ...base, crossCheck: null, crossCheckError: "HTTP 503" }, opts)).toContain("Skipped: HTTP 503");
+  });
+});
+
 describe("update-prices CLI (saved sources, no network)", () => {
   const run = (table: string, ...args: string[]) =>
     spawnSync(process.execPath, ["--import", "tsx", join(import.meta.dirname, "..", "scripts", "update-prices.ts"), "--from", MODELS_DEV, "--litellm", LITELLM, "--table", table, ...args], { encoding: "utf8" });
@@ -154,6 +184,7 @@ describe("update-prices CLI (saved sources, no network)", () => {
     const summary = JSON.parse(readFileSync(join(dir, "summary.json"), "utf8"));
     // The fixture lists 3 of the committed table's models, so the rest read as removed.
     expect(summary).toMatchObject({ snapshot: "2026-10-07", upToDate: false, added: [], crossCheck: { disagreements: [] } });
+    expect(Object.keys(summary.prices)).toEqual(["claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5"]);
     expect(summary.removed).toContain("claude-fable-5");
 
     expect(run(table).status).toBe(0);
@@ -175,6 +206,20 @@ describe("update-prices CLI (saved sources, no network)", () => {
     const r = spawnSync(process.execPath, ["--import", "tsx", join(import.meta.dirname, "..", "scripts", "update-prices.ts"), "--from", join(dir, "api.json"), "--no-cross-check", "--table", table], { encoding: "utf8" });
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('update-prices failed: claude-haiku-5-5 tier 0: unknown tier type "batch"');
+    expect(readFileSync(table, "utf8")).toBe("unchanged");
+  });
+
+  it("exits 3 when models.dev cannot be reached, so the bot can tell an outage from a real failure", () => {
+    const dir = mkdtempSync(join(tmpdir(), "prices-"));
+    const table = join(dir, "pricing-data.ts");
+    writeFileSync(table, "unchanged");
+    // An unreachable proxy stands in for being offline.
+    const r = spawnSync(process.execPath, ["--import", "tsx", join(import.meta.dirname, "..", "scripts", "update-prices.ts"), "--no-cross-check", "--table", table], {
+      encoding: "utf8",
+      env: { ...process.env, NODE_USE_ENV_PROXY: "1", HTTPS_PROXY: "http://127.0.0.1:9", https_proxy: "http://127.0.0.1:9" },
+    });
+    expect(r.status, r.stderr).toBe(3);
+    expect(r.stderr).toContain("update-prices failed: could not fetch https://models.dev/api.json");
     expect(readFileSync(table, "utf8")).toBe("unchanged");
   });
 

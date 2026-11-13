@@ -1,0 +1,64 @@
+name: Update prices
+
+# Keeps exactly one "chore(prices): update model price table" PR open from bot/update-prices, current with
+# models.dev (see scripts/price-bot.sh and docs/development.md, "Price table bot"). Run it by hand from the
+# Actions tab or with `gh workflow run update-prices.yml [--ref <branch>]`; the PR targets the branch it ran on.
+on:
+  schedule:
+    # Mondays and Thursdays, 06:17 UTC.
+    - cron: "17 6 * * 1,4"
+  workflow_dispatch:
+
+# PRICES_BOT_TOKEN (a fine-grained PAT) pushes and opens the PR, so CI runs on it; PRs opened with
+# GITHUB_TOKEN would not trigger CI. GITHUB_TOKEN only reads, files the failure issue and reads run history.
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+# One run at a time: they all share bot/update-prices.
+concurrency:
+  group: update-prices
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Update the price table
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.x
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Regenerate and open, update or close the PR
+        id: bot
+        run: bash scripts/price-bot.sh run
+        env:
+          GH_REPO: ${{ github.repository }}
+          BASE: ${{ github.ref_name }}
+          BOT_TOKEN: ${{ secrets.PRICES_BOT_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Report the failure in the prices issue
+        if: failure()
+        run: bash scripts/price-bot.sh report
+        env:
+          GH_REPO: ${{ github.repository }}
+          BASE: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+          FAILURE: ${{ steps.bot.outputs.failure || 'workflow' }}
+          DETAIL: ${{ steps.bot.outputs.detail || 'a step before the price update failed; see the run log' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

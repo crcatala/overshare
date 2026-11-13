@@ -2,13 +2,18 @@
  * Local audit of the usage numbers against the sessions on this machine (not run in CI:
  * it needs your own Claude Code / pi history).
  *
- *   npm run audit:usage
+ *   npm run audit:usage                          check the price table, then audit
+ *   npm run audit:usage -- --refresh             regenerate the price table first (writes src/pricing-data.ts)
+ *   npm run audit:usage -- --allow-unpriced      audit even if some local models have no price (a warning)
  *
+ * - Price preflight (scripts/price-preflight.ts): the committed price table is checked against models.dev
+ *   first, so the audit never quietly measures a stale table. A stale table is a warning naming what changed
+ *   and the fix; offline, the check is skipped with a warning and the audit still runs. A model in local
+ *   sessions with no price fails the audit (naming it and its call count) unless `--allow-unpriced`.
  * - Claude Code: our estimated cost versus Claude Code's own `cost-state` total, for the
  *   sessions where that total covers the whole transcript (not resumed). The estimate
  *   should sit a little below it (calls the transcript never shows: compaction, Haiku
- *   background work, subagents) and never above. The worst sessions are listed, and models
- *   without a price are reported.
+ *   background work, subagents) and never above. The worst sessions are listed.
  * - pi: per session, the tokens our adapter reports (own + other branches + inherited)
  *   against the raw sum over every usage-bearing entry in the file. They must agree, except
  *   that a fork's file may hold parent-branch entries we deliberately skip. Separately, the
@@ -19,12 +24,26 @@
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { parseClaudeCode } from "../src/harnesses/claude-code/parse.ts";
-import { parsePi } from "../src/harnesses/pi/parse.ts";
-import { formatCost, formatDuration, formatTokens } from "../src/format.ts";
-import { defaultRoots } from "../src/resolve.ts";
-import { contextTokens, totalTokens, type NormalizedSession } from "../src/schema.ts";
-import { computeStats } from "../src/stats.ts";
+import { parseArgs } from "node:util";
+import type { NormalizedSession } from "../src/schema.ts";
+import { pricePreflight, unpricedProblem } from "./price-preflight.ts";
+
+const { values: opts } = parseArgs({
+  options: {
+    refresh: { type: "boolean", default: false },
+    "allow-unpriced": { type: "boolean", default: false },
+  },
+});
+
+// Before anything loads src/pricing-data.ts, so --refresh is what the audit then uses.
+for (const line of pricePreflight({ refresh: opts.refresh }).lines) console.log(line);
+
+const { parseClaudeCode } = await import("../src/harnesses/claude-code/parse.ts");
+const { parsePi } = await import("../src/harnesses/pi/parse.ts");
+const { formatCost, formatDuration, formatTokens } = await import("../src/format.ts");
+const { defaultRoots } = await import("../src/resolve.ts");
+const { contextTokens, totalTokens } = await import("../src/schema.ts");
+const { computeStats } = await import("../src/stats.ts");
 
 const roots = defaultRoots();
 
@@ -143,6 +162,10 @@ for (const file of jsonl(roots["claude-code"])) {
 errors.sort((a, b) => a.error - b.error);
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 console.log(`Claude Code: ${claude} sessions; ${errors.length} comparable to cost-state (${resumed} resumed sessions skipped)`);
+// An unpriced model makes every total it touches a lower bound, so the comparison below would mislead.
+const problem = unpricedProblem(unpriced, opts["allow-unpriced"]);
+if (problem) for (const line of problem.lines) console.log(line);
+if (problem?.fail) process.exit(1);
 if (errors.length) {
   console.log(`  estimate vs cost-state: median ${pct(errors[Math.floor(errors.length / 2)]!.error)}, min ${pct(errors[0]!.error)}, max ${pct(errors.at(-1)!.error)} (max should be <= 0)`);
   console.log("  furthest below cost-state:");
@@ -150,7 +173,6 @@ if (errors.length) {
   const above = errors.filter((e) => e.error > 0.005);
   if (above.length) console.log(`  ABOVE cost-state (price table too high?): ${above.map((e) => `${e.id} ${pct(e.error)}`).join(", ")}`);
 }
-for (const [m, n] of unpriced) console.log(`  no price for ${m} (${n} calls): run npm run update:prices or add it to SUPPLEMENTAL_PRICES in src/pricing.ts`);
 
 type Raw = { type?: string; message?: { role?: string; usage?: Record<string, number> }; usage?: Record<string, number>; parentSession?: string };
 const rawTokens = (u: Record<string, number> | undefined): number => {

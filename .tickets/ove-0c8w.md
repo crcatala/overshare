@@ -50,3 +50,9 @@ PRs opened with the default `GITHUB_TOKEN` do not trigger `pull_request` workflo
 - A forced generator failure opens or updates exactly one issue.
 - `docs/development.md` describes the workflow and how to trigger it by hand.
 
+
+## Notes
+
+**2026-11-13T16:10:47Z**
+
+PAT created 2026-11-13 by the owner and stored as repo secret PRICES_BOT_TOKEN (scoped to this repo; Contents, Pull requests, Issues read & write). Expires 2027-11-13; renew about a week before. Record the expiry in docs/development.md when the workflow lands.

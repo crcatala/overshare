@@ -602,6 +602,8 @@ button.theme::before {
 .cmd-args {
   color: var(--ink-2);
   font-weight: 400;
+  /* Args can run to paragraphs and lists (a /goal), so keep the line breaks they were typed with. */
+  white-space: pre-wrap;
 }
 .expanded {
   margin-top: 4px;

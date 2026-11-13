@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Claude Code's `/goal` is shared as the prompt it is, with the goal you typed, in every mode. It used to become a
+  bare `/goal` line with the goal only in its collapsed output (full mode) or nowhere (brief and minimal), and the
+  session had no prompt for the outline or title. Any other local command keeps what was typed after it too
+  (`/model sonnet`, not `/model`), and the viewer keeps the line breaks of a command's arguments. Shares made
+  before keep what they were made with.
+
 ## [0.6.0] - 2026-11-13
 
 ### Added

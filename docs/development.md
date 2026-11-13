@@ -295,5 +295,40 @@ npm run update:prices -- --no-cross-check      # skip LiteLLM
 ```
 
 Exit codes: 0 done (or up to date with `--check`), 1 `--check` found a difference, 2 the generator
-failed (a fetch error, a schema change, an unknown tier type, a shadowed hand-kept price). A failed
-LiteLLM fetch is reported and skipped.
+failed (a schema change, an unknown tier type, a shadowed hand-kept price), 3 models.dev could not be
+fetched. A failed LiteLLM fetch is reported and skipped.
+
+### Price table bot
+
+`.github/workflows/update-prices.yml` keeps the table current without anyone remembering to. It runs
+on Mondays and Thursdays (06:17 UTC) and on demand, and keeps **exactly one PR** open, titled
+`chore(prices): update model price table`, from the branch `bot/update-prices` (`scripts/price-bot.sh`):
+
+- The source differs from the committed table: it regenerates the table, runs typecheck, build and
+  tests, force-pushes `bot/update-prices` and opens the PR or updates the open one. The body lists
+  added, changed and removed models, the LiteLLM disagreements, the snapshot date and how to verify.
+  If typecheck or tests fail with the new table, the PR is still opened, marked failing at the top.
+- The source matches the committed table (it reverted, or the PR was merged): it closes the open PR
+  and deletes the branch.
+- The generator fails (an unknown tier type, a schema change, a shadowed hand-kept price, the token
+  being rejected, or models.dev unreachable on two runs in a row): it opens one issue titled *Price
+  table update is failing* (label `prices`), or comments on the open one.
+
+Run it by hand from the Actions tab (*Update prices*, *Run workflow*) or with:
+
+```bash
+gh workflow run update-prices.yml              # against main
+gh workflow run update-prices.yml --ref <branch>   # the PR targets the branch it ran on
+```
+
+**Token.** A PR opened with the workflow's own `GITHUB_TOKEN` would not trigger CI, so the bot pushes
+and opens the PR with the repo secret `PRICES_BOT_TOKEN`: a fine-grained personal access token
+scoped to this repository only, with Contents, Pull requests and Issues read and write. Its PRs show
+the token owner as author. The workflow's `GITHUB_TOKEN` only reads, files the failure issue and
+reads run history (`contents: read`, `issues: write`, `actions: read`).
+
+The current token **expires on 2027-11-13**; renew it about a week before. Create a new fine-grained
+token with the same scope (longest expiry allowed), store it with
+`gh secret set PRICES_BOT_TOKEN -R crcatala/overshare`, update the date here, and run the workflow by
+hand to check it. An expired or revoked token fails the run with "PRICES_BOT_TOKEN expired or
+invalid: renew it" and opens the same issue.

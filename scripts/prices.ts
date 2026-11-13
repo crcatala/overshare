@@ -218,3 +218,56 @@ export function crossCheck(prices: PriceTable, litellm: unknown): CrossCheck {
     onlyLitellm: Object.keys(theirs).filter((id) => !prices[id]).sort(),
   };
 }
+
+const money = (v: unknown) => (typeof v === "number" ? `$${v}` : "–");
+const ratesCell = (p: PriceRates) => `${money(p.input)} / ${money(p.output)} / ${money(p.cacheRead)} / ${money(p.cacheWrite)}`;
+const tiersCell = (tiers: readonly PriceTier[] | undefined) => (tiers?.length ? tiers.map((t) => `above ${t.above / 1000}k: ${ratesCell(t)}`).join("<br>") : "");
+
+/** What the update bot needs from a generator run (the `--json` summary). */
+export interface PrBodySummary extends TableDiff {
+  snapshot: string;
+  prices: PriceTable;
+  crossCheck: CrossCheck | null;
+  crossCheckError?: string;
+}
+
+/** The body of the bot's "update model price table" PR. */
+export function renderPrBody(s: PrBodySummary, opts: { tests: "pass" | "fail"; runUrl: string; base: string }): string {
+  const lines: string[] = [];
+  if (opts.tests === "fail") lines.push("> [!WARNING]", "> Typecheck or tests **fail** with this table. See the run log and CI below before merging.", "");
+  lines.push(`Regenerated \`src/pricing-data.ts\` from [models.dev](https://models.dev) (snapshot **${s.snapshot}**) by [this run](${opts.runUrl}). USD per million tokens: input / output / cache read / 5-minute cache write.`, "");
+  const rows: string[] = [];
+  for (const id of s.added) rows.push(`| \`${id}\` | added | ${ratesCell(s.prices[id]!)} | ${tiersCell(s.prices[id]!.tiers)} |`);
+  for (const c of s.changed) {
+    const what = Object.entries(c.fields)
+      .map(([k, [a, b]]) => (k === "tiers" ? "tiers changed" : `${k} ${money(a)} → ${money(b)}`))
+      .join(", ");
+    rows.push(`| \`${c.id}\` | ${what} | ${ratesCell(s.prices[c.id]!)} | ${tiersCell(s.prices[c.id]!.tiers)} |`);
+  }
+  for (const id of s.removed) rows.push(`| \`${id}\` | removed | | |`);
+  if (rows.length) lines.push("| model | change | now | long-context tiers |", "| --- | --- | --- | --- |", ...rows, "");
+  else lines.push("No price changed (header or format only).", "");
+
+  lines.push("### LiteLLM cross-check", "");
+  if (s.crossCheckError) lines.push(`Skipped: ${s.crossCheckError}`);
+  else if (!s.crossCheck) lines.push("Skipped.");
+  else {
+    const d = s.crossCheck.disagreements;
+    if (d.length) {
+      lines.push(`**${d.length} disagreement${d.length === 1 ? "" : "s"}** (models.dev is used; check Anthropic's pricing page before merging):`, "", "| model | field | models.dev | LiteLLM |", "| --- | --- | --- | --- |");
+      const listed = (v: number | undefined) => (v === undefined ? "not listed" : money(v));
+      for (const x of d) lines.push(`| \`${x.id}\` | ${x.field} | ${listed(x.ours)} | ${listed(x.litellm)} |`);
+    } else lines.push("No disagreements.");
+    if (s.crossCheck.onlyOurs.length) lines.push("", `Only in models.dev: ${s.crossCheck.onlyOurs.map((id) => `\`${id}\``).join(", ")}`);
+    if (s.crossCheck.onlyLitellm.length) lines.push("", `Only in LiteLLM: ${s.crossCheck.onlyLitellm.map((id) => `\`${id}\``).join(", ")}`);
+  }
+  lines.push(
+    "",
+    "### How to verify",
+    "",
+    `Compare the changed rows with [Anthropic's pricing page](https://platform.claude.com/docs/en/about-claude/pricing), and if you have local sessions on these models, run \`npm run audit:usage\` on this branch: estimates should sit a little below Claude Code's \`cost-state\`, never above. Prices confirmed against \`cost-state\` are pinned in \`tests/pricing.vitest.ts\`; a failing pin means the source changed one of them.`,
+    "",
+    `This PR is kept up to date by \`.github/workflows/update-prices.yml\` (branch \`bot/update-prices\`, base \`${opts.base}\`): each run force-pushes it, and closes it once \`${opts.base}\` has the same prices.`,
+  );
+  return `${lines.join("\n")}\n`;
+}

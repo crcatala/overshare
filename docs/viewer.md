@@ -109,8 +109,12 @@ tokens, so its cost is computed from the token counts, the model and the 5-minut
 cache-write split with the price table in `src/pricing-data.ts` (regenerate it with
 `node scripts/update-prices.mjs`; older models pi's catalog lacks are kept by hand in
 `src/pricing.ts`). A model with no known price adds no cost rather than zero, and the
-total then ends in `+`. The estimate can undercount: long-context, fast-mode and regional
-price surcharges are not modelled. Thinking tokens are part of output. *tokens processed*
+total then ends in `+`. A model with long-context rates (Haiku 5.5: higher rates above 100k
+prompt tokens) is billed at the higher rate for the whole call once its prompt (uncached
+input plus cache read and write, as in *peak context*) passes the threshold, which is how
+Claude Code's own cost total counts it. The estimate can undercount: fast-mode and regional
+price surcharges are not modelled, nor long-context rates the price table does not list.
+Thinking tokens are part of output. *tokens processed*
 counts the whole prompt of every model call, so context re-read from cache is counted
 again each time: it is far larger than the conversation (hover it for the split into cache
 read, cache write, uncached input and output). *peak context* is the largest single prompt.

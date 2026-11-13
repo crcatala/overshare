@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The estimated cost of Claude Code sessions supports long-context price tiers. A model whose price table entry
+  lists them (Haiku 5.5: higher rates once a call's prompt passes 100k tokens) is billed at the tier's rates for the
+  whole call, which matches Claude Code's own cost totals; cache-miss extra cost uses the same tier. The price table
+  itself is refreshed separately.
+
 ## [0.5.0] - 2026-11-08
 
 ### Added

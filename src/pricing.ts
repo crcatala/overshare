@@ -1,13 +1,50 @@
-import { ANTHROPIC_PRICES, type ModelPrice } from "./pricing-data.js";
-import type { Usage } from "./schema.js";
+import { ANTHROPIC_PRICES } from "./pricing-data.js";
+import { contextTokens, type Usage } from "./schema.js";
 
-export type { ModelPrice } from "./pricing-data.js";
+/** USD per million tokens at Anthropic list price; `cacheWrite` is the 5-minute rate (1-hour writes cost 2x `input`). */
+export interface PriceRates {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
 
-/** Anthropic bills 1-hour cache writes at twice the base input rate (5-minute writes have their own rate). */
+/**
+ * Long-context rates: they replace the base rates for the whole call when its prompt (`input + cacheRead +
+ * cacheWrite`, the same quantity as peak context) is larger than `above` tokens. Not only the tokens past the
+ * threshold: on local Haiku 5.5 sessions this reproduces Claude Code's own `cost-state` exactly, and pricing only
+ * the excess does not (ove-xxsk).
+ */
+export interface PriceTier extends PriceRates {
+  above: number;
+}
+
+export interface ModelPrice extends PriceRates {
+  /** Sorted ascending by `above`. Absent for a model with one flat rate. */
+  tiers?: readonly PriceTier[];
+}
+
+/** Anthropic bills 1-hour cache writes at twice the input rate (5-minute writes have their own rate), in every tier. */
 const CACHE_WRITE_1H_INPUT_MULTIPLIER = 2;
 
-/** USD per million tokens for a 1-hour cache write of this model. */
-export const cacheWrite1hRate = (p: ModelPrice): number => p.input * CACHE_WRITE_1H_INPUT_MULTIPLIER;
+/** USD per million tokens for a 1-hour cache write at these rates. */
+export const cacheWrite1hRate = (p: PriceRates): number => p.input * CACHE_WRITE_1H_INPUT_MULTIPLIER;
+
+/** The rates one call is billed at: the highest tier its prompt is larger than, else the base rates. */
+export function ratesFor(p: ModelPrice, u: Usage): PriceRates {
+  const prompt = contextTokens(u);
+  let rates: PriceRates = p;
+  let above = -1;
+  for (const t of p.tiers ?? []) {
+    if (prompt > t.above && t.above > above) {
+      rates = t;
+      above = t.above;
+    }
+  }
+  return rates;
+}
+
+const PRICES: Record<string, ModelPrice> = ANTHROPIC_PRICES;
 
 /**
  * Older models pi's catalog does not list (so the generated table lacks them), kept by hand
@@ -34,20 +71,22 @@ export function findPrice(model: string | undefined): ModelPrice | undefined {
   const id = /claude-[a-z0-9.-]+/.exec(model.toLowerCase())?.[0]?.replace(/-v\d+$/, "");
   if (!id) return undefined;
   const family = id.replace(/-(\d{8}|latest)$/, "").replace(/-0$/, "");
-  return ANTHROPIC_PRICES[id] ?? ANTHROPIC_PRICES[family] ?? SUPPLEMENTAL_PRICES[family];
+  return PRICES[id] ?? PRICES[family] ?? SUPPLEMENTAL_PRICES[family];
 }
 
 /**
  * Cost in USD of one model call at list price, or undefined for a model we have no price
  * for (never 0: an unpriced call must not look free).
  *
- * Not modelled: the long-context (>200k) premium, the fast-mode premium and regional (data
- * residency) surcharges, none of which transcripts record. The estimate can therefore
- * undercount, which `describeCost` says.
+ * Long-context tiers are applied where the price table lists them (`ratesFor`). Not modelled: the
+ * fast-mode premium and regional (data residency) surcharges, which transcripts do not record, and
+ * long-context premiums the table does not list. The estimate can therefore undercount, which
+ * `describeCost` says.
  */
 export function estimateCost(model: string | undefined, u: Usage): number | undefined {
-  const p = findPrice(model);
-  if (!p) return undefined;
+  const price = findPrice(model);
+  if (!price) return undefined;
+  const p = ratesFor(price, u);
   const long = Math.min(u.cacheWrite1h ?? 0, u.cacheWrite);
   const short = u.cacheWrite - long;
   return (u.input * p.input + u.output * p.output + u.cacheRead * p.cacheRead + short * p.cacheWrite + long * cacheWrite1hRate(p)) / 1_000_000;

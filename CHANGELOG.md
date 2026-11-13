@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-13
+
 ### Fixed
 
 - Claude Code's `/goal` is shared as the prompt it is, with the goal you typed, in every mode. It used to become a

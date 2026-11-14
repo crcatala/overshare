@@ -21,7 +21,7 @@ import {
  *   repeating the same `message.usage`; usage is keyed by `message.id` to avoid
  *   double counting.
  * - Lines form a tree through `parentUuid` (rewinds fork it; compaction links via
- *   `logicalParentUuid`); we follow the branch that ends at the last entry.
+ *   `logicalParentUuid`, see `parentOf`); we follow the branch that ends at the last entry.
  * - `attachment` lines carry injected context (CLAUDE.md, environment, credentials
  *   org, reminders) and are dropped wholesale. The one exception is `prompt_snapshot`
  *   (the system prompt, rewritten every turn): the one nearest the leaf on its parent
@@ -356,12 +356,26 @@ function branchSystemPrompt(entries: Entry[], leafId?: string): string[] | undef
   const withId = entries.filter((e) => typeof e.uuid === "string");
   const byId = new Map<string, Entry>(withId.map((e) => [e.uuid, e]));
   const seen = new Set<string>();
-  for (let cur = findLeaf(withId, byId, leafId); cur && !seen.has(cur.uuid); cur = byId.get(cur.parentUuid ?? cur.logicalParentUuid)) {
+  for (let cur = findLeaf(withId, byId, leafId); cur && !seen.has(cur.uuid); cur = byId.get(parentOf(cur, byId) ?? "")) {
     seen.add(cur.uuid);
     const a = cur.type === "attachment" && !cur.isSidechain ? cur.attachment : undefined;
     if (a?.type === "prompt_snapshot" && Array.isArray(a.systemPrompt)) return systemPromptSections(a.systemPrompt);
   }
   return undefined;
+}
+
+/**
+ * The id of `e`'s parent. A compact boundary has no `parentUuid`; it links back through `logicalParentUuid`.
+ * After a manual `/compact` that id names a line Claude Code never writes, so fall back to the last line the
+ * compaction kept, `compactMetadata.preservedSegment.tailUuid` (equal to `logicalParentUuid` for auto-compaction).
+ * Claude Code records that id itself, so the link is never guessed from file order.
+ */
+function parentOf(e: Entry, byId: Map<string, Entry>): string | undefined {
+  if (e.parentUuid) return e.parentUuid;
+  const logical: unknown = e.logicalParentUuid;
+  if (typeof logical !== "string") return undefined;
+  const tail: unknown = e.compactMetadata?.preservedSegment?.tailUuid;
+  return !byId.has(logical) && typeof tail === "string" && byId.has(tail) ? tail : logical;
 }
 
 /** `leafId`'s entry, or by default the last conversation entry. */
@@ -433,7 +447,7 @@ function branchEntries(entries: Entry[], leafId: string | undefined, dropped: Dr
   while (cur && !seen.has(cur.uuid)) {
     seen.add(cur.uuid);
     path.push(cur);
-    const parent: string | undefined = cur.parentUuid ?? cur.logicalParentUuid;
+    const parent = parentOf(cur, byId);
     cur = parent ? byId.get(parent) : undefined;
     if (parent && !cur) missingParent = true;
   }

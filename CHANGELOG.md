@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A Claude Code session compacted with `/compact` is shared whole again. Only the part after the compaction was
+  shared: the report counted a `broken-chain` drop, and the earlier half's spend appeared as "on other branches".
+  Auto-compaction was not affected. Republish an affected session to share its full history.
+
 ## [0.6.1] - 2026-11-13
 
 ### Fixed

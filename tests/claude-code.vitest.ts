@@ -184,6 +184,27 @@ describe("claude-code adapter", () => {
     expect(session.stats.otherBranches?.responses).toBe(1);
   });
 
+  it("keeps the history before a compaction, auto or manual", () => {
+    const compacted = (logicalParent: (tail: string) => string) => {
+      const t = new ClaudeTranscript().user("before compaction").assistant("m1", [{ type: "text", text: "early reply" }], ccUsage(1, 1));
+      const tail = t.lastUuid!;
+      t.system("compact_boundary", {
+        parentUuid: null,
+        logicalParentUuid: logicalParent(tail),
+        compactMetadata: { trigger: "manual", preTokens: 150000, preservedSegment: { tailUuid: tail } },
+      });
+      return t.user("after compaction").assistant("m2", [{ type: "text", text: "late reply" }], ccUsage(1, 1));
+    };
+    // Auto-compaction links to the last kept line; a manual /compact links to a line Claude Code never writes.
+    for (const t of [compacted((tail) => tail), compacted(() => "u-never-written")]) {
+      const { session, dropped } = parseClaudeCode(t.toJsonl());
+      expect(session.turns.map((x) => x.user?.text)).toEqual(["before compaction", "after compaction"]);
+      expect(session.turns.flatMap((x) => x.steps).some((s) => s.kind === "event" && s.event === "compaction")).toBe(true);
+      expect(dropped["broken-chain"]).toBeUndefined();
+      expect(session.stats.otherBranches).toBeUndefined();
+    }
+  });
+
   it("keeps every result of parallel tool calls even though they hang off the tool_use lines as siblings", () => {
     const t = new ClaudeTranscript().user("check three things");
     t.assistant("m1", [{ type: "text", text: "Running three checks." }], ccUsage(1, 1));

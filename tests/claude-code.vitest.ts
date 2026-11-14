@@ -184,6 +184,75 @@ describe("claude-code adapter", () => {
     expect(session.stats.otherBranches?.responses).toBe(1);
   });
 
+  /** A compact boundary as Claude Code writes it: no `parentUuid`, a link back, and the kept tail when it records one. */
+  const compactBoundary = (t: ClaudeTranscript, logicalParentUuid: string, tailUuid?: string) =>
+    t.system("compact_boundary", {
+      parentUuid: null,
+      logicalParentUuid,
+      compactMetadata: { trigger: "manual", preTokens: 150000, ...(tailUuid ? { preservedSegment: { tailUuid } } : {}) },
+    });
+  const afterCompaction = (t: ClaudeTranscript) => t.user("after compaction").assistant("m9", [{ type: "text", text: "late reply" }], ccUsage(1, 1));
+
+  it("keeps the history before a compaction, auto or manual", () => {
+    const compacted = (logicalParent: (tail: string) => string) => {
+      const t = new ClaudeTranscript().user("before compaction").assistant("m1", [{ type: "text", text: "early reply" }], ccUsage(1, 1));
+      const tail = t.lastUuid!;
+      return afterCompaction(compactBoundary(t, logicalParent(tail), tail));
+    };
+    // Auto-compaction links to the last kept line; a manual /compact links to a line Claude Code never writes.
+    for (const t of [compacted((tail) => tail), compacted(() => "u-never-written")]) {
+      const { session, dropped } = parseClaudeCode(t.toJsonl());
+      expect(session.turns.map((x) => x.user?.text)).toEqual(["before compaction", "after compaction"]);
+      expect(session.turns.flatMap((x) => x.steps).some((s) => s.kind === "event" && s.event === "compaction")).toBe(true);
+      expect(dropped["broken-chain"]).toBeUndefined();
+      expect(session.stats.otherBranches).toBeUndefined();
+    }
+  });
+
+  it("follows the recorded tail, not file order, when /compact runs right after a rewind", () => {
+    const t = new ClaudeTranscript().user("kept prompt").assistant("m1", [{ type: "text", text: "kept reply" }], ccUsage(1, 1));
+    const tail = t.lastUuid!;
+    // The discarded branch is the last thing in the file before the boundary.
+    t.user("SECRET-discarded-prompt").assistant("d1", [{ type: "text", text: "SECRET-discarded-reply" }], ccUsage(1, 1));
+    afterCompaction(compactBoundary(t.rewindTo(tail), "u-never-written", tail));
+    const { session, dropped } = parseClaudeCode(t.toJsonl());
+    expect(session.turns.map((x) => x.user?.text)).toEqual(["kept prompt", "after compaction"]);
+    expect(JSON.stringify(session)).not.toContain("SECRET");
+    expect(dropped["broken-chain"]).toBeUndefined();
+    expect(session.stats.otherBranches?.responses).toBe(1);
+  });
+
+  it("prefers a logical parent that resolves over the recorded tail", () => {
+    const t = new ClaudeTranscript().user("first").assistant("m1", [{ type: "text", text: "a1" }], ccUsage(1, 1));
+    const tail = t.lastUuid!;
+    t.user("second").assistant("m2", [{ type: "text", text: "a2" }], ccUsage(1, 1));
+    afterCompaction(compactBoundary(t, t.lastUuid!, tail));
+    const { session } = parseClaudeCode(t.toJsonl());
+    expect(session.turns.map((x) => x.user?.text)).toEqual(["first", "second", "after compaction"]);
+    expect(session.stats.otherBranches).toBeUndefined();
+  });
+
+  it("stops at a compact boundary when neither link reaches a line in the file, and says so", () => {
+    for (const tail of [undefined, "u-also-missing"]) {
+      const t = new ClaudeTranscript().user("SECRET-unreachable-prompt").assistant("m1", [{ type: "text", text: "SECRET-unreachable-reply" }], ccUsage(1, 1));
+      afterCompaction(compactBoundary(t, "u-never-written", tail));
+      const { session, dropped } = parseClaudeCode(t.toJsonl());
+      // The export starts at the boundary, whose compaction event opens a turn of its own.
+      expect(session.turns.map((x) => x.user?.text), String(tail)).toEqual([undefined, "after compaction"]);
+      expect(JSON.stringify(session)).not.toContain("SECRET");
+      expect(dropped["broken-chain"]).toBe(1);
+    }
+  });
+
+  it("keeps the system prompt snapshot from before a manual /compact", () => {
+    const t = new ClaudeTranscript()
+      .attachment({ type: "prompt_snapshot", systemPrompt: ["You are the pre-compaction prompt."] })
+      .user("before compaction")
+      .assistant("m1", [{ type: "text", text: "early reply" }], ccUsage(1, 1));
+    afterCompaction(compactBoundary(t, "u-never-written", t.lastUuid!));
+    expect(parseClaudeCode(t.toJsonl()).session.systemPrompt).toEqual(["You are the pre-compaction prompt."]);
+  });
+
   it("keeps every result of parallel tool calls even though they hang off the tool_use lines as siblings", () => {
     const t = new ClaudeTranscript().user("check three things");
     t.assistant("m1", [{ type: "text", text: "Running three checks." }], ccUsage(1, 1));

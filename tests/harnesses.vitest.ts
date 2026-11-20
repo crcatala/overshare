@@ -7,6 +7,7 @@ import { HARNESS_META, harnessLabel, metaOf } from "../src/harnesses/meta.js";
 import { defaultRoots, sniffHarness } from "../src/resolve.js";
 import { buildIndex } from "../src/sessions/index.js";
 import { parseQuery } from "../src/sessions/query.js";
+import { AntigravityConversation } from "./antigravity-helpers.js";
 import { CodexTranscript } from "./codex-helpers.js";
 import { ClaudeTranscript, PiTranscript } from "./helpers.js";
 
@@ -15,6 +16,7 @@ const NATIVE: Record<(typeof HARNESS_NAMES)[number], () => string> = {
   "claude-code": () => new ClaudeTranscript("sess-1", "/work/demo").user("hi").toJsonl(),
   pi: () => new PiTranscript("01a0pi00-0000-7000-8000-000000000000").user("hi").toJsonl(),
   codex: () => new CodexTranscript().user("hi").toJsonl(),
+  antigravity: () => new AntigravityConversation().user("hi").respond({ text: "hello" }).toJsonl(),
 };
 
 describe("harness registry", () => {
@@ -85,6 +87,8 @@ describe("harness: in a search", () => {
     expect(parseQuery("harness:codex").harness).toBe("codex");
     expect(parseQuery("harness:openai").harness).toBe("codex");
     expect(parseQuery("harness:cursor").harness).toBeUndefined();
+    expect(parseQuery("harness:antigravity").harness).toBe("antigravity");
+    expect(parseQuery("harness:gemini").harness).toBe("antigravity");
     expect(parseQuery("harness:constructor").harness).toBeUndefined();
   });
 });

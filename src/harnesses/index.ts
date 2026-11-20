@@ -1,5 +1,6 @@
 import { HARNESS_NAMES, type HarnessName } from "./meta.js";
 import { claudeCode } from "./claude-code/index.js";
+import { antigravity } from "./antigravity/index.js";
 import { codex } from "./codex/index.js";
 import { pi } from "./pi/index.js";
 import type { AdapterOptions, AdapterResult, SubagentFileInput } from "./shared.js";
@@ -16,7 +17,7 @@ export { SessionTooLargeError, checkSessionSize, isCompressed, maxSessionBytes, 
  * Every harness we read. Typed by `HarnessName`, so a name added to `meta.ts` without a descriptor here is a type
  * error. To support a new harness: a folder `src/harnesses/<name>/` with its descriptor, an entry in `meta.ts`, a line here.
  */
-export const HARNESSES: Record<HarnessName, Harness> = { "claude-code": claudeCode, pi, codex };
+export const HARNESSES: Record<HarnessName, Harness> = { "claude-code": claudeCode, pi, codex, antigravity };
 
 /** The descriptors in display order. */
 export const harnesses = (): Harness[] => HARNESS_NAMES.map((n) => HARNESSES[n]);

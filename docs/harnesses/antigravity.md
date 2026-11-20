@@ -1,7 +1,8 @@
 # Google Antigravity session format (research notes)
 
-Status: research, nothing implemented yet. Plan and tickets: `.tickets/` epic "Support Codex and Antigravity
-sessions". Gathered 2026-11-20 from 4 local conversations (Antigravity 1.5.12–1.5.13, the ACP build that T3
+Status: `src/harnesses/antigravity/` reads `transcript_full.jsonl` with the conversation `.db` for the working
+directory, title and tool-call ids (ove-nl3h); thinking tokens, cache writes, skipped steps and subagents from the
+`.db` are ove-ntsi. Plan and tickets: `.tickets/` epic "Support Codex and Antigravity sessions". Gathered 2026-11-20 from 4 local conversations (Antigravity 1.5.12–1.5.13, the ACP build that T3
 Code runs), plus community reverse-engineering. **Google publishes no description of these files**; its docs
 only name the `~/.gemini/antigravity/` folder. Everything below is observed, and the format changes between
 versions and between products (app, IDE, `agy` CLI, ACP), so skip unknown types and keep a fixture per version.
@@ -168,6 +169,10 @@ the cwd, as for pi.
 - Never copy the ACP system prompt from `trajectory_metadata_blob`, nor the T3 instructions in the first prompt
   (they are not what the user typed; they are fine to drop entirely).
 - `SYSTEM_MESSAGE` reminders ("Reminder: work efficiently…") are injected by the harness: an event at most.
+  In 1.5.13 a `SYSTEM_MESSAGE` wraps its text in a preamble ("The following is a <SYSTEM_MESSAGE> not actually sent
+  by the user…") and a `<SYSTEM_MESSAGE>` block; a message to the agent (a background task finishing) reads
+  `[Message] timestamp=… sender=<conversation>/task-<n> priority=… content=…`. overshare shows those as
+  notifications (the `content=` part) and drops the reminders.
 
 ## Local sample coverage
 

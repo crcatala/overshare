@@ -1,0 +1,261 @@
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { DEFAULT_CONFIG } from "../src/config.js";
+import { antigravity } from "../src/harnesses/antigravity/index.js";
+import { dataFolders, resetAntigravityCaches } from "../src/harnesses/antigravity/files.js";
+import { MISSING_OUTPUT, parseAntigravity, unwrapPrompt } from "../src/harnesses/antigravity/parse.js";
+import { detectHarness, readSession } from "../src/harnesses/index.js";
+import { Collector } from "../src/harnesses/summary-kit.js";
+import { prepareShare } from "../src/pipeline.js";
+import { resolveSession } from "../src/resolve.js";
+import { SHARE_MODES, type ToolStep } from "../src/schema.js";
+import { AntigravityConversation, wrapPrompt } from "./antigravity-helpers.js";
+import { fake } from "./helpers.js";
+
+afterEach(() => resetAntigravityCaches());
+
+const tools = (steps: { kind: string }[]) => steps.filter((s): s is ToolStep => s.kind === "tool");
+
+function dataDir(): string {
+  return mkdtempSync(join(tmpdir(), "ag-data-"));
+}
+
+/** A data folder holding `c`, read the way the CLI reads it. */
+function load(c: AntigravityConversation, opts: Parameters<AntigravityConversation["write"]>[1] = {}) {
+  const data = dataDir();
+  const file = c.write(data, opts);
+  return { data, file, ...readSession("antigravity", file) };
+}
+
+const share = (l: ReturnType<typeof load>, mode: (typeof SHARE_MODES)[number] = "full") => prepareShare(l.raw, { mode, config: DEFAULT_CONFIG, harness: "antigravity", knownSecrets: [], ...l.options });
+
+/** Two prompts (the first under T3), parallel calls, an MCP tool, a background task killed with manage_task, a stream error. */
+function conversation(): AntigravityConversation {
+  return new AntigravityConversation()
+    .user("Why does the build fail?", { t3: true, settings: ["The user changed setting `Model Selection` from None to Gemini 4 Neon (High). No need to comment on this change."] })
+    .respond({
+      thinking: "Check the build log and the config.",
+      text: "Looking at both.",
+      calls: [
+        { name: "run_command", args: { CommandLine: "npm run build", WaitMsBeforeAsync: 5000, toolSummary: "Build" }, result: "error TS2322 in src/a.ts" },
+        { name: "read_file", args: { Path: "/home/tester/work/demo/tsconfig.json" }, result: '{"strict": true}' },
+      ],
+      input: 6_000,
+      cacheRead: 30_000,
+      output: 200,
+    })
+    .respond({ calls: [{ name: "run_command", args: { CommandLine: "npm test", WaitMsBeforeAsync: 500 }, status: "RUNNING", result: "Tool is running as a background task with task id: x/task-7\nTask Description: npm test" }], input: "700", cacheRead: 36_000, output: 40 })
+    .system('[Message] timestamp=2026-01-01T10:01:00Z sender=x/task-7 priority=MESSAGE_PRIORITY_HIGH content=Task id "x/task-7" finished: 3 tests failed')
+    .respond({ calls: [{ name: "manage_task", args: { Action: "kill", TaskId: "x/task-8" }, result: "killed" }, { name: "mcp_t3-code_pull_request_create", args: { title: "Fix build", body: "…", toolSummary: "Open a PR" }, result: "PR #1 opened" }], input: 300, cacheRead: 36_500, output: 30 })
+    .respond({ text: "Fixed the type error and opened a PR.", input: 200, cacheRead: 37_000, output: 60 })
+    .system("Reminder: work efficiently. REMINDER-MARKER")
+    .user("thanks", { settings: ["The user changed setting `Model Selection` from Gemini 4 Neon (High) to Gemini 4 Neon (Medium). No need to comment on this change."] })
+    .error("The stream was interrupted. Please continue the task you were working on.");
+}
+
+describe("antigravity: detect", () => {
+  it("recognises a transcript line by all its keys and known values, and nothing generic", () => {
+    expect(detectHarness(conversation().toJsonl())).toBe("antigravity");
+    expect(antigravity.detect({ step_index: 0, type: "USER_INPUT", source: "USER_EXPLICIT", status: "DONE" })).toBe(false); // no created_at
+    expect(antigravity.detect({ step_index: 0, type: "SOMETHING", source: "MODEL", status: "DONE", created_at: "x" })).toBe(false);
+    expect(antigravity.detect({ step_index: "0", type: "GENERIC", source: "MODEL", status: "DONE", created_at: "x" })).toBe(false);
+    expect(antigravity.detect({ step_index: 3, type: "RUN_COMMAND", source: "MODEL", status: "DONE", created_at: "x" })).toBe(true);
+  });
+});
+
+describe("antigravity: prompts", () => {
+  it("takes what the user typed: the nested request under T3, else the request, never the wrapper", () => {
+    expect(unwrapPrompt(wrapPrompt("plain ask")).text).toBe("plain ask");
+    expect(unwrapPrompt(wrapPrompt("inside T3", { t3: true })).text).toBe("inside T3");
+    expect(unwrapPrompt("no wrapper at all").text).toBe("no wrapper at all");
+  });
+
+  it("marks prompts authored, so prompts mode shows only the typed text", () => {
+    const l = load(conversation());
+    const p = share(l, "prompts");
+    expect(p.session.turns.map((t) => t.user?.text)).toEqual(["Why does the build fail?", "thanks"]);
+    expect(p.session.turns.every((t) => t.user?.authored)).toBe(true);
+    for (const marker of ["T3-INSTRUCTIONS-MARKER", "RUNTIME-MARKER", "ADDITIONAL-METADATA-MARKER", "REMINDER-MARKER"]) expect(p.json).not.toContain(marker);
+    expect(share(l).json).not.toContain("T3-INSTRUCTIONS-MARKER");
+  });
+
+  it("turns a model change into an event, and the first selection into none", () => {
+    const { session } = parseAntigravity(conversation().toJsonl());
+    const events = session.turns.flatMap((t) => t.steps).filter((s) => s.kind === "event").map((s) => s.kind === "event" && [s.event, s.text]);
+    expect(events).toContainEqual(["model_change", "Model → Gemini 4 Neon (Medium)"]);
+    expect(events.filter((e) => e && e[0] === "model_change")).toHaveLength(1);
+  });
+});
+
+describe("antigravity: parse with the conversation database", () => {
+  it("attaches each result to the call the database says it answers, parallel calls included", () => {
+    const l = load(conversation());
+    const steps = parseAntigravity(l.raw, l.options).session.turns[0]!.steps;
+    const t = tools(steps);
+    expect(t.map((s) => [s.name, s.action, s.summary, s.result?.text])).toEqual([
+      ["run_command", "exec", "npm run build", "error TS2322 in src/a.ts"],
+      ["read_file", "read", "/home/tester/work/demo/tsconfig.json", '{"strict": true}'],
+      ["run_command", "exec", "npm test", "Tool is running as a background task with task id: x/task-7\nTask Description: npm test"],
+      ["manage_task", "other", "kill x/task-8", "killed"],
+      ["mcp_t3-code_pull_request_create", "other", "Open a PR", "PR #1 opened"],
+    ]);
+    expect(t.every((s) => s.id.startsWith("call_"))).toBe(true);
+    expect(steps.find((s) => s.kind === "event" && s.event === "notification")).toMatchObject({ text: 'Task id "x/task-7" finished: 3 tests failed' });
+  });
+
+  it("pairs by id across a step the transcript skipped (a result in the database only)", () => {
+    const c = new AntigravityConversation()
+      .user("go")
+      .respond({ calls: [{ name: "run_command", args: { CommandLine: "a" }, result: "A" }, { name: "run_command", args: { CommandLine: "b" }, skipped: true }, { name: "run_command", args: { CommandLine: "c" }, result: "C" }] })
+      .system("Reminder: work efficiently.");
+    const l = load(c);
+    const t = tools(parseAntigravity(l.raw, l.options).session.turns[0]!.steps);
+    expect(t.map((s) => [s.summary, s.result?.text])).toEqual([["a", "A"], ["b", undefined], ["c", "C"]]);
+  });
+
+  it("without a database, pairs by position only while the steps line up, else leaves results unpaired", () => {
+    const lined = new AntigravityConversation().user("go").respond({ calls: [{ name: "run_command", args: { CommandLine: "a" }, result: "A" }, { name: "run_command", args: { CommandLine: "b" }, result: "B" }] });
+    expect(tools(parseAntigravity(lined.toJsonl()).session.turns[0]!.steps).map((s) => s.result?.text)).toEqual(["A", "B"]);
+    const gap = new AntigravityConversation().user("go").respond({ calls: [{ name: "run_command", args: { CommandLine: "a" }, result: "A" }, { name: "run_command", args: { CommandLine: "b" }, skipped: true }, { name: "run_command", args: { CommandLine: "c" }, result: "C" }] });
+    const t = tools(parseAntigravity(gap.toJsonl()).session.turns[0]!.steps);
+    // "C" follows a gap: it is not given to the call for "b".
+    expect(t.map((s) => [s.summary, s.result?.text])).toEqual([["a", "A"], ["b", undefined], ["c", undefined], ["result of a call this transcript does not identify", "C"]]);
+  });
+
+  it("takes the working directory, branch and title from the database and the annotation", () => {
+    const c = new AntigravityConversation("0a9e0000-1111-4222-8333-444455550001", [{ path: "/home/tester/.local/share/t3/userdata/attachments" }, { path: "/home/tester/work/demo", repo: "tester/demo", branch: "fix/build" }]).user("go").respond({ text: "ok" });
+    const l = load(c, { title: "Fix the build" });
+    const { session } = parseAntigravity(l.raw, l.options);
+    expect(session.source.sessionId).toBe("0a9e0000-1111-4222-8333-444455550001");
+    expect(session.title).toBe("Fix the build");
+    expect(session.project).toMatchObject({ cwd: "/home/tester/work/demo", name: "demo", branch: "fix/build" });
+  });
+
+  it("reads a conversation without a database, with no project", () => {
+    const l = load(conversation(), { db: false });
+    const { session } = parseAntigravity(l.raw, l.options);
+    expect(session.project).toBeUndefined();
+    expect(session.turns).toHaveLength(2);
+  });
+
+  it("counts usage per response (input without cache reads, numeric strings too) and estimates the cost by the base model", () => {
+    const l = load(conversation());
+    const p = share(l);
+    expect(p.session.responses.map((r) => [r.usage.input, r.usage.cacheRead, r.usage.output])).toEqual([[6_000, 30_000, 200], [700, 36_000, 40], [300, 36_500, 30], [200, 37_000, 60]]);
+    // gemini-4-neon: $3 input, $0.15 cached, $15 output per million.
+    expect(p.session.responses[0]!.usage.cost).toBeCloseTo((6_000 * 3 + 30_000 * 0.15 + 200 * 15) / 1e6, 12);
+    expect(p.session.stats).toMatchObject({ costSource: "estimated", tokens: { input: 7_200, cacheRead: 139_500, output: 330 } });
+    expect(p.session.models).toEqual(["gemini-4-neon-high"]);
+  });
+
+  it("records a stream error and counts images", () => {
+    const c = new AntigravityConversation().user("look", { media: 1 }).respond({ calls: [{ name: "read_file", args: { Path: "/x/shot.png" }, result: "image", media: 2 }] }).error("The stream was interrupted. Please continue.");
+    const l = load(c);
+    const { session } = parseAntigravity(l.raw, l.options);
+    expect(session.turns[0]!.user?.images).toBe(1);
+    expect(tools(session.turns[0]!.steps)[0]!.result?.images).toBe(2);
+    expect(session.turns[0]!.steps.at(-1)).toMatchObject({ kind: "event", event: "error", text: "The stream was interrupted. Please continue." });
+  });
+});
+
+describe("antigravity: shortened tool output", () => {
+  it("redacts a secret across the cut from the full output, never sharing the cut preview", () => {
+    const secret = fake.github();
+    const full = `${"line of output\n".repeat(40)}TOKEN=${secret}\n${"more output\n".repeat(40)}`;
+    const at = full.indexOf(secret) + 10;
+    const c = new AntigravityConversation().user("dump");
+    const preview = c.shortened(full, [at, at + 200]);
+    c.respond({ calls: [{ name: "run_command", args: { CommandLine: "cat build.log" }, result: preview }] });
+    const l = load(c);
+    for (const mode of SHARE_MODES) {
+      const p = share(l, mode);
+      expect(p.json, mode).not.toContain(secret.slice(0, 10));
+    }
+    const p = share(l);
+    const result = tools(p.session.turns[0]!.steps)[0]!.result!.text;
+    expect(result).toContain("more output");
+    expect(result).not.toContain("<truncated 12 lines>");
+    expect(p.report.counts["secret-pattern"] ?? 0).toBeGreaterThan(0);
+  });
+
+  it("drops the preview when the full output file is gone", () => {
+    const secret = fake.github();
+    const full = `x\nTOKEN=${secret}\ny\n`;
+    const c = new AntigravityConversation().user("dump");
+    const preview = c.shortened(full, [full.indexOf(secret) + 12, full.length - 2]);
+    c.respond({ calls: [{ name: "run_command", args: { CommandLine: "cat" }, result: preview }] });
+    const l = load(c, { outputs: false });
+    const p = share(l);
+    expect(tools(p.session.turns[0]!.steps)[0]!.result?.text).toBe(MISSING_OUTPUT);
+    expect(p.json).not.toContain(secret.slice(0, 12));
+    expect(p.session.redaction?.dropped["shortened-output"]).toBe(1);
+  });
+});
+
+describe("antigravity: files", () => {
+  it("finds data folders at their known places under home, or takes one data folder as the root", () => {
+    const home = dataDir();
+    const t3 = join(home, ".local/share/t3/userdata/providers/antigravity/abc123/antigravity-acp");
+    const app = join(home, ".gemini/antigravity");
+    for (const d of [t3, app]) mkdirSync(join(d, "brain"), { recursive: true });
+    mkdirSync(join(home, ".gemini/antigravity-ide"), { recursive: true }); // no brain/: not a data folder
+    expect(dataFolders(home).sort()).toEqual([app, t3].sort());
+    expect(dataFolders(app)).toEqual([app]);
+    expect(antigravity.sessionsRoot({ ANTIGRAVITY_DATA_DIR: app }, home)).toBe(app);
+    expect(antigravity.sessionsRoot({ OVERSHARE_ANTIGRAVITY_DIR: t3, ANTIGRAVITY_DATA_DIR: app }, home)).toBe(t3);
+    expect(antigravity.credentialFiles?.({}, home).sort()).toEqual([join(app, "antigravity-oauth-token"), join(t3, "antigravity-oauth-token")].sort());
+  });
+
+  it("lists conversations with a transcript, filters by any workspace, and skips empty ones", () => {
+    const data = dataDir();
+    const a = new AntigravityConversation("0a9e0000-1111-4222-8333-44445555000a", [{ path: "/home/tester/.local/share/t3/userdata/attachments" }, { path: "/work/one", repo: "t/one", branch: "main" }]).user("a").respond({ text: "a" });
+    const b = new AntigravityConversation("0a9e0000-1111-4222-8333-44445555000b", [{ path: "/work/two" }]).user("b").respond({ text: "b" });
+    const fa = a.write(data);
+    const fb = b.write(data);
+    mkdirSync(join(data, "brain", "0a9e0000-1111-4222-8333-44445555000c"), { recursive: true }); // set up, never used
+    expect(antigravity.listFiles(data).sort()).toEqual([fa, fb].sort());
+    expect(antigravity.listFiles(data, "/work/one")).toEqual([fa]);
+    expect(antigravity.listFiles(data, "/home/tester/.local/share/t3/userdata/attachments")).toEqual([fa]);
+    expect(antigravity.sessionId(fa)).toBe("0a9e0000-1111-4222-8333-44445555000a");
+    expect(antigravity.sessionCwd?.(fa)).toBe("/work/one");
+    const roots = { "claude-code": join(data, "none"), pi: join(data, "none"), codex: join(data, "none"), antigravity: data };
+    expect(resolveSession(undefined, { current: true, env: { ANTIGRAVITY_CONVERSATION_ID: b.id }, cwd: "/work/one", roots }).path).toBe(fb);
+    utimesSync(fb, new Date(2025, 0, 1), new Date(2025, 0, 1));
+    expect(resolveSession(undefined, { current: true, env: {}, cwd: "/work/one", roots }).path).toBe(fa);
+  });
+
+  it("never picks a conversation without a database for a directory, but lists and reads it", () => {
+    const data = dataDir();
+    const c = new AntigravityConversation("0a9e0000-1111-4222-8333-44445555000d").user("x").respond({ text: "y" });
+    const f = c.write(data, { db: false });
+    expect(antigravity.listFiles(data)).toEqual([f]);
+    expect(antigravity.listFiles(data, "/home/tester/work/demo")).toEqual([]);
+    expect(readSession("antigravity", f).raw).toContain("USER_INPUT");
+  });
+
+  it("summarizes for the browser, with the title and project from the sidecar", () => {
+    const l = load(conversation(), { title: "Build failure" });
+    const c = new Collector();
+    antigravity.summarize(l.raw, c, l.options.sidecar);
+    expect(c.title).toBe("Build failure");
+    expect(c.cwd).toBe("/home/tester/work/demo");
+    expect(c.branch).toBe("main");
+    expect(c.promptHead).toEqual(["Why does the build fail?", "thanks"]);
+    expect(c.calls).toBe(4);
+    expect(c.models).toEqual(["gemini-4-neon-high"]);
+    expect(c.tools).toMatchObject({ run_command: 2, read_file: 1, manage_task: 1 });
+  });
+
+  it("reads the annotation title with escapes, and refreshes the browse key when the database changes", () => {
+    const data = dataDir();
+    const c = new AntigravityConversation("0a9e0000-1111-4222-8333-44445555000e").user("x");
+    const f = c.write(data, { title: 'Say "hi"' });
+    expect(readSession("antigravity", f).options.sidecar).toMatchObject({ title: 'Say "hi"' });
+    const key = antigravity.sidecar!.key(f);
+    writeFileSync(join(data, "annotations", `${c.id}.pbtxt`), 'title:"Renamed"\n');
+    utimesSync(join(data, "annotations", `${c.id}.pbtxt`), new Date(2027, 0, 1), new Date(2027, 0, 1));
+    expect(antigravity.sidecar!.key(f)).not.toBe(key);
+  });
+});

@@ -72,7 +72,7 @@ describe("toSafeError", () => {
     expect(toSafeError(new SessionTooLargeError(300 * 1024 * 1024, 256 * 1024 * 1024))).toEqual({ code: "too-large", message: "The session file is 300 MB, more than the 256 MB overshare reads (set OVERSHARE_MAX_SESSION_MB to raise it)" });
     expect(toSafeError(new PromptsUnavailableError("Cannot use prompts mode: 12 pi user prompt(s) have no verified pre-expansion input.")).code).toBe("prompts-unavailable");
     expect(toSafeError(new PromptsUnavailableError("Cannot use prompts mode: 12 pi user prompt(s)")).message).toContain("12 pi user prompt(s)");
-    expect(toSafeError(new UnrecognizedFormatError())).toEqual({ code: "unrecognized-format", message: "Could not detect the transcript format (supported: claude-code, pi, codex)" });
+    expect(toSafeError(new UnrecognizedFormatError())).toEqual({ code: "unrecognized-format", message: "Could not detect the transcript format (supported: claude-code, pi, codex, antigravity)" });
     expect(toSafeError(Object.assign(new Error("EACCES: permission denied, open '/x'"), { code: "EACCES" }))).toEqual({ code: "read-failed", message: "could not read the session file (EACCES)" });
     expect(toSafeError(new TypeError("x is not a function"))).toEqual({ code: "internal", message: "internal error in the background reader (TypeError)" });
   });
@@ -138,7 +138,7 @@ describe("worker runner", () => {
     const err = (await workerRunner().run({ kind: "view", path, harness: "bogus" as never }, live()).catch((e: unknown) => e)) as JobError;
     expect(err).toBeInstanceOf(JobError);
     expect(JSON.stringify(err.error)).not.toContain(secret);
-    expect(err.message).toBe("Could not detect the transcript format (supported: claude-code, pi, codex)");
+    expect(err.message).toBe("Could not detect the transcript format (supported: claude-code, pi, codex, antigravity)");
     // The same file through every code path of runJob, in-process, never puts it in an error either.
     for (const harness of ["claude-code", "pi", undefined] as const) {
       const reply = runJob({ kind: "review", path, harness: harness as never, mode: "brief", config: DEFAULT_CONFIG });

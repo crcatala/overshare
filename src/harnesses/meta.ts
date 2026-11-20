@@ -64,6 +64,13 @@ export const HARNESS_META = {
     aliases: ["openai"],
     sumsSubagentUsage: true,
   },
+  antigravity: {
+    label: "Antigravity",
+    short: "antigravity",
+    tag: "AG",
+    color: "blue",
+    aliases: ["ag", "gemini", "google"],
+  },
 } as const satisfies Record<string, HarnessMeta>;
 
 /** The harnesses we read. A share's `harness.name` is this type once the viewer has opened it, but may be anything before. */

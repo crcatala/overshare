@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (and of the agents it spawned), with its final answer as the result, and the session's subagent totals include them.
   The parent history a subagent's rollout replays is not counted. Codex compactions show as compaction events with
   their summary, and the call after one counts as a cache rebuild, not a miss.
+- Antigravity conversations (Google's agent: the desktop app, IDE, `agy` and the ACP server, including the one T3
+  Code runs). overshare finds every data folder in your home folder (or `$OVERSHARE_ANTIGRAVITY_DIR`), reads each
+  conversation's transcript, and takes its working directory, branch, title and tool-call ids from the
+  conversation's own database, so every tool result is shown with the call it answers. Prompts are what you typed
+  (T3 Code's instructions and Antigravity's wrappers are left out), model changes and stream errors appear as events,
+  background-task messages as notifications, and cost is estimated from the tokens at Gemini list price. A tool
+  output Antigravity shortened is shared from its full copy, so redaction sees all of it; if the copy is gone, the
+  shortened preview is left out rather than shared cut.
 - Sessions larger than 256 MB (`OVERSHARE_MAX_SESSION_MB` to change it) are listed in `browse` as too large to
   read, and `report`/`export`/`publish` say so, instead of the session vanishing or the read failing.
 

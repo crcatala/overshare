@@ -177,6 +177,18 @@ describe("antigravity: parse with the conversation database", () => {
     expect(p.session.responses[1]!.usage.cost).toBeCloseTo((500 * 2 + 12_000 * 0.1 + 4_000 * 2.5 + 80 * 10) / 1e6, 12);
   });
 
+  it("uses the database's call ids only when its calls are the transcript's, else pairs by position and says so", () => {
+    const c = new AntigravityConversation().user("go").respond({ calls: [{ name: "run_command", args: { CommandLine: "a" }, result: "A" }, { name: "read_file", args: { Path: "/x" }, result: "X" }] });
+    // The database lists other tools for this response (a different version's layout, say).
+    const row = c.dbSteps.find((r) => r.type === 15)!;
+    const listed = row.payload.find(([f]) => f === 20)![1] as [number, [number, unknown][]][];
+    for (const [, call] of listed) call.find(([f]) => f === 2)![1] = "something_else";
+    const l = load(c);
+    const { session, dropped } = parseAntigravity(l.raw, l.options);
+    expect(tools(session.turns[0]!.steps).map((s) => [s.name, s.result?.text])).toEqual([["run_command", "A"], ["read_file", "X"]]);
+    expect(dropped["db-call-mismatch"]).toBe(1);
+  });
+
   it("takes the base model from the database when the transcript names none", () => {
     const c = new AntigravityConversation().user("go").respond({ text: "a", omitModel: true, db: { baseModel: "gemini-4-argon" } });
     const l = load(c);

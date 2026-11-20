@@ -156,8 +156,14 @@ export function parseAntigravity(raw: string, options: AdapterOptions = {}): Ada
         if (thinking) b.addStep({ kind: "thinking", id: b.nextId("k"), ...(ts ? { timestamp: ts } : {}), responseId, chars: thinking.length, blocks: 1, text: thinking });
         if (content.trim()) b.addStep({ kind: "text", id: b.nextId("t"), ...(ts ? { timestamp: ts } : {}), responseId, text: content.trim(), ...(model ? { model } : {}) });
         const calls: Entry[] = (Array.isArray(e.tool_calls) ? e.tool_calls : []).filter(isObj);
-        const ids = sidecar.calls?.[idx] ?? [];
-        const callIds = calls.map((_, i) => ids[i] || `${responseId}-call-${i}`);
+        // The database's ids, when its calls for this response are the transcript's (same names, same order);
+        // otherwise the transcript stands: its results are paired by position, and the report says so.
+        const names = calls.map((c) => str(c.name) ?? "unknown");
+        const dbNames = sidecar.callNames?.[idx];
+        const dbIds = sidecar.calls?.[idx] ?? [];
+        const matches = dbIds.length === calls.length && (!dbNames || (dbNames.length === names.length && dbNames.every((n, i) => n === names[i])));
+        if (calls.length && hasDb && !matches) bump(dropped, "db-call-mismatch");
+        const callIds = calls.map((_, i) => (matches && dbIds[i]) || `${responseId}-call-${i}`);
         calls.forEach((call, i) => {
           const name = str(call.name) ?? "unknown";
           const args: Entry = isObj(call.args) ? call.args : {};
@@ -165,7 +171,7 @@ export function parseAntigravity(raw: string, options: AdapterOptions = {}): Ada
           const step = b.current.steps.at(-1);
           if (step?.kind === "tool") Object.assign(step, describeAntigravityTool(name, args));
         });
-        positional = !hasDb && calls.length ? { ids: callIds, at: idx } : undefined;
+        positional = (!hasDb || !matches) && calls.length ? { ids: callIds, at: idx } : undefined;
         const usage: Usage = { input: count(e.input_tokens), output: count(e.output_tokens), cacheRead: count(e.cache_read_tokens), cacheWrite: count(e.cache_write_tokens), reasoning: 0 };
         // The database splits the output into thinking and reply and records cache writes (Claude models). Used only
         // when it agrees with the transcript on what both record; otherwise the transcript stands, and the report says so.
@@ -190,13 +196,17 @@ export function parseAntigravity(raw: string, options: AdapterOptions = {}): Ada
           if (typeof full !== "string") bump(dropped, "shortened-output");
         }
         const result = { text, ...(images ? { images } : {}) };
-        let callId = sidecar.answers?.[idx];
-        if (!callId && positional) {
-          callId = positional.ids.shift();
+        // By the id the database gives, else (no database, or its calls did not match) by position while it lines up.
+        let attached = false;
+        const answer = sidecar.answers?.[idx];
+        if (answer && !positional) attached = !!b.attachToolResult(answer, result);
+        if (!attached && positional) {
+          const callId = positional.ids.shift();
           positional.at = idx;
           if (!positional.ids.length) positional = undefined;
+          attached = !!callId && !!b.attachToolResult(callId, result);
         }
-        if (!callId || !b.attachToolResult(callId, result)) {
+        if (!attached) {
           // A result whose call is unknown (no database, and the steps around it do not line up): shown on its own.
           const step: ToolStep = { kind: "tool", id: b.nextId("r"), ...(ts ? { timestamp: ts } : {}), name: "tool", action: "other", summary: "result of a call this transcript does not identify", result };
           b.addStep(step);

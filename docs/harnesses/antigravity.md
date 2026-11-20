@@ -48,7 +48,10 @@ antigravity-oauth-token                     login token: add to `credentialFiles
 ## `transcript_full.jsonl`
 
 Every line: `step_index`, `type`, `source` (`USER_EXPLICIT`, `MODEL`, `SYSTEM`), `status` (`DONE`, `RUNNING`),
-`created_at` (UTC). Types seen locally (286 steps):
+`created_at` (UTC). These keys are generic, so `detect` should require all of them plus a `type` from the known
+set, and `sessionId` comes from the path (`brain/<id>/…`), not from the file. **The JSONL can skip steps**: a
+step the `.db` has with status 6 (apparently cancelled) was missing from the transcript, so `step_index` has
+gaps. Types seen locally (286 steps at first count):
 
 | `type` | count | fields | maps to |
 |---|---|---|---|
@@ -63,15 +66,20 @@ agent-sessions documented `RUN_COMMAND`, `VIEW_FILE`, `LIST_DIRECTORY` and `CHEC
 
 **Tool calls.** `tool_calls[]` holds `{name, args}`. Seen: `run_command` (`CommandLine`, `WaitMsBeforeAsync`,
 `IsDaemon`, `toolSummary`), `read_file` (`Path`, `StartLine`, `EndLine`), `edit_file` (`Path`, `Target`,
-`Replacement`), `write_file` (`Path`, `Content`, `Overwrite`), `search_web` (`query`). The JSONL has **no call
-ids**: the results are the next N `GENERIC` steps, in order (true for all 80 tool-using responses here). The
-`.db` has the ids (`call_…`).
+`Replacement`), `write_file` (`Path`, `Content`, `Overwrite`), `search_web` (`query`), `manage_task` (`Action`,
+`TaskId`: kills a background task), and MCP tools named `mcp_<server>_<tool>`. The JSONL has **no call ids**.
+Results usually follow as the next N `GENERIC` steps, but not always: in one response with 3 calls, the third
+result was the skipped status-6 step, so the next line was a `SYSTEM_MESSAGE` and counting by position would
+pair wrongly. Pair by id from the `.db` instead: each model response lists its calls (id, name, args), and each
+tool-result step carries its call's id (payload field 5 → 4 → 1). Where the `.db` is unavailable, pair by
+position only when the count and the `step_index` sequence both line up; otherwise leave the result unpaired.
 
 **Tool results.** `content` starts with `Created At:` / `Completed At:` lines. Long output is shortened to a
-preview plus a pointer to `steps/<n>/output.txt` (an absolute home path, so redaction already covers it). A
-background command returns a `RUNNING` result ("Tool is running as a background task with task id …"); its end
-arrives later as a `messages/*.json` notice (sender `<conversation>/task-<n>`, a title such as "Install deps
-and run all checks finished") and in the transcript as a `SYSTEM_MESSAGE`. That is our `notification` event
+preview (the middle is cut) plus a pointer to `steps/<n>/output.txt`. Cutting text before redaction can leave a
+partial secret that no pattern matches, so read the full `steps/<n>/output.txt` and redact that; if the file is
+gone, drop the preview rather than share it. A background command returns a `RUNNING` result ("Tool is running
+as a background task with task id …"); its end arrives later as a `messages/*.json` notice (sender
+`<conversation>/task-<n>`, a title such as "Run tests finished") and in the transcript as a `SYSTEM_MESSAGE`. That is our `notification` event
 with `wake`. Images: `media[]` entries `{mime_type, uri}` pointing at `logs/media/`; count them.
 
 **Prompts.** `USER_INPUT.content` is wrapped:
@@ -93,7 +101,8 @@ Under T3 Code the **first** prompt also has T3's instructions inside `<USER_REQU
 text is the nested `<user_request>` when present, else `<USER_REQUEST>`. A settings change becomes a
 `model_change` or `thinking_level` event.
 
-**Usage.** On each `PLANNER_RESPONSE`, as strings. **`input_tokens` excludes cache reads** (6,501 input plus
+**Usage.** On each `PLANNER_RESPONSE`, as JSON numbers (all 105 local responses; accept numeric strings too).
+**`input_tokens` excludes cache reads** (6,501 input plus
 35,192 read from cache), unlike Codex. `output_tokens` includes thinking; the JSONL has no split, the `.db` does
 (thinking 98 + response 125 = output 223). No cache writes with Gemini; Claude models (Antigravity offers them)
 would add them. No cost is recorded.
@@ -103,24 +112,29 @@ would add them. No cost is recorded.
 
 ## What only the SQLite files have
 
-- **Working directory, git, title.** The transcript has no cwd. `conversation_summaries.db`
-  (`conversation_summaries.workspace_uris`, a JSON list of `file://` URIs; `title`; `step_count`;
-  `last_modified_time`; `parent_conversation_id`; `nesting_depth`) has it, as does the conversation's
-  `trajectory_metadata_blob` (workspace URIs, git remote and branch, and the ACP system prompt). Title also in
-  `annotations/<uuid>.pbtxt`. Without one of these, "sessions for this directory" and `--current` cannot work.
-- **Thinking vs response tokens, tool-call ids, exact timestamps.** `conversations/<uuid>.db` tables
-  `trajectory_meta`, `steps`, `gen_metadata`, `executor_metadata`, `parent_references`,
-  `trajectory_metadata_blob`, `battle_mode_infos`. `steps` has one row per transcript line (286 = 286), with
-  protobuf blobs that are **plain, not encrypted** in 1.5.x. Fields that matter:
+- **Working directory, git, title.** The transcript has no cwd. The conversation's `trajectory_metadata_blob`
+  has it (workspace URIs, git remote and branch, and the ACP system prompt); so does the cache
+  `conversation_summaries.db` (`workspace_uris`, a JSON list of `file://` URIs; `title`; `step_count`;
+  `last_modified_time`; `parent_conversation_id`; `nesting_depth`). Title also in `annotations/<uuid>.pbtxt`.
+  Which to trust is below.
+- **Tool-call ids, thinking vs response tokens, exact timestamps, skipped steps.** `conversations/<uuid>.db`
+  tables `trajectory_meta`, `steps`, `gen_metadata`, `executor_metadata`, `parent_references`,
+  `trajectory_metadata_blob`, `battle_mode_infos`. `steps` has one row per step, including any the transcript
+  skipped, with protobuf blobs that are **plain, not encrypted** in 1.5.x. Fields that matter:
   - `steps.step_type`: 14 user input, 15 model response, 132 tool result, 101 system message, 17 error.
-    `steps.status`: 3 done, 2 running (matches xhluca/session-migrate's notes for 1.1.16 and 1.4.12).
+    `steps.status`: 3 done, 2 running, 6 seen on a step the transcript left out (matches
+    xhluca/session-migrate's notes for 1.1.16 and 1.4.12 where they overlap).
   - `steps.metadata` field 9 = usage: 2 input, 3 output, 5 cache read, 4 cache write, 9 thinking output,
     10 response output, 1 model enum.
   - Model response payload (field 20): 3 thinking, 7 tool calls (1 id, 2 name, 3 args JSON).
+  - Tool result payload: field 5 → 4 → 1 is the id of the call it answers.
   - `gen_metadata.data`: field 19 model (`gemini-4-neon`), 21 display name.
 
 Node 22.13+ ships `node:sqlite`, so reading these needs no dependency; protobuf needs a small wire-format reader
-(ccusage and session-migrate both do this without a schema).
+(ccusage and session-migrate both do this without a schema). On Node 22.19, overshare's minimum, loading
+`node:sqlite` prints `ExperimentalWarning: SQLite is an experimental feature` (v22.19 `lib/sqlite.js` calls
+`emitExperimentalWarning('SQLite')`); 24.x does not. Load it lazily, only when an Antigravity data folder exists,
+and keep that one warning off the user's terminal.
 
 ### Working directory: which source to trust
 
@@ -158,7 +172,8 @@ the cwd, as for pi.
 ## Local sample coverage
 
 4 conversations (3, 16, 101 and 166 steps; Nov 19–20 2026), all from T3 Code, all Gemini 4 Neon, with edits,
-web search, background tasks, images and one stream error. Not covered: plain `agy`, the desktop app or IDE,
+web search, an MCP tool, background tasks (one killed with `manage_task`), images, one stream error and one
+step the transcript skipped. Not covered: plain `agy`, the desktop app or IDE,
 Claude models, compaction (`CHECKPOINT`), subagents (`parent_conversation_id`; the "swarm" plugin is enabled in
 the T3 config), legacy `.pb` files. Fixtures must be synthetic.
 

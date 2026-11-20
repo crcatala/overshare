@@ -10,13 +10,13 @@ assignee: cc-vps
 parent: ove-v5c6
 tags: [harness, antigravity]
 ---
-# Antigravity: enrich from the conversation .db (thinking tokens, call ids, sources)
+# Antigravity: more from the conversation .db (thinking tokens, cache writes, subagents)
 
-Optional enrichment after the Antigravity MVP. Format notes: docs/harnesses/antigravity.md ("What only the SQLite files have").
+Follow-up to the Antigravity MVP (ove-nl3h), which already opens the .db for the cwd and tool-call ids and brings the node:sqlite + protobuf reader. Format notes: docs/harnesses/antigravity.md ("What only the SQLite files have").
 
-- Read conversations/<id>.db read-only with node:sqlite and a small protobuf wire reader (no schema; see ccusage and xhluca/session-migrate).
-- Per model response: thinking vs response output tokens (reasoning), cache writes (Claude models), base model id; tool-call ids to pair results exactly.
-- Validate that steps match the transcript 1:1 by index; on any mismatch fall back to transcript-only and say so (never fail the share).
+- Per model response: thinking vs response output tokens (reasoning), cache writes (Claude models), base model id from gen_metadata.
+- Steps the transcript skipped (e.g. status 6): decide whether to show them (as cancelled tool results) from the .db.
+- Any mismatch between the .db and the transcript: fall back to the transcript and say so (never fail the share).
 - Version-gate: unknown table layouts or step types are skipped, not guessed.
 - Later, when samples exist: subagents via parent_conversation_id / parent_references (the "swarm" plugin).
 

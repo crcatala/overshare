@@ -23,8 +23,8 @@ Both formats are undocumented and drift between versions: every adapter skips un
 1. Prices for OpenAI and Gemini models (shared prerequisite, no harness code).
 2. Codex: current rollouts. First usable harness; settles the interface changes both harnesses need.
 3. Codex: subagents, compaction, .jsonl.zst, continuation files.
-4. Antigravity: transcript_full.jsonl + summary index.
-5. Antigravity: enrichment from the conversation .db.
+4. Antigravity: transcript_full.jsonl, plus cwd and tool-call ids from the conversation .db.
+5. Antigravity: more from the .db (thinking tokens, cache writes, skipped steps, subagents).
 6. Codex: legacy history mode (only if someone has such files).
 7. Demo fixtures for both.
 

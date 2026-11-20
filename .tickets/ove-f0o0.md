@@ -16,7 +16,7 @@ Follow-up to the Codex MVP. Format notes: docs/harnesses/codex.md.
 
 - Subagents: find child rollouts by parent_thread_id (they are in the date tree, not beside the parent; thread_spawn_edges in state_5.sqlite also maps them). Link them to the parent's spawn_agent call / SubAgentActivity items; subagent steps and usage like Claude Code's (sumsSubagentUsage if the numbers are reliable). Ignore the child's replayed parent history before subagent_history_start_ordinal (mark inherited; never count its usage).
 - Compaction: `compacted` lines become compaction events; responses after it are rebuilds for cache.ts. Count compaction calls' usage when a token_usage_record exists for them.
-- .jsonl.zst: read (zlib zstd in Node, check availability on 22.19); prefer the plain file when both exist.
+- .jsonl.zst: read with Node's zlib zstd (available since 22.15, see the note below); prefer the plain file when both exist. Callers (pipeline, browse job) read a file into one string for `parse(raw: string)`: decompress to a string there for now, within ove-m3y1's size limit; true streaming would change that interface and is its own decision.
 - Continuation files `rollout-<time>-<thread>_<rollout-id>.jsonl`: one session.
 - Needs synthetic fixtures for each; there are no local samples of compaction, zst or continuation files.
 

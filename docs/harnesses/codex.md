@@ -18,8 +18,8 @@ $CODEX_HOME (default ~/.codex)/
 ```
 
 - Folders are by **date, not by working directory**. Listing the sessions of one cwd means reading each file's
-  first line (`session_meta.payload.cwd`), or the `threads` table in `state_5.sqlite` as a fast path. The first
-  line is large (~20–25 KB: it carries the base instructions), so read it, don't parse the file.
+  first line (`session_meta.payload.cwd`), or the `threads` table in `state_5.sqlite` as a fast path (`node:sqlite` warns on Node 22.19; see
+  antigravity.md). The first line is large (~20–25 KB: it carries the base instructions), so read it, don't parse the file.
 - The session id is the UUID at the end of the file name (= `session_meta.payload.id`).
 - `--current`: Codex sets `CODEX_THREAD_ID` in the environment of every command it runs
   (`codex-rs/core/src/exec_env.rs`).
@@ -87,7 +87,7 @@ JavaScript that calls the real tools:
 ```js
 const results = await Promise.allSettled([
   tools.exec_command({cmd: "cat README.md", max_output_tokens: 6000}),
-  tools.exec_command({cmd: "gh pr diff 307"}),
+  tools.exec_command({cmd: "gh pr diff 42"}),
 ]);
 ```
 
@@ -117,7 +117,7 @@ call), not the JavaScript. Non-code-mode sessions use `function_call` (`shell`, 
 ## Subagents
 
 - A spawned agent writes its own rollout (in the date tree, not beside the parent). Its first `session_meta`
-  has its own `id`, plus `parent_thread_id`, `forked_from_id`, `agent_path` (`/root/issue_scout`),
+  has its own `id`, plus `parent_thread_id`, `forked_from_id`, `agent_path` (`/root/explorer`),
   `agent_nickname`, `thread_source: "subagent"` and `source.subagent.thread_spawn`. A **second**
   `session_meta` follows with the parent's id.
 - The child then replays the parent's history up to `subagent_history_start_ordinal` (47 in the sample):
@@ -133,7 +133,10 @@ call), not the JavaScript. Non-code-mode sessions use `function_call` (`shell`, 
 ## Redaction and privacy
 
 - **Drop before redaction:** `reasoning.encrypted_content`, the encrypted `spawn_agent` message and any other
-  `gAAAA…` blob. They are high-entropy text and would make the final re-scan refuse to publish.
+  `gAAAA…` blob. **The final re-scan is no backstop for these:** it runs only `findSecretPatterns` (no entropy
+  check), which matched 1 of 939 local `encrypted_content` values. A blob copied by mistake would almost always be
+  published (and the odd one would block a publish for no visible reason), so the drop is mandatory and tests
+  must assert that no `gAAAA…` reaches the share payload.
 - **Never copy:** `session_meta.base_instructions` / `instructions`, `creator_user_id`, `creator_account_id`,
   `world_state` (it holds the full AGENTS.md, skills and plugin lists), `additional_tools`, developer messages.
   `turn_context` and `thread_settings_applied` carry sandbox and permission profiles: only keep model and effort.
@@ -141,9 +144,9 @@ call), not the JavaScript. Non-code-mode sessions use `function_call` (`shell`, 
 
 ## Local sample coverage
 
-60 of 62 local files are unattended `codex exec` PR-review runs (launched from T3 Code), one is an interactive
-VS Code session (with an error turn, a model switch and an interrupt), one is a subagent, and one is a 2025 file
-with only a header and the environment message. Not covered: file edits, compaction, `.jsonl.zst`,
+Of the 62 local files, 59 are unattended `codex exec` PR-review runs (launched from T3 Code), one is a subagent
+spawned by one of them, one is an interactive VS Code session (with an error turn, a model switch and an
+interrupt), and one is a 2025 CLI file with only a header and the environment message. Not covered: file edits, compaction, `.jsonl.zst`,
 continuation files, legacy history mode, MCP tools. Test fixtures must be synthetic (no real transcripts in the
 repo); build them from the shapes above and from upstream types.
 

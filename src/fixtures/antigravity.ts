@@ -141,12 +141,15 @@ export function writeAntigravity(script: SessionScript, rng: Rng, opts: { dataDi
     db.exec("CREATE TABLE steps (`idx` integer, `step_type` integer NOT NULL DEFAULT 0, `status` integer NOT NULL DEFAULT 0, `metadata` blob, `step_payload` blob, PRIMARY KEY (`idx`))");
     db.exec('CREATE TABLE trajectory_metadata_blob (`id` text DEFAULT "main", `data` blob, PRIMARY KEY (`id`))');
     db.exec("CREATE TABLE gen_metadata (`idx` integer, `data` blob, `size` integer NOT NULL DEFAULT 0, PRIMARY KEY (`idx`))");
+    // One transaction: row by row, each insert would sync the file on its own.
+    db.exec("BEGIN");
     const insert = db.prepare("INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, ?, ?, ?, ?)");
     for (const r of rows) insert.run(r.idx, r.type, r.status, r.metadata ? encode(r.metadata) : null, encode(r.payload));
     const uri = pathToFileURL(script.cwd).href;
     db.prepare("INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?)").run(encode([[1, [[1, uri], [3, [[1, `acme/${script.project}`], [2, `https://example.invalid/acme/${script.project}.git`]]], [4, "fix/invoice-currency"]]], [7, uri]]));
     const gen = db.prepare("INSERT INTO gen_metadata (idx, data) VALUES (?, ?)");
     generations.forEach((g, n) => gen.run(n, encode([[1, [[19, "gemini-4-neon"], [20, [[1, "last_step_index"], [2, String(g.lastStep)]]], [21, display]]]])));
+    db.exec("COMMIT");
     db.close();
   }
   return transcript;

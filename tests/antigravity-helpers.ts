@@ -157,12 +157,14 @@ export class AntigravityConversation {
       const db = new DatabaseSync(join(data, "conversations", `${this.id}.db`));
       db.exec("CREATE TABLE steps (idx integer, step_type integer NOT NULL DEFAULT 0, status integer NOT NULL DEFAULT 0, metadata blob, step_payload blob, PRIMARY KEY (idx))");
       db.exec('CREATE TABLE trajectory_metadata_blob (id text DEFAULT "main", data blob, PRIMARY KEY (id))');
+      db.exec("BEGIN");
       const insert = db.prepare("INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, ?, ?, ?, ?)");
       for (const s of this.dbSteps) insert.run(s.idx, s.type, s.status, s.metadata ? encode(s.metadata) : null, encode(s.payload));
       db.exec("CREATE TABLE gen_metadata (idx integer, data blob, size integer NOT NULL DEFAULT 0, PRIMARY KEY (idx))");
       const gen = db.prepare("INSERT INTO gen_metadata (idx, data) VALUES (?, ?)");
       this.generations.forEach((g, i) => gen.run(i, encode([[1, [[3, 1532], [19, g.model], [20, [[1, "last_step_index"], [2, String(g.lastStep)]]], [21, "Gemini 4 Neon (High)"]]]])));
       db.prepare("INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?)").run(this.metadataBlob());
+      db.exec("COMMIT");
       db.close();
     }
     return transcript;

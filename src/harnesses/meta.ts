@@ -62,6 +62,7 @@ export const HARNESS_META = {
     tag: "CX",
     color: "cyan",
     aliases: ["openai"],
+    sumsSubagentUsage: true,
   },
 } as const satisfies Record<string, HarnessMeta>;
 

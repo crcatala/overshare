@@ -2,6 +2,7 @@ import { join } from "node:path";
 import type { Harness } from "../types.js";
 import { allRollouts, listRollouts, loadCodexSidecar, rolloutHeader, threadId } from "./files.js";
 import { parseCodex } from "./parse.js";
+import { countCodexSubagents, loadCodexSubagents } from "./subagents.js";
 import { summarizeCodex } from "./summarize.js";
 
 const codexHome = (env: NodeJS.ProcessEnv, home: string): string => env.CODEX_HOME ?? join(home, ".codex");
@@ -26,6 +27,8 @@ export const codex: Harness = {
     if (!id) return undefined;
     return allRollouts(root).find((f) => threadId(f) === id);
   },
+  // Spawned agents write their own rollouts, filed by date like any thread; their headers name the parent.
+  subagents: { load: loadCodexSubagents, count: (file) => countCodexSubagents(file) },
   sidecar: {
     load: loadCodexSidecar,
     key: (file) => loadCodexSidecar(file).title ?? "",

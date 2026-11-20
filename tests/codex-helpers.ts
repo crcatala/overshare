@@ -42,7 +42,7 @@ export class CodexTranscript {
   constructor(
     readonly id = "01a0c0de-0000-7000-8000-000000000001",
     readonly cwd = "/home/tester/work/demo",
-    opts: { subagent?: { parent: string }; branch?: string; cliVersion?: string } = {},
+    opts: { subagent?: { parent: string; task?: string }; branch?: string; cliVersion?: string } = {},
   ) {
     const meta: Json = {
       creator_user_id: "user-ABCDEFGHIJ",
@@ -59,7 +59,7 @@ export class CodexTranscript {
       base_instructions: { text: BASE_INSTRUCTIONS },
       history_mode: "paginated",
       git: { commit_hash: "0123456789abcdef0123456789abcdef01234567", branch: opts.branch ?? "feature/demo", repository_url: "https://example.invalid/demo.git" },
-      ...(opts.subagent ? { parent_thread_id: opts.subagent.parent, agent_path: "/root/explorer", agent_nickname: "Explorer" } : {}),
+      ...(opts.subagent ? { parent_thread_id: opts.subagent.parent, agent_path: `/root/${opts.subagent.task ?? "explorer"}`, agent_nickname: "Explorer" } : {}),
     };
     this.line("session_meta", meta);
   }
@@ -204,6 +204,29 @@ export class CodexTranscript {
       this.item({ type: "CommandExecution", id: `exec-${this.nextId("ce")}`, command: ["/bin/bash", "-lc", c.cmd], cwd: this.cwd, parsed_cmd: [{ type: "unknown", cmd: c.cmd }], status: "completed", aggregated_output: c.output ?? "", exit_code: c.exit ?? 0 });
     }
     return this.line("response_item", { type: "function_call_output", call_id: callId, output: opts.success === undefined ? output : { content: output, success: opts.success } });
+  }
+
+  /**
+   * `spawn_agent` as the parent writes it: the call (its message encrypted), the response's usage, the
+   * `SubAgentActivity` item naming the new thread, and the call's output.
+   */
+  spawn(task: string, childId: string): this {
+    const callId = this.nextId("call");
+    this.line("response_item", { type: "function_call", status: "completed", id: this.nextId("fc"), name: "spawn_agent", namespace: "collaboration", arguments: JSON.stringify({ task_name: task, message: encryptedBlob(57) }), call_id: callId });
+    this.usage({ input: 1_000, cached: 900, output: 40 });
+    this.item({ type: "SubAgentActivity", id: this.nextId("sa"), kind: "started", agent_thread_id: childId, agent_path: `/root/${task}`, model: "gpt-6.1-sol", reasoning_effort: "medium" });
+    return this.line("response_item", { type: "function_call_output", call_id: callId, output: JSON.stringify({ agent_path: `/root/${task}` }) });
+  }
+
+  /** From the next line on, this (subagent) rollout is its own: what came before replayed the parent's history. */
+  startOwnHistory(): this {
+    (this.lines[0]!.payload as Json).subagent_history_start_ordinal = this.ordinal;
+    return this;
+  }
+
+  /** A compaction checkpoint: the summary that replaced the history, and the replaced history itself. */
+  compacted(summary: string): this {
+    return this.line("compacted", { message: summary, replacement_history: [{ type: "message", role: "user", content: [{ type: "input_text", text: "REPLACED-HISTORY-MARKER" }] }] });
   }
 
   /** A subagent's message back to its parent: who sent it, and an encrypted body. */

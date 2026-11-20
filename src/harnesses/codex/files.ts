@@ -16,6 +16,10 @@ const THREAD_ID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 export const threadId = (file: string): string => THREAD_ID.exec(basename(file))?.[1] ?? basename(file, ".jsonl");
 
 export interface RolloutHeader {
+  /** The thread's id (`session_meta.payload.id`). */
+  id?: string;
+  /** The thread that spawned this one (a subagent's parent). */
+  parent?: string;
   cwd?: string;
   /** A spawned agent's own rollout (`thread_source: "subagent"`): part of its parent, not a session on its own. */
   subagent: boolean;
@@ -38,6 +42,8 @@ export function rolloutHeader(file: string): RolloutHeader | undefined {
   const p = e.payload;
   const source = p.source;
   const header: RolloutHeader = {
+    ...(typeof p.id === "string" && p.id ? { id: p.id } : {}),
+    ...(typeof p.parent_thread_id === "string" && p.parent_thread_id ? { parent: p.parent_thread_id } : {}),
     ...(typeof p.cwd === "string" && p.cwd ? { cwd: p.cwd } : {}),
     subagent: p.thread_source === "subagent" || (!!source && typeof source === "object" && "subagent" in source),
   };
@@ -68,6 +74,49 @@ export function listRollouts(root: string, cwd?: string): string[] {
     if (h.subagent) return false;
     return cwd === undefined || (h.cwd !== undefined && sameDir(h.cwd, cwd));
   });
+}
+
+/** The `sessions/` folder a rollout is filed under (its own, or the one beside `archived_sessions/`), if any. */
+function sessionsRootOf(file: string): string | undefined {
+  let dir = dirname(resolve(file));
+  for (let i = 0; i < 6; i++) {
+    const name = basename(dir);
+    if (name === "sessions") return dir;
+    if (name === "archived_sessions") return join(dirname(dir), "sessions");
+    const up = dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  return undefined;
+}
+
+/**
+ * The rollouts of the agents a thread spawned, and of the agents they spawned, found by the `parent_thread_id` in each
+ * header (they are filed by date like any thread, not beside the parent). Order: breadth first, by file name.
+ */
+export function subagentRollouts(file: string): string[] {
+  const root = sessionsRootOf(file);
+  const self = rolloutHeader(file)?.id ?? threadId(file);
+  if (!root) return [];
+  const children = new Map<string, string[]>();
+  for (const f of allRollouts(root).sort()) {
+    const h = rolloutHeader(f);
+    if (!h?.parent || f === file) continue;
+    children.set(h.parent, [...(children.get(h.parent) ?? []), f]);
+  }
+  const out: string[] = [];
+  const seen = new Set<string>([self]);
+  const queue = [self];
+  while (queue.length) {
+    for (const f of children.get(queue.shift()!) ?? []) {
+      const id = rolloutHeader(f)?.id ?? threadId(f);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(f);
+      queue.push(id);
+    }
+  }
+  return out;
 }
 
 /** What the Codex adapter reads beside a rollout. */

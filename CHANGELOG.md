@@ -15,7 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   step, prompts are what you typed (so `prompts` mode works), `$skill` prompts show as skills, and model or
   reasoning-effort switches, interrupts and error turns appear as events. Cost is estimated from the tokens at
   OpenAI list price. A renamed thread keeps its name. Codex's instructions, injected context, account ids and
-  encrypted reasoning are never shared. Subagents and compacted or zstd-compressed rollouts come later.
+  encrypted reasoning are never shared. Zstd-compressed rollouts and continuation files come later.
+- Codex subagents: an agent spawned with `spawn_agent` shows the tokens, cost, model and commands of its own rollout
+  (and of the agents it spawned), with its final answer as the result, and the session's subagent totals include them.
+  The parent history a subagent's rollout replays is not counted. Codex compactions show as compaction events with
+  their summary, and the call after one counts as a cache rebuild, not a miss.
 - Sessions larger than 256 MB (`OVERSHARE_MAX_SESSION_MB` to change it) are listed in `browse` as too large to
   read, and `report`/`export`/`publish` say so, instead of the session vanishing or the read failing.
 

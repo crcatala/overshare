@@ -1,7 +1,10 @@
-import { ANTHROPIC_PRICES } from "./pricing-data.js";
+import { ANTHROPIC_PRICES, GOOGLE_PRICES, OPENAI_PRICES } from "./pricing-data.js";
 import { contextTokens, type Usage } from "./schema.js";
 
-/** USD per million tokens at Anthropic list price; `cacheWrite` is the 5-minute rate (1-hour writes cost 2x `input`). */
+/**
+ * USD per million tokens at the provider's list price. For Anthropic `cacheWrite` is the 5-minute rate (1-hour writes
+ * cost 2x `input`); for OpenAI and Google it is what models.dev lists, else the input rate (no write premium).
+ */
 export interface PriceRates {
   input: number;
   output: number;
@@ -44,13 +47,29 @@ export function ratesFor(p: ModelPrice, u: Usage): PriceRates {
   return rates;
 }
 
-const PRICES: Record<string, ModelPrice> = ANTHROPIC_PRICES;
+/** Whose price list a model is on. Only Anthropic models cache explicitly by definition (see `cache.ts`). */
+export type PriceProvider = "anthropic" | "openai" | "google";
+
+const TABLES: Record<PriceProvider, Record<string, ModelPrice>> = { anthropic: ANTHROPIC_PRICES, openai: OPENAI_PRICES, google: GOOGLE_PRICES };
 
 /**
- * Older models neither models.dev nor LiteLLM lists (so the generated table lacks them), kept by
- * hand from Anthropic's published list prices. Keyed by family, without date stamps. Kept apart
- * from `pricing-data.ts` so `scripts/update-prices.ts` cannot overwrite it; the generator refuses
- * to emit an id that would shadow one of these with different prices.
+ * The provider a bare model id belongs to, by its family: `claude-*`, `gemini-*`, or OpenAI's `gpt-*`, `o<n>`,
+ * `codex-*` and `chatgpt-*`. The price generator keeps only these families, so an id's table follows from the id.
+ */
+export function providerOfId(id: string): PriceProvider | undefined {
+  if (id.startsWith("claude-")) return "anthropic";
+  if (id.startsWith("gemini-")) return "google";
+  if (/^(gpt-|codex-|chatgpt-|o\d+(-|$))/.test(id)) return "openai";
+  return undefined;
+}
+
+/**
+ * Models the generated table lacks, kept by hand from the provider's published list prices: older Claude models
+ * neither models.dev nor LiteLLM lists (keyed by family, without date stamps), and the OpenAI Codex variants Codex
+ * sessions name that models.dev does not list (rates as LiteLLM and OpenAI's pricing page give them; OpenAI bills no
+ * cache-write premium, so `cacheWrite` is the input rate). The provider follows from the id (`providerOfId`). Kept apart
+ * from `pricing-data.ts` so `scripts/update-prices.ts` cannot overwrite it; the generator refuses to emit an id that
+ * would shadow one of these with different prices.
  */
 export const SUPPLEMENTAL_PRICES: Record<string, ModelPrice> = {
   "claude-3-haiku": { input: 0.25, output: 1.25, cacheRead: 0.03, cacheWrite: 0.3 },
@@ -61,19 +80,51 @@ export const SUPPLEMENTAL_PRICES: Record<string, ModelPrice> = {
   "claude-3-opus": { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
   "claude-opus-4": { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
   "claude-opus-4-1": { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+  "gpt-5-codex": { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 1.25 },
+  "gpt-5.1-codex": { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 1.25 },
+  "gpt-5.1-codex-max": { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 1.25 },
+  "gpt-5.1-codex-mini": { input: 0.25, output: 2, cacheRead: 0.025, cacheWrite: 0.25 },
+  "gpt-5.2-codex": { input: 1.75, output: 14, cacheRead: 0.175, cacheWrite: 1.75 },
 };
 
+/** A Gemini id as Antigravity writes it carries the thinking level (`gemini-4-neon-high`); the price is the base model's. */
+const THINKING_LEVEL = /-(minimal|low|medium|high|max|none)$/;
+const DATE_STAMP = /-(\d{4}-\d{2}-\d{2}|\d{8}|latest)$/;
+
 /**
- * List price for a Claude model id. Tolerates the suffixes and prefixes that show up in
- * transcripts: `[1m]` context markers, Bedrock/Vertex wrappers, `-v1:0`, and date stamps.
+ * The price list entry for a model id as a transcript writes it, and whose list it is on.
+ *
+ * Claude ids are found anywhere in the string, tolerating the suffixes and prefixes that show up in transcripts:
+ * `[1m]` context markers, Bedrock/Vertex wrappers, `-v1:0`, and date stamps. Other ids are the last path segment
+ * (`openai/`, `openai-codex/`, `openrouter/openai/`) without a `:variant` (`:high`), tried as written, then without a
+ * date stamp, then (Gemini) without a thinking level.
  */
-export function findPrice(model: string | undefined): ModelPrice | undefined {
+export function lookupPrice(model: string | undefined): { provider: PriceProvider; price: ModelPrice } | undefined {
   if (!model) return undefined;
-  const id = /claude-[a-z0-9.-]+/.exec(model.toLowerCase())?.[0]?.replace(/-v\d+$/, "");
-  if (!id) return undefined;
-  const family = id.replace(/-(\d{8}|latest)$/, "").replace(/-0$/, "");
-  return PRICES[id] ?? PRICES[family] ?? SUPPLEMENTAL_PRICES[family];
+  const lower = model.toLowerCase();
+  const claude = /claude-[a-z0-9.-]+/.exec(lower)?.[0]?.replace(/-v\d+$/, "");
+  if (claude) {
+    const family = claude.replace(/-(\d{8}|latest)$/, "").replace(/-0$/, "");
+    const price = ANTHROPIC_PRICES[claude] ?? ANTHROPIC_PRICES[family] ?? SUPPLEMENTAL_PRICES[family];
+    return price && { provider: "anthropic", price };
+  }
+  const id = (lower.split("/").at(-1) ?? "").replace(/\[[^\]]*\]$/, "").split(":")[0]!.trim();
+  const provider = providerOfId(id);
+  if (!provider || provider === "anthropic") return undefined;
+  const candidates = [id, id.replace(DATE_STAMP, "")];
+  if (provider === "google") candidates.push(id.replace(THINKING_LEVEL, ""), id.replace(DATE_STAMP, "").replace(THINKING_LEVEL, ""));
+  for (const c of candidates) {
+    const price = TABLES[provider][c] ?? SUPPLEMENTAL_PRICES[c];
+    if (price) return { provider, price };
+  }
+  return undefined;
 }
+
+/** List price for a model id (see `lookupPrice`), or undefined for a model on no price list we have. */
+export const findPrice = (model: string | undefined): ModelPrice | undefined => lookupPrice(model)?.price;
+
+/** The provider of a model we have a price for: `cache.ts` asks this, not whether a price exists, to tell explicit caches. */
+export const priceProvider = (model: string | undefined): PriceProvider | undefined => lookupPrice(model)?.provider;
 
 /**
  * Cost in USD of one model call at list price, or undefined for a model we have no price

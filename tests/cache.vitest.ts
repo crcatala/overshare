@@ -4,7 +4,7 @@ import { parsePi } from "../src/harnesses/pi/parse.js";
 import { MISS_RULE, markCacheEvents } from "../src/cache.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { prepareShare } from "../src/pipeline.js";
-import { estimateCost } from "../src/pricing.js";
+import { estimateCost, findPrice } from "../src/pricing.js";
 import { SHARE_MODES, type NormalizedSession, type ResponseUsage, type Step, type Turn, type Usage } from "../src/schema.js";
 import { computeStats } from "../src/stats.js";
 import { ClaudeTranscript, PiTranscript, ccUsage, piUsage } from "./helpers.js";
@@ -121,6 +121,26 @@ describe("cache miss detection", () => {
       markCacheEvents(lost);
       expect(lost.responses[2]!.cacheEvent).toMatchObject({ kind: "miss", recached: 30_000 });
       expect(MISS_RULE.implicit.tokens).toBeGreaterThan(MISS_RULE.explicit.tokens);
+    });
+
+    it("keeps a priced GPT or Gemini model on the implicit rule: a price is not an explicit cache", () => {
+      // Only cached reads, lagging the prefix by a block or two as best-effort caches do: no misses.
+      for (const m of ["gpt-6.1-sol", "gemini-4-neon-high"]) {
+        expect(findPrice(m), m).toBeDefined();
+        const s = session([{ input: 30_000, model: m }, { input: 5_000, read: 27_648, model: m }, { input: 4_000, read: 32_000, model: m }, { input: 6_000, read: 33_536, model: m }]);
+        const summary = markCacheEvents(s);
+        expect(events(s), m).toEqual([undefined, undefined, undefined, undefined]);
+        expect(summary, m).toMatchObject({ requests: 4, misses: 0 });
+      }
+    });
+
+    it("prices a lost GPT prefix from the price table when the harness recorded no rates", () => {
+      const m = "gpt-6.1-sol";
+      const s = session([{ input: 30_000, read: 0, model: m }, { input: 500, read: 29_500, model: m }, { input: 32_000, read: 0, model: m }]);
+      markCacheEvents(s);
+      // 30,000 re-processed tokens at the input rate ($2) instead of the cached-input rate ($0.10).
+      expect(s.responses[2]!.cacheEvent).toMatchObject({ kind: "miss", recached: 30_000 });
+      expect(s.responses[2]!.cacheEvent!.cost).toBeCloseTo((30_000 * (2 - 0.1)) / 1e6, 12);
     });
 
     it("treats a Claude model as explicit however few calls a short session has", () => {
@@ -460,6 +480,22 @@ describe("cache events through the adapters and the pipeline", () => {
     expect(st.rates?.["gpt-x"]).toEqual({ input: 2.5, cacheRead: 0.25 });
     expect(s.responses[1]!.cacheEvent).toMatchObject({ kind: "miss", recached: 60_500 });
     expect(s.responses[1]!.cacheEvent!.cost).toBeCloseTo((60_500 * 2.25) / 1e6, 9);
+  });
+
+  it("keeps a pi model's free cache reads as a rate of 0, not as missing (no list-price fallback)", () => {
+    // gpt-6.1-sol is in the price table ($2 input, $0.10 cached): the recorded rates must win over it.
+    const usage = (input: number, cacheRead: number) => ({ ...piUsage(input, 20, cacheRead, 0), cost: { input: (input * 0.5) / 1e6, cacheRead: 0, cacheWrite: 0, output: 0, total: (input * 0.5) / 1e6 } });
+    const t = new PiTranscript().user("go");
+    t.assistant([{ type: "text", text: "a" }], usage(500, 60_000), { model: "gpt-6.1-sol" });
+    t.assistant([{ type: "text", text: "b" }], usage(60_500, 0), { model: "gpt-6.1-sol" });
+    const { session: s } = parsePi(t.toJsonl());
+    const st = computeStats(s);
+    expect(st.rates?.["gpt-6.1-sol"]).toEqual({ input: 0.5, cacheRead: 0 });
+    expect(s.responses[1]!.cacheEvent!.cost).toBeCloseTo((60_500 * 0.5) / 1e6, 9);
+    // A call recorded as free altogether still gives no rates.
+    const free = new PiTranscript().user("go");
+    free.assistant([{ type: "text", text: "a" }], { ...piUsage(500, 20, 60_000, 0), cost: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 } }, { model: "glm-x" });
+    expect(computeStats(parsePi(free.toJsonl()).session).rates).toBeUndefined();
   });
 
   it("shows no cache summary for a pi provider that reports no cache tokens", () => {

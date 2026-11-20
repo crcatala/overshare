@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The price table also lists OpenAI and Gemini models (from models.dev, cross-checked against LiteLLM), ready for
+  harnesses that record tokens but no cost. A cache miss in a pi session on one of these models is now priced from
+  the table when pi's own recorded costs don't give the model's rates; pi sessions that record them are unchanged.
+  Only Claude models are treated as caching explicitly, as before: a priced GPT or Gemini model keeps the looser
+  cache-miss rule for best-effort caches.
+
 ## [0.6.2] - 2026-11-13
 
 ### Fixed

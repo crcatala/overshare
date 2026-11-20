@@ -137,7 +137,11 @@ function recordedRates(entries: Entry[]): Record<string, TokenRates> {
     const m = e.type === "message" ? e.message : undefined;
     if (m?.role !== "assistant" || typeof m.model !== "string" || !m.usage?.cost) continue;
     const u = m.usage;
-    const rate = (tokens: unknown, cost: unknown) => (typeof tokens === "number" && tokens > 0 && typeof cost === "number" && cost > 0 ? (cost / tokens) * 1_000_000 : undefined);
+    // A component recorded at $0 on a call that cost something is a real rate of 0 (free cache reads), not a missing
+    // one: dropping it would leave the model without rates and price its misses from the list-price table instead.
+    const paid = typeof u.cost.total === "number" && u.cost.total > 0;
+    const rate = (tokens: unknown, cost: unknown) =>
+      typeof tokens === "number" && tokens > 0 && typeof cost === "number" && (cost > 0 || (cost === 0 && paid)) ? (cost / tokens) * 1_000_000 : undefined;
     const found = { input: rate(u.input, u.cost.input), cacheRead: rate(u.cacheRead, u.cost.cacheRead), cacheWrite: rate(u.cacheWrite, u.cost.cacheWrite) };
     let into = rates.get(m.model);
     if (!into) rates.set(m.model, (into = {}));

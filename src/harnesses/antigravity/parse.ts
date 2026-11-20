@@ -99,6 +99,9 @@ function withoutShortenedFields(e: Entry, dropped: DropCounts): Entry {
 /** A tool result's text without the `Created At` / `Completed At` lines Antigravity puts first. */
 const resultBody = (content: string): string => content.replace(/^(?:(?:Created|Completed) At: [^\n]*\n)+/, "");
 
+/** The result of a call whose step Antigravity left out of the transcript (status 6: it did not run). */
+export const SKIPPED_RESULT = "[Not run: Antigravity cancelled this step]";
+
 /** What replaces a shortened preview whose full output file is gone: the preview may end inside a secret, so it is not shared. */
 export const MISSING_OUTPUT = "[Antigravity shortened this output and its full copy is gone; the shortened preview is not shared]";
 
@@ -146,7 +149,8 @@ export function parseAntigravity(raw: string, options: AdapterOptions = {}): Ada
       case "PLANNER_RESPONSE": {
         b.responseStarted();
         const responseId = `step-${idx}`;
-        const model = str(e.model);
+        // As written (`gemini-4-neon-high`, the thinking level included); the database's base model when missing.
+        const model = str(e.model) ?? sidecar.models?.[idx];
         if (model && !models.includes(model)) models.push(model);
         const thinking = typeof e.thinking === "string" ? e.thinking.trim() : "";
         if (thinking) b.addStep({ kind: "thinking", id: b.nextId("k"), ...(ts ? { timestamp: ts } : {}), responseId, chars: thinking.length, blocks: 1, text: thinking });
@@ -163,6 +167,15 @@ export function parseAntigravity(raw: string, options: AdapterOptions = {}): Ada
         });
         positional = !hasDb && calls.length ? { ids: callIds, at: idx } : undefined;
         const usage: Usage = { input: count(e.input_tokens), output: count(e.output_tokens), cacheRead: count(e.cache_read_tokens), cacheWrite: count(e.cache_write_tokens), reasoning: 0 };
+        // The database splits the output into thinking and reply and records cache writes (Claude models). Used only
+        // when it agrees with the transcript on what both record; otherwise the transcript stands, and the report says so.
+        const db = sidecar.usage?.[idx];
+        if (db) {
+          if (db.input === usage.input && db.output === usage.output && db.cacheRead === usage.cacheRead) {
+            usage.reasoning = Math.min(db.thinking, usage.output);
+            usage.cacheWrite = Math.max(usage.cacheWrite, db.cacheWrite);
+          } else bump(dropped, "db-usage-mismatch");
+        }
         if (usage.input + usage.output + usage.cacheRead + usage.cacheWrite > 0) b.setResponseUsage(responseId, usage, { model, timestamp: ts });
         b.idle = calls.length === 0;
         break;
@@ -219,6 +232,10 @@ export function parseAntigravity(raw: string, options: AdapterOptions = {}): Ada
       default:
         bump(dropped, `step:${/^[A-Z_]{1,40}$/.test(e.type) ? e.type : "unknown"}`);
     }
+  }
+  // Calls whose result step the transcript left out (status 6 in the database): they did not run.
+  for (const skip of Object.values(isObj(sidecar.skipped) ? sidecar.skipped : {})) {
+    if (skip?.answers && b.attachToolResult(skip.answers, { text: SKIPPED_RESULT })) bump(dropped, "skipped-step");
   }
   b.finalizeThinking();
   // Antigravity records tokens, not dollars: costs are estimated at list price (by the base model).

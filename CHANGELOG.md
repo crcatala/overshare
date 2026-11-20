@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   background-task messages as notifications, and cost is estimated from the tokens at Gemini list price. A tool
   output Antigravity shortened is shared from its full copy, so redaction sees all of it; if the copy is gone, the
   shortened preview is left out rather than shared cut.
+- Antigravity sessions also show how many output tokens went to thinking and, for Claude models run in Antigravity,
+  cache writes, read from the conversation's database where it agrees with the transcript (a disagreement is
+  noted in the report and the transcript's figures are kept). A tool call whose step Antigravity cancelled shows as
+  not run instead of having no result.
 - Sessions larger than 256 MB (`OVERSHARE_MAX_SESSION_MB` to change it) are listed in `browse` as too large to
   read, and `report`/`export`/`publish` say so, instead of the session vanishing or the read failing.
 

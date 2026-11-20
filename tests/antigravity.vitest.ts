@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { antigravity } from "../src/harnesses/antigravity/index.js";
 import { dataFolders, resetAntigravityCaches } from "../src/harnesses/antigravity/files.js";
-import { MISSING_OUTPUT, SHORTENED_FIELD, parseAntigravity, unwrapPrompt } from "../src/harnesses/antigravity/parse.js";
+import { MISSING_OUTPUT, SHORTENED_FIELD, SKIPPED_RESULT, parseAntigravity, unwrapPrompt } from "../src/harnesses/antigravity/parse.js";
 import { detectHarness, readSession } from "../src/harnesses/index.js";
 import { Collector } from "../src/harnesses/summary-kit.js";
 import { prepareShare } from "../src/pipeline.js";
@@ -108,6 +108,14 @@ describe("antigravity: parse with the conversation database", () => {
     expect(steps.find((s) => s.kind === "event" && s.event === "notification")).toMatchObject({ text: 'Task id "x/task-7" finished: 3 tests failed' });
   });
 
+  it("shows a call whose step the transcript skipped as not run, from the database's status", () => {
+    const c = new AntigravityConversation().user("go").respond({ calls: [{ name: "run_command", args: { CommandLine: "a" }, result: "A" }, { name: "run_command", args: { CommandLine: "b" }, skipped: true }] });
+    const l = load(c);
+    const { session, dropped } = parseAntigravity(l.raw, l.options);
+    expect(tools(session.turns[0]!.steps).map((s) => s.result?.text)).toEqual(["A", SKIPPED_RESULT]);
+    expect(dropped["skipped-step"]).toBe(1);
+  });
+
   it("pairs by id across a step the transcript skipped (a result in the database only)", () => {
     const c = new AntigravityConversation()
       .user("go")
@@ -115,7 +123,7 @@ describe("antigravity: parse with the conversation database", () => {
       .system("Reminder: work efficiently.");
     const l = load(c);
     const t = tools(parseAntigravity(l.raw, l.options).session.turns[0]!.steps);
-    expect(t.map((s) => [s.summary, s.result?.text])).toEqual([["a", "A"], ["b", undefined], ["c", "C"]]);
+    expect(t.map((s) => [s.summary, s.result?.text])).toEqual([["a", "A"], ["b", SKIPPED_RESULT], ["c", "C"]]);
   });
 
   it("without a database, pairs by position only while the steps line up, else leaves results unpaired", () => {
@@ -151,6 +159,39 @@ describe("antigravity: parse with the conversation database", () => {
     expect(p.session.responses[0]!.usage.cost).toBeCloseTo((6_000 * 3 + 30_000 * 0.15 + 200 * 15) / 1e6, 12);
     expect(p.session.stats).toMatchObject({ costSource: "estimated", tokens: { input: 7_200, cacheRead: 139_500, output: 330 } });
     expect(p.session.models).toEqual(["gemini-4-neon-high"]);
+  });
+
+  it("splits output into thinking and reply, and adds cache writes, from the database when it agrees with the transcript", () => {
+    const c = new AntigravityConversation()
+      .user("go")
+      .respond({ thinking: "plan", text: "a", input: 2_000, cacheRead: 10_000, output: 300, db: { thinking: 120 } })
+      .respond({ text: "b", input: 500, cacheRead: 12_000, output: 80, model: "claude-sonnet-5-5", db: { thinking: 30, cacheWrite: 4_000 } })
+      // The database disagrees (input): the transcript stands, and the report says so.
+      .respond({ text: "c", input: 700, output: 40, db: { thinking: 10, input: 999 } });
+    const l = load(c);
+    const p = share(l);
+    expect(p.session.responses.map((r) => [r.usage.reasoning, r.usage.cacheWrite])).toEqual([[120, 0], [30, 4_000], [0, 0]]);
+    expect(p.session.stats.thinking.tokens).toBe(150);
+    expect(p.report.dropped["db-usage-mismatch"]).toBe(1);
+    // A Claude model's cache writes are priced as writes ($2.50 for Sonnet 5.5).
+    expect(p.session.responses[1]!.usage.cost).toBeCloseTo((500 * 2 + 12_000 * 0.1 + 4_000 * 2.5 + 80 * 10) / 1e6, 12);
+  });
+
+  it("takes the base model from the database when the transcript names none", () => {
+    const c = new AntigravityConversation().user("go").respond({ text: "a", omitModel: true, db: { baseModel: "gemini-4-argon" } });
+    const l = load(c);
+    expect(parseAntigravity(l.raw, l.options).session.responses[0]!.model).toBe("gemini-4-argon");
+  });
+
+  it("falls back to the transcript alone when the database has an unknown layout", () => {
+    const data = dataDir();
+    const c = new AntigravityConversation().user("go").respond({ text: "a", calls: [{ name: "run_command", args: { CommandLine: "x" }, result: "X" }] });
+    const file = c.write(data, { db: false });
+    mkdirSync(join(data, "conversations"), { recursive: true });
+    writeFileSync(join(data, "conversations", `${c.id}.db`), "not a database");
+    const { raw, options } = readSession("antigravity", file);
+    const t = tools(parseAntigravity(raw, options).session.turns[0]!.steps);
+    expect(t.map((s) => s.result?.text)).toEqual(["X"]);
   });
 
   it("records a stream error and counts images", () => {

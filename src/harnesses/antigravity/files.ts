@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { listDir } from "../discovery.js";
 import { maxSessionBytes } from "../limits.js";
 import { lines, parseLine } from "../summary-kit.js";
-import { getMessages, getString, getAll, text } from "./protobuf.js";
+import { getMessages, getNumber, getString, getAll, text } from "./protobuf.js";
 import { withDatabase } from "./sqlite.js";
 
 /**
@@ -97,6 +97,21 @@ export interface ConversationDb {
   calls: Record<string, string[]>;
   /** The call each tool result answers, by step index. */
   answers: Record<string, string>;
+  /** Each model response's usage as the database records it, by step index (thinking and reply split, cache writes). */
+  usage: Record<string, DbUsage>;
+  /** The base model of each model response (`gemini-4-neon`), by step index. */
+  models: Record<string, string>;
+  /** Steps the transcript leaves out (status 6, apparently cancelled), by step index, with the call each answered. */
+  skipped: Record<string, { answers?: string }>;
+}
+
+/** `steps.metadata` field 9: 2 input, 3 output, 4 cache write, 5 cache read, 9 thinking output, 10 reply output. */
+export interface DbUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  thinking: number;
 }
 
 const fromUri = (uri: string): string | undefined => {
@@ -128,6 +143,8 @@ function workspacesOf(blob: Uint8Array): Workspace[] {
 }
 
 const STEP_MODEL_RESPONSE = 15;
+/** A step's status when the transcript leaves it out (seen on a step the agent did not run). */
+const STATUS_SKIPPED = 6;
 
 /** Read what the transcript lacks from `conversations/<id>.db`. Undefined when there is no database or it cannot be read. */
 export function readConversationDb(path: string): ConversationDb | undefined {
@@ -137,21 +154,52 @@ export function readConversationDb(path: string): ConversationDb | undefined {
     const workspaces = meta instanceof Uint8Array ? workspacesOf(meta) : [];
     const calls: Record<string, string[]> = {};
     const answers: Record<string, string> = {};
-    for (const row of db.prepare("select idx, step_type, step_payload from steps order by idx").all()) {
+    const usage: Record<string, DbUsage> = {};
+    const skipped: Record<string, { answers?: string }> = {};
+    const responseSteps: number[] = [];
+    for (const row of db.prepare("select idx, step_type, status, metadata, step_payload from steps order by idx").all()) {
       const idx = row.idx;
       const payload = row.step_payload;
       if (typeof idx !== "number" || !(payload instanceof Uint8Array)) continue;
       if (row.step_type === STEP_MODEL_RESPONSE) {
+        responseSteps.push(idx);
         const ids = getMessages(payload, [20, 7]).map((c) => getString(c, [1]) ?? "");
         if (ids.length) calls[idx] = ids;
+        const u = row.metadata instanceof Uint8Array ? getMessages(row.metadata, [9])[0] : undefined;
+        if (u) usage[idx] = { input: getNumber(u, [2]) ?? 0, output: getNumber(u, [3]) ?? 0, cacheWrite: getNumber(u, [4]) ?? 0, cacheRead: getNumber(u, [5]) ?? 0, thinking: getNumber(u, [9]) ?? 0 };
       } else {
         // A tool result names the call it answers (payload 5 -> 4 -> 1).
         const answer = getString(payload, [5, 4, 1]);
         if (answer) answers[idx] = answer;
       }
+      if (row.status === STATUS_SKIPPED) skipped[idx] = { ...(answers[idx] ? { answers: answers[idx] } : {}) };
     }
-    return { workspaces, calls, answers };
+    return { workspaces, calls, answers, usage, models: generationModels(db, responseSteps), skipped };
   });
+}
+
+/**
+ * The base model of each model response, from `gen_metadata` (one row per generation): field 1 holds 19 (the model,
+ * `gemini-4-neon`) and key/value pairs (20) with `last_step_index`, the step before the response it produced.
+ */
+function generationModels(db: { prepare(sql: string): { all(): Record<string, unknown>[] } }, responseSteps: readonly number[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  let rows: Record<string, unknown>[];
+  try {
+    rows = db.prepare("select data from gen_metadata order by idx").all();
+  } catch {
+    return out;
+  }
+  for (const row of rows) {
+    if (!(row.data instanceof Uint8Array)) continue;
+    const gen = getMessages(row.data, [1])[0];
+    const model = gen ? getString(gen, [19]) : undefined;
+    const after = gen ? getMessages(gen, [20]).find((kv) => getString(kv, [1]) === "last_step_index") : undefined;
+    const last = after ? Number(getString(after, [2])) : Number.NaN;
+    const step = Number.isFinite(last) ? responseSteps.find((s) => s > last) : undefined;
+    if (model && step !== undefined) out[step] = model;
+  }
+  return out;
 }
 
 /** `conversation_summaries.db`, a cache of every conversation's workspaces: only for a conversation without its own database. */
@@ -240,6 +288,9 @@ export interface AntigravitySidecar {
   workspaces?: Workspace[];
   calls?: Record<string, string[]>;
   answers?: Record<string, string>;
+  usage?: Record<string, DbUsage>;
+  models?: Record<string, string>;
+  skipped?: Record<string, { answers?: string }>;
   /**
    * Full outputs of tool results the transcript shortened, by step index (`steps/<n>/output.txt`); `null` when the
    * file is gone, so the shortened preview is dropped rather than shared.
@@ -305,7 +356,7 @@ export function loadAntigravitySidecar(file: string, purpose: "parse" | "summary
     id: conversationId(file),
     ...(title ? { title } : {}),
     ...(workspaces.length ? { workspaces } : {}),
-    ...(db ? { calls: db.calls, answers: db.answers } : {}),
+    ...(db ? { calls: db.calls, answers: db.answers, usage: db.usage, models: db.models, skipped: db.skipped } : {}),
     ...(Object.keys(outputs).length ? { outputs } : {}),
   };
 }

@@ -63,7 +63,9 @@ export function wrapPrompt(text: string, opts: { t3?: boolean; settings?: string
 export class AntigravityConversation {
   steps: Json[] = [];
   /** Database rows: step index, step type, status and payload. */
-  dbSteps: { idx: number; type: number; status: number; payload: Pb }[] = [];
+  dbSteps: { idx: number; type: number; status: number; payload: Pb; metadata?: Pb }[] = [];
+  /** `gen_metadata` rows: the base model, and the step before the response it produced. */
+  generations: { model: string; lastStep: number }[] = [];
   /** Full outputs of shortened results, by step index (written to `steps/<n>/output.txt`). */
   outputs = new Map<number, string>();
   private idx = 0;
@@ -92,11 +94,11 @@ export class AntigravityConversation {
   }
 
   /** A model response: text, thinking, tool calls (each with its result step after it), usage. */
-  respond(opts: { text?: string; thinking?: string; calls?: Call[]; input?: number | string; cacheRead?: number; output?: number; model?: string } = {}): this {
+  respond(opts: { text?: string; thinking?: string; calls?: Call[]; input?: number | string; cacheRead?: number; output?: number; model?: string; db?: { thinking?: number; cacheWrite?: number; input?: number; baseModel?: string }; omitModel?: boolean } = {}): this {
     const calls = opts.calls ?? [];
     const ids = calls.map(() => `call_${++this.callSeq}${"0".repeat(12)}`);
     const idx = this.step("PLANNER_RESPONSE", "MODEL", {
-      model: opts.model ?? "gemini-4-neon-high",
+      ...(opts.omitModel ? {} : { model: opts.model ?? "gemini-4-neon-high" }),
       input_tokens: opts.input ?? 1_000,
       cache_read_tokens: opts.cacheRead ?? 0,
       output_tokens: opts.output ?? 50,
@@ -104,7 +106,12 @@ export class AntigravityConversation {
       ...(opts.thinking ? { thinking: opts.thinking } : {}),
       ...(calls.length ? { tool_calls: calls.map((c) => ({ name: c.name, args: c.args })) } : {}),
     });
-    this.dbSteps.push({ idx, type: 15, status: 3, payload: [[1, 15], [20, ids.map((id, i) => [7, [[1, id], [2, calls[i]!.name], [3, JSON.stringify(calls[i]!.args)]]] as [number, Pb])]] });
+    const input = Number(opts.input ?? 1_000);
+    const output = opts.output ?? 50;
+    const thinking = opts.db?.thinking ?? 0;
+    const usage: Pb = [[1, 1532], [2, opts.db?.input ?? input], [3, output], ...(opts.db?.cacheWrite ? ([[4, opts.db.cacheWrite]] as Pb) : []), ...(opts.cacheRead ? ([[5, opts.cacheRead]] as Pb) : []), [9, thinking], [10, output - thinking]];
+    this.dbSteps.push({ idx, type: 15, status: 3, metadata: [[9, usage]], payload: [[1, 15], [20, ids.map((id, i) => [7, [[1, id], [2, calls[i]!.name], [3, JSON.stringify(calls[i]!.args)]]] as [number, Pb])]] });
+    this.generations.push({ model: opts.db?.baseModel ?? "gemini-4-neon", lastStep: idx - 1 });
     calls.forEach((c, i) => {
       if (c.skipped) {
         // Cancelled (status 6): in the database, missing from the transcript.
@@ -173,8 +180,11 @@ export class AntigravityConversation {
       const db = new DatabaseSync(join(data, "conversations", `${this.id}.db`));
       db.exec("CREATE TABLE steps (idx integer, step_type integer NOT NULL DEFAULT 0, status integer NOT NULL DEFAULT 0, metadata blob, step_payload blob, PRIMARY KEY (idx))");
       db.exec('CREATE TABLE trajectory_metadata_blob (id text DEFAULT "main", data blob, PRIMARY KEY (id))');
-      const insert = db.prepare("INSERT INTO steps (idx, step_type, status, step_payload) VALUES (?, ?, ?, ?)");
-      for (const s of this.dbSteps) insert.run(s.idx, s.type, s.status, encode(s.payload));
+      const insert = db.prepare("INSERT INTO steps (idx, step_type, status, metadata, step_payload) VALUES (?, ?, ?, ?, ?)");
+      for (const s of this.dbSteps) insert.run(s.idx, s.type, s.status, s.metadata ? encode(s.metadata) : null, encode(s.payload));
+      db.exec("CREATE TABLE gen_metadata (idx integer, data blob, size integer NOT NULL DEFAULT 0, PRIMARY KEY (idx))");
+      const gen = db.prepare("INSERT INTO gen_metadata (idx, data) VALUES (?, ?)");
+      this.generations.forEach((g, i) => gen.run(i, encode([[1, [[3, 1532], [19, g.model], [20, [[1, "last_step_index"], [2, String(g.lastStep)]]], [21, "Gemini 4 Neon (High)"]]]])));
       db.prepare("INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?)").run(this.metadataBlob());
       db.close();
     }

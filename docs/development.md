@@ -165,7 +165,9 @@ src/harnesses/
   summary-kit.ts   Collector, for the browser's one-pass index
   claude-code/     parse.ts, usage.ts, summarize.ts, subagent-files.ts, index.ts (the descriptor)
   pi/              parse.ts, summarize.ts, index.ts
-  codex/           parse.ts, summarize.ts, files.ts (date-tree listing, header lines, session index), index.ts
+  codex/           parse.ts, summarize.ts, files.ts (date-tree listing, header lines, session index),
+                   subagents.ts (child rollouts), index.ts
+  subagent-runs.ts linking subagents' own transcripts (Claude Code, Codex) to the steps that launched them
 ```
 
 1. Add an entry for it in `src/harnesses/meta.ts`. `npm run typecheck` now fails in

@@ -5,11 +5,13 @@ import { codex } from "./codex/index.js";
 import { pi } from "./pi/index.js";
 import type { AdapterOptions, AdapterResult, SubagentFileInput } from "./shared.js";
 import type { Harness } from "./types.js";
+import { checkSessionSize } from "./limits.js";
 
 export { HARNESS_NAMES, type HarnessName } from "./meta.js";
 export type { AdapterOptions, AdapterResult, SubagentFileInput } from "./shared.js";
 export { UnsupportedFormatError } from "./shared.js";
 export type { Harness } from "./types.js";
+export { SessionTooLargeError, checkSessionSize, maxSessionBytes } from "./limits.js";
 
 /**
  * Every harness we read. Typed by `HarnessName`, so a name added to `meta.ts` without a descriptor here is a type
@@ -69,34 +71,6 @@ export function loadSubagentFiles(harness: HarnessName, sessionPath: string): Su
 /** What a harness keeps beside a session's transcript (see `Harness.sidecar`), or undefined when it keeps nothing there. */
 export function loadSidecar(harness: HarnessName, sessionPath: string): unknown {
   return known(harness)?.sidecar?.load(sessionPath);
-}
-
-/** Default for `maxSessionBytes`: well under the longest string Node can hold, which a whole-file read needs. */
-const DEFAULT_MAX_SESSION_MB = 256;
-
-/** The largest transcript overshare reads into memory: `OVERSHARE_MAX_SESSION_MB` megabytes, else 256. */
-export function maxSessionBytes(env: NodeJS.ProcessEnv = process.env): number {
-  const mb = Number(env.OVERSHARE_MAX_SESSION_MB);
-  return (Number.isFinite(mb) && mb > 0 ? mb : DEFAULT_MAX_SESSION_MB) * 1024 * 1024;
-}
-
-const megabytes = (bytes: number): string => `${Math.ceil(bytes / (1024 * 1024)).toLocaleString("en-US")} MB`;
-
-/** A transcript larger than `maxSessionBytes`. The message is fixed text and sizes: it never quotes the file or its path. */
-export class SessionTooLargeError extends Error {
-  constructor(
-    readonly size: number,
-    readonly limit: number,
-  ) {
-    super(`The session file is ${megabytes(size)}, more than the ${megabytes(limit)} overshare reads (set OVERSHARE_MAX_SESSION_MB to raise it)`);
-    this.name = "SessionTooLargeError";
-  }
-}
-
-/** Throws `SessionTooLargeError` when a file of `size` bytes is over the limit. */
-export function checkSessionSize(size: number, env: NodeJS.ProcessEnv = process.env): void {
-  const limit = maxSessionBytes(env);
-  if (size > limit) throw new SessionTooLargeError(size, limit);
 }
 
 /**

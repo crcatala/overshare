@@ -1,7 +1,8 @@
 # OpenAI Codex session format (research notes)
 
-Status: current rollouts (history mode `paginated`) are supported by `src/harnesses/codex/` (ove-m3y1); subagents,
-compaction, `.jsonl.zst` and continuation files are ove-f0o0, legacy history mode ove-l2s7. Plan and tickets:
+Status: current rollouts (history mode `paginated`), subagents and compaction are supported by
+`src/harnesses/codex/` (ove-m3y1, ove-f0o0); `.jsonl.zst` and continuation files are the rest of ove-f0o0, legacy
+history mode ove-l2s7. Plan and tickets:
 `.tickets/` epic "Support Codex and Antigravity sessions". Gathered 2026-11-20 from 62 local rollouts (Codex CLI 0.163–0.169, plus one 0.58 file), the
 `openai/codex` source, and other parsers. OpenAI calls the rollout file an internal resume log, not a public
 format, so expect drift: skip unknown line types instead of failing, and add a fixture for every new shape.

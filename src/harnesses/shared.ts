@@ -324,6 +324,15 @@ export class TurnBuilder {
     return step;
   }
 
+  /**
+   * A subagent step the adapter built itself rather than through `addToolCall` (Codex's `spawn_agent`), so a transcript
+   * file can be linked to it by `findSubagent`: by the step's id, and by `agentId` once known.
+   */
+  trackSubagent(step: SubagentStep, agentId?: string): void {
+    this.subagentSteps.set(step.id, step);
+    if (agentId) this.subagentsByAgentId.set(agentId, step);
+  }
+
   /** The subagent step a transcript file belongs to: by the launching tool call's id, else by the agent's id. */
   findSubagent(toolUseId: string | undefined, agentId: string | undefined): SubagentStep | undefined {
     return (toolUseId ? this.subagentSteps.get(toolUseId) : undefined) ?? (agentId ? this.subagentsByAgentId.get(agentId) : undefined);

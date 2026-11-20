@@ -420,3 +420,151 @@ describe("session size limit", () => {
     }
   });
 });
+
+describe("codex: subagents", () => {
+  afterEach(() => resetCodexCaches());
+  const PARENT = "01a0c0de-0000-7000-8000-0000000000a0";
+  const CHILD = "01a0c0de-0000-7000-8000-0000000000a1";
+  const GRANDCHILD = "01a0c0de-0000-7000-8000-0000000000a2";
+
+  /** A parent that spawns `explorer`, whose rollout replays the parent's history and then does its own work. */
+  function family() {
+    const parent = new CodexTranscript(PARENT, "/work/one").user("map the repo").say("Spawning an explorer.", "commentary").usage({ input: 2_000, cached: 0, output: 30 });
+    parent.spawn("explorer", CHILD).agentMessage("/root/explorer").say("The explorer found two packages.").usage({ input: 3_000, cached: 2_000, output: 50 }).complete();
+    const child = new CodexTranscript(CHILD, "/work/one", { subagent: { parent: PARENT } });
+    // The replayed parent history: its prompt and a usage record that is the parent's, not the child's.
+    child.user("map the repo").say("Spawning an explorer.", "commentary").usage({ input: 2_000, cached: 0, output: 30 });
+    child.startOwnHistory();
+    child.exec([{ cmd: "ls packages", output: "a b" }], { input: 5_000, cached: 4_000, output: 100 }).say("Two packages: a and b.").usage({ input: 5_500, cached: 5_000, output: 40 });
+    const grandchild = new CodexTranscript(GRANDCHILD, "/work/one", { subagent: { parent: CHILD, task: "reader" } }).startOwnHistory().turnContext().say("read a").usage({ input: 700, cached: 0, output: 7 });
+    return { parent, child, grandchild };
+  }
+
+  function homeWith(f: ReturnType<typeof family>) {
+    const dir = mkdtempSync(join(tmpdir(), "codex-sub-"));
+    const day = join(dir, "sessions", "2026", "01", "01");
+    mkdirSync(day, { recursive: true });
+    const path = (id: string, n: number) => join(day, `rollout-2026-01-01T00-00-0${n}-${id}.jsonl`);
+    writeFileSync(path(PARENT, 1), f.parent.toJsonl());
+    writeFileSync(path(CHILD, 2), f.child.toJsonl());
+    writeFileSync(path(GRANDCHILD, 3), f.grandchild.toJsonl());
+    return { root: join(dir, "sessions"), parent: path(PARENT, 1), child: path(CHILD, 2) };
+  }
+
+  it("finds the rollouts a session's agents wrote (their own too), and keeps them out of the list", () => {
+    const h = homeWith(family());
+    expect(codex.listFiles(h.root)).toEqual([h.parent]);
+    expect(codex.subagents?.count(h.parent, PARENT)).toBe(2);
+    expect(codex.subagents?.load(h.parent).map((f) => f.fileName)).toEqual([`rollout-2026-01-01T00-00-02-${CHILD}.jsonl`, `rollout-2026-01-01T00-00-03-${GRANDCHILD}.jsonl`]);
+    expect(codex.subagents?.count(h.child, CHILD)).toBe(1);
+  });
+
+  it("puts the agents' own spend on the spawn step, never the history they replayed, and their answer as its result", () => {
+    const h = homeWith(family());
+    const { raw, options } = readSession("codex", h.parent);
+    const p = share(raw, "full");
+    const shared = prepareShare(raw, { mode: "full", config: DEFAULT_CONFIG, harness: "codex", knownSecrets: [], ...options });
+    const spawn = shared.session.turns[0]!.steps.find((s): s is SubagentStep => s.kind === "subagent")!;
+    // Child: 1,000 + 500 uncached, 4,000 + 5,000 cached, 140 output; grandchild: 700 uncached, 7 output.
+    expect(spawn.usage).toMatchObject({ input: 2_200, cacheRead: 9_000, output: 147, turns: 3, toolUses: 1, nested: 1, models: ["gpt-6.1-sol"] });
+    expect(spawn.usage!.cost).toBeCloseTo((2_200 * 2 + 9_000 * 0.1 + 147 * 10) / 1e6, 12);
+    expect(spawn.result?.text).toBe("Two packages: a and b.");
+    expect(spawn.async).toBe(true);
+    expect(shared.session.stats.subagentUsage).toMatchObject({ agents: 2, responses: 3, tokens: { input: 2_200, cacheRead: 9_000, output: 147 } });
+    expect(shared.session.stats.subagentUsage?.unlinked).toBeUndefined();
+    // The parent's own usage is unchanged by its agents, and without the files there are no subagent figures.
+    expect(shared.session.stats.tokens).toEqual(p.session.stats.tokens);
+    expect(p.session.stats.subagentUsage).toBeUndefined();
+    expect(shared.json).not.toMatch(/gAAAA/);
+  });
+
+  it("links overlapping spawns by call id, whatever their task names and the order they start in", () => {
+    const A = "01a0c0de-0000-7000-8000-0000000000d1";
+    const B = "01a0c0de-0000-7000-8000-0000000000d2";
+    const parent = new CodexTranscript(PARENT, "/work/one").user("two at once");
+    const first = parent.spawnCall("alpha");
+    const second = parent.spawnCall("beta");
+    // Started in the other order, with agent paths that do not end in the task names.
+    parent.spawnStarted(second, B, "/root/agent_2").spawnStarted(first, A, "/root/agent_1").spawnOutput(first, "/root/agent_1").spawnOutput(second, "/root/agent_2");
+    const child = (id: string, answer: string, input: number) => new CodexTranscript(id, "/work/one", { subagent: { parent: PARENT } }).startOwnHistory().turnContext().say(answer).usage({ input });
+    const { session } = parseCodex(parent.toJsonl(), { subagentFiles: [{ fileName: "a.jsonl", raw: child(A, "alpha answer", 111).toJsonl() }, { fileName: "b.jsonl", raw: child(B, "beta answer", 222).toJsonl() }] });
+    const spawns = session.turns[0]!.steps.filter((s): s is SubagentStep => s.kind === "subagent");
+    expect(spawns.map((s) => [s.agents[0], s.result?.text, s.usage?.input])).toEqual([["alpha", "alpha answer", 111], ["beta", "beta answer", 222]]);
+  });
+
+  it("does not take an interrupted agent's last progress note as its answer", () => {
+    const parent = new CodexTranscript(PARENT, "/work/one").user("go").spawn("explorer", CHILD);
+    const child = new CodexTranscript(CHILD, "/work/one", { subagent: { parent: PARENT } }).startOwnHistory().turnContext().say("Done with part one.").say("Now checking the tests…", "commentary").usage({ input: 300 }).abort();
+    const spawn = parseCodex(parent.toJsonl(), { subagentFiles: [{ fileName: "c.jsonl", raw: child.toJsonl() }] }).session.turns[0]!.steps.find((s): s is SubagentStep => s.kind === "subagent")!;
+    expect(spawn.result?.text).toBe('{"agent_path":"/root/explorer"}');
+    expect(spawn.usage?.input).toBe(300);
+  });
+
+  it("counts a child's token_count fallback when its only usage record is torn", () => {
+    const parent = new CodexTranscript(PARENT, "/work/one").user("go").spawn("explorer", CHILD);
+    const child = new CodexTranscript(CHILD, "/work/one", { subagent: { parent: PARENT } }).startOwnHistory().turnContext();
+    child.records = false;
+    child.say("ok").usage({ input: 400, cached: 100 });
+    const raw = `${child.toJsonl()}{"timestamp":"2026-01-01T00:09:00.000Z","ordinal":99,"type":"token_usage_record","payload":{"usage":{"input_t`;
+    const spawn = parseCodex(parent.toJsonl(), { subagentFiles: [{ fileName: "c.jsonl", raw }] }).session.turns[0]!.steps.find((s): s is SubagentStep => s.kind === "subagent")!;
+    expect(spawn.usage).toMatchObject({ input: 300, cacheRead: 100, turns: 1 });
+  });
+
+  it("finds child rollouts under a sessions root with any name (OVERSHARE_CODEX_SESSIONS)", () => {
+    const f = family();
+    const dir = mkdtempSync(join(tmpdir(), "codex-custom-"));
+    const day = join(dir, "my-rollouts", "2026", "01", "01");
+    mkdirSync(day, { recursive: true });
+    const parentFile = join(day, `rollout-2026-01-01T00-00-01-${PARENT}.jsonl`);
+    writeFileSync(parentFile, f.parent.toJsonl());
+    writeFileSync(join(day, `rollout-2026-01-01T00-00-02-${CHILD}.jsonl`), f.child.toJsonl());
+    expect(codex.subagents?.count(parentFile, PARENT)).toBe(1);
+  });
+
+  it("marks a child rollout's replayed history inherited when it is opened on its own", () => {
+    const f = family();
+    const { session } = parseCodex(f.child.toJsonl());
+    expect(session.responses.map((r) => [r.usage.input, r.inherited ?? false])).toEqual([[2_000, true], [1_000, false], [500, false]]);
+    const st = share(f.child.toJsonl()).session.stats;
+    expect(st.tokens).toMatchObject({ input: 1_500, cacheRead: 9_000 });
+    expect(st.inherited).toMatchObject({ responses: 1, tokens: { input: 2_000 } });
+  });
+});
+
+describe("codex: compaction", () => {
+  it("shows a checkpoint as a compaction with its summary, counts its call, and calls the next prompt a rebuild", () => {
+    const t = new CodexTranscript().user("long task").say("a").usage({ input: 100_000, cached: 0, output: 100 }).say("b").usage({ input: 101_000, cached: 99_840, output: 100 });
+    // The summary call (usage with no reply of its own), then the checkpoint.
+    t.usage({ input: 101_500, cached: 100_864, output: 2_000 }).compacted("Summary: we were refactoring the parser.");
+    t.say("c").usage({ input: 12_000, cached: 0, output: 50 }).complete();
+    const p = share(t.toJsonl());
+    const steps = p.session.turns[0]!.steps;
+    expect(steps.find((s) => s.kind === "event" && s.event === "compaction")).toMatchObject({ text: "Context compacted", detail: "Summary: we were refactoring the parser." });
+    expect(p.session.responses.map((r) => r.purpose)).toEqual([undefined, undefined, "compaction", undefined]);
+    expect(p.session.stats.compactions).toBe(1);
+    // The first call after the compaction re-reads a rebuilt context: expected, not a miss.
+    expect(p.session.responses[3]!.cacheEvent).toMatchObject({ kind: "rebuild" });
+    expect(p.session.stats.cache).toMatchObject({ misses: 0, rebuilds: 1 });
+    expect(p.json).not.toContain("REPLACED-HISTORY-MARKER");
+    expect(p.session.redaction?.dropped["compacted-history"]).toBe(1);
+  });
+
+  it("keeps compaction output out of the replies and finds the compaction call by the id the checkpoint names", () => {
+    const t = new CodexTranscript().user("long task").say("a").usage({ input: 100_000, cached: 0, output: 100 });
+    // Codex 0.169: the summary is written as output first, then the usage record, then the checkpoint naming it.
+    const id = t.nextResponseId;
+    t.compactionOutput("COMPACTION-SUMMARY-OUTPUT").usage({ input: 100_500, cached: 99_840, output: 2_000 }).compacted("Summary: refactoring.", id);
+    t.say("b").usage({ input: 12_000, cached: 0, output: 50 }).complete();
+    const p = share(t.toJsonl());
+    expect(p.session.turns[0]!.steps.filter((s) => s.kind === "text").map((s) => s.kind === "text" && s.text)).toEqual(["a", "b"]);
+    expect(p.json).not.toContain("COMPACTION-SUMMARY-OUTPUT");
+    expect(p.session.responses.find((r) => r.id === id)?.purpose).toBe("compaction");
+    expect(p.session.redaction?.dropped["compaction-output"]).toBe(1);
+  });
+
+  it("takes a ContextCompaction item as the compaction when the rollout has no checkpoint line", () => {
+    const t = new CodexTranscript().user("go").say("a").usage({ input: 100 });
+    t.line("event_msg", { type: "item_completed", item: { type: "ContextCompaction", id: "cc1" } });
+    expect(parseCodex(t.toJsonl()).session.turns[0]!.steps.at(-1)).toMatchObject({ kind: "event", event: "compaction" });
+  });
+});

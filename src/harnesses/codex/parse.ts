@@ -2,8 +2,10 @@ import { posix } from "node:path";
 import { projectFromCwd } from "../../sessions/repo.js";
 import type { EventKind, Step, SubagentStep, ToolAction, ToolStep, Usage } from "../../schema.js";
 import { TurnBuilder, UnsupportedFormatError, baseSession, bump, estimateCosts, type AdapterOptions, type AdapterResult, type DropCounts } from "../shared.js";
+import { linkSubagentRuns, type SubagentRun } from "../subagent-runs.js";
 import { lines, parseLine } from "../summary-kit.js";
 import type { CodexSidecar } from "./files.js";
+import { readCodexRun } from "./subagents.js";
 
 /**
  * Codex rollouts (`~/.codex/sessions/YYYY/MM/DD/rollout-<time>-<thread>.jsonl`), history mode `paginated` (current
@@ -204,6 +206,17 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
   const openShell = new Set<string>();
   /** Spawned agents, by call id, for their output. */
   const spawns = new Map<string, SubagentStep>();
+  /** Spawn steps not yet matched to the thread they started (`SubAgentActivity` names it), with their task name. */
+  const unmatchedSpawns: { step: SubagentStep; task?: string }[] = [];
+  /** A child replays its parent's history before this ordinal: that part is the parent's (its usage is inherited). */
+  let ownFrom = 0;
+  let inherited = false;
+  /** A usage record with no step of its own: the call a compaction that follows was made with. */
+  let bareRecord: { id: string } | undefined;
+  /** Calls checkpoints name as the ones they were made with (`compaction_response_id`). */
+  const compactionCalls = new Set<string>();
+  /** Rollouts with `compacted` lines also mark the compaction as an item; one of the two is enough. */
+  const hasCompactedLines = raw.includes('"type":"compacted"');
   /** Events read before the prompt of the turn they belong to (a model switch is recorded first). */
   let pending: { event: EventKind; text: string; timestamp?: string }[] = [];
   /**
@@ -219,6 +232,7 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
     pending = [];
   };
   const output = (step: Step) => {
+    bareRecord = undefined;
     flushPending();
     b.responseStarted();
     b.addStep(step);
@@ -232,12 +246,22 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
   };
   const recordUsage = (id: string, usage: Usage, timestamp: string | undefined) => {
     records += 1;
+    bareRecord = unassigned.length === 0 ? { id } : undefined;
     for (const s of unassigned) s.responseId ??= id;
     unassigned = [];
-    b.setResponseUsage(id, usage, { model, timestamp });
+    b.setResponseUsage(id, usage, { model, timestamp, ...(inherited ? { inherited: true } : {}) });
+  };
+  const compaction = (detail: string | undefined, ts: string | undefined) => {
+    flushPending();
+    // The summary call itself, when its usage was recorded before the checkpoint with no reply of its own.
+    const call = bareRecord ? b.responses.find((r) => r.id === bareRecord!.id) : undefined;
+    if (call) call.purpose = "compaction";
+    bareRecord = undefined;
+    b.addEvent("compaction", "Context compacted", ts, detail);
   };
   /** A command or search a call ran: under the open `exec` call, with its response. */
   const addChild = (step: ToolStep) => {
+    bareRecord = undefined;
     flushPending();
     const parent = latestExec;
     if (parent) {
@@ -263,10 +287,21 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
       endedAt = ts;
     }
     const p: Entry = isObj(e.payload) ? e.payload : {};
+    inherited = typeof e.ordinal === "number" && e.ordinal < ownFrom;
     switch (e.type) {
       case "session_meta":
         // A subagent's rollout has a second one, its parent's: the first is this thread's.
-        meta ??= p;
+        if (!meta) {
+          meta = p;
+          if (typeof p.subagent_history_start_ordinal === "number") ownFrom = p.subagent_history_start_ordinal;
+        }
+        break;
+      case "compacted":
+        // A checkpoint: `message` is the summary that replaced the history (`replacement_history`, never copied).
+        // `compaction_response_id` names the call that made it, which may be recorded before or after this line.
+        if (str(p.compaction_response_id)) compactionCalls.add(p.compaction_response_id);
+        compaction(str(p.message), ts);
+        if (p.replacement_history !== undefined) bump(dropped, "compacted-history");
         break;
       case "turn_context": {
         const settings = isObj(p.collaboration_mode) && isObj(p.collaboration_mode.settings) ? p.collaboration_mode.settings : {};
@@ -284,6 +319,11 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
         break;
       }
       case "response_item":
+        // Output a compaction generated (its summary) is not a reply the user saw; Codex marks it in the line's metadata.
+        if (isObj(e.metadata) && e.metadata.compaction_output === true) {
+          bump(dropped, "compaction-output");
+          break;
+        }
         responseItem(p, ts);
         break;
       case "event_msg":
@@ -384,10 +424,14 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
         if (p.name === "spawn_agent") {
           const a = isObj(args) ? args : {};
           const agent = str(a.task_name) ?? str(a.agent_type) ?? str(a.name);
-          const step: SubagentStep = { kind: "subagent", id: callId, ...(ts ? { timestamp: ts } : {}), tool: "spawn_agent", agents: agent ? [agent] : [] };
+          // The agent runs in the background; the call's output only says where it is.
+          const step: SubagentStep = { kind: "subagent", id: callId, ...(ts ? { timestamp: ts } : {}), tool: "spawn_agent", agents: agent ? [agent] : [], async: true };
           b.addStep(step);
+          b.trackSubagent(step);
           spawns.set(callId, step);
+          unmatchedSpawns.push({ step, task: str(a.task_name) });
           unassigned.push(step);
+          bareRecord = undefined;
           break;
         }
         b.addToolCall(callId, p.name, args, { ...(ts ? { timestamp: ts } : {}) });
@@ -417,6 +461,11 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
       }
       case "additional_tools":
         bump(dropped, "additional_tools");
+        break;
+      case "compaction":
+      case "compaction_summary":
+        // An opaque (encrypted) compaction item.
+        bump(dropped, "compaction-output");
         break;
       default:
         bump(dropped, `response_item:${word(p.type, "unknown")}`);
@@ -490,8 +539,27 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
       case "Extension":
         if (item.kind === "web.search") addChild(webStep(item, ts));
         return;
+      case "SubAgentActivity": {
+        // A spawned agent started: which thread it is, so its rollout links to the spawn step.
+        const thread = str(item.agent_thread_id);
+        if (item.kind !== "started" || !thread) return;
+        // The item's id is the spawn call's id. Older or other builds: the spawn whose task name is the last part of
+        // the agent's path (`/root/explorer`), else the latest one.
+        const name = str(item.agent_path)?.split("/").at(-1);
+        let at = unmatchedSpawns.findIndex((s) => s.step.id === item.id);
+        for (let i = unmatchedSpawns.length - 1; at < 0 && i >= 0; i--) {
+          if (unmatchedSpawns[i]!.task !== undefined && unmatchedSpawns[i]!.task === name) at = i;
+        }
+        if (at < 0) at = unmatchedSpawns.length - 1;
+        const spawn = at >= 0 ? unmatchedSpawns.splice(at, 1)[0] : undefined;
+        if (spawn) b.trackSubagent(spawn.step, thread);
+        return;
+      }
+      case "ContextCompaction":
+        if (!hasCompactedLines) compaction(undefined, ts);
+        return;
       default:
-      // AgentMessage and Reasoning repeat response items; SubAgentActivity is the spawn already shown.
+      // AgentMessage and Reasoning repeat response items.
     }
   }
 
@@ -504,6 +572,11 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
   b.finalizeThinking();
   // Codex records tokens, not dollars: costs are estimated at list price.
   estimateCosts(b.responses);
+  for (const r of b.responses) if (compactionCalls.has(r.id)) r.purpose = "compaction";
+  // The spawned agents' own rollouts: their spend, linked to the steps that spawned them.
+  const runs = (options.subagentFiles ?? []).map(readCodexRun).filter((r): r is SubagentRun => r !== undefined);
+  const endMs = endedAt ? Date.parse(endedAt) : Number.NaN;
+  const subagentUsage = linkSubagentRuns(b, runs, { summaryUntil: Number.isFinite(endMs) ? endMs : undefined });
 
   const session = baseSession("codex", str(meta?.id) ?? "");
   if (sidecar.title) session.title = sidecar.title;
@@ -520,5 +593,6 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
   if (embedded.n) bump(dropped, "encrypted-blob", embedded.n);
   session.responses = b.responses;
   session.stats.costSource = "estimated";
+  if (subagentUsage) session.stats.subagentUsage = subagentUsage;
   return { session, dropped };
 }

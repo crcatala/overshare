@@ -7,12 +7,14 @@ import { HARNESS_META, harnessLabel, metaOf } from "../src/harnesses/meta.js";
 import { defaultRoots, sniffHarness } from "../src/resolve.js";
 import { buildIndex } from "../src/sessions/index.js";
 import { parseQuery } from "../src/sessions/query.js";
+import { CodexTranscript } from "./codex-helpers.js";
 import { ClaudeTranscript, PiTranscript } from "./helpers.js";
 
 /** One tiny transcript per harness, in its native format. */
 const NATIVE: Record<(typeof HARNESS_NAMES)[number], () => string> = {
   "claude-code": () => new ClaudeTranscript("sess-1", "/work/demo").user("hi").toJsonl(),
   pi: () => new PiTranscript("01a0pi00-0000-7000-8000-000000000000").user("hi").toJsonl(),
+  codex: () => new CodexTranscript().user("hi").toJsonl(),
 };
 
 describe("harness registry", () => {
@@ -51,7 +53,7 @@ describe("harness registry", () => {
 
 describe("a name that is not a harness", () => {
   it("is refused with the fixed message, whatever the string", () => {
-    for (const name of ["codex", "constructor", "__proto__", "toString"]) {
+    for (const name of ["cursor", "constructor", "__proto__", "toString"]) {
       const err = (() => {
         try {
           parseSession(NATIVE["claude-code"](), name as never);
@@ -66,7 +68,8 @@ describe("a name that is not a harness", () => {
 
   it("shows as itself in the viewer, and is not looked up as a property", () => {
     expect(harnessLabel("claude-code")).toBe("Claude Code");
-    expect(harnessLabel("codex")).toBe("codex");
+    expect(harnessLabel("codex")).toBe("Codex");
+    expect(harnessLabel("cursor")).toBe("cursor");
     expect(harnessLabel("constructor")).toBe("constructor");
     expect(metaOf("__proto__")).toBeUndefined();
     expect(metaOf(undefined)).toBeUndefined();
@@ -79,7 +82,9 @@ describe("harness: in a search", () => {
     expect(parseQuery("harness:claude").harness).toBe("claude-code");
     expect(parseQuery("harness:Claude-Code").harness).toBe("claude-code");
     expect(parseQuery("harness:pi").harness).toBe("pi");
-    expect(parseQuery("harness:codex").harness).toBeUndefined();
+    expect(parseQuery("harness:codex").harness).toBe("codex");
+    expect(parseQuery("harness:openai").harness).toBe("codex");
+    expect(parseQuery("harness:cursor").harness).toBeUndefined();
     expect(parseQuery("harness:constructor").harness).toBeUndefined();
   });
 });

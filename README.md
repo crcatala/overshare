@@ -6,8 +6,8 @@
 [![CI](https://github.com/crcatala/overshare/actions/workflows/ci.yml/badge.svg)](https://github.com/crcatala/overshare/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-overshare turns a [Claude Code](https://claude.com/claude-code) or [pi](https://github.com/earendil-works/pi)
-session into an unlisted link that anyone can read in a clean web viewer. Secrets, paths and emails
+overshare turns a [Claude Code](https://claude.com/claude-code), [pi](https://github.com/earendil-works/pi) or
+[Codex](https://github.com/openai/codex) session into an unlisted link that anyone can read in a clean web viewer. Secrets, paths and emails
 are redacted **on your machine**, the exact payload is scanned again, and only then is it uploaded.
 
 <p align="center"><img src="docs/assets/demo.svg" width="100%" alt="overshare publishing a coding-agent session from the terminal: secrets are redacted on your machine, the file is re-scanned, and the link opens in the viewer, where readers can switch share modes" /></p>
@@ -50,7 +50,7 @@ overshare report --current
 overshare publish --current
 ```
 
-`--current` means the session you are in (inside Claude Code), otherwise the newest session for the
+`--current` means the session you are in (inside Claude Code or Codex), otherwise the newest session for the
 current directory. Anywhere a command takes `[session]` you can also pass a session id, an id prefix,
 or a transcript file path.
 
@@ -80,8 +80,8 @@ overshare archive --all --since 7d
 # Open local share files in the viewer
 overshare serve session.json
 
-# Only Claude Code or only pi sessions
-overshare list --harness pi -n 30
+# Only one agent's sessions (claude-code, pi or codex)
+overshare list --harness codex -n 30
 
 # Take a share down
 overshare delete https://overshare.link/s/#octocat/0123456789abcdef

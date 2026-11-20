@@ -56,6 +56,13 @@ export const HARNESS_META = {
     promptsNeedAuthoredProof:
       "Install or reload the updated pi share extension before submitting new idle prompts; existing inputs or queued expansions cannot be recovered reliably.",
   },
+  codex: {
+    label: "Codex",
+    short: "codex",
+    tag: "CX",
+    color: "cyan",
+    aliases: ["openai"],
+  },
 } as const satisfies Record<string, HarnessMeta>;
 
 /** The harnesses we read. A share's `harness.name` is this type once the viewer has opened it, but may be anything before. */

@@ -32,6 +32,19 @@ export interface AdapterOptions {
   leafId?: string;
   /** Subagent transcripts of the session (Claude Code only); the adapter stays pure, the caller reads them from disk. */
   subagentFiles?: SubagentFileInput[];
+  /** What the harness's `sidecar.load` read beside the transcript (its own shape); the caller reads it from disk. */
+  sidecar?: unknown;
+}
+
+/**
+ * A transcript in a format this harness recognises but does not read (yet). The message is fixed text the adapter
+ * chose: it never quotes the transcript.
+ */
+export class UnsupportedFormatError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsupportedFormatError";
+  }
 }
 
 /** Counts of native entries dropped on purpose (never shared). */

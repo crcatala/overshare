@@ -10,6 +10,9 @@ In order (see `src/redact/`):
 1. **Structural drop** — never exported: Claude Code `attachment` entries (CLAUDE.md,
    environment, credential org, reminders…), `<system-reminder>` blocks, meta/skill
    bodies, sidechains, system prompts and tool schemas, thinking signatures, image data.
+   For Codex: the base instructions, account ids, `world_state`, developer messages, injected
+   AGENTS.md, environment and skill bodies, tool lists, sandbox settings, and every encrypted blob
+   (reasoning, messages between agents), which no pattern could recognise later.
    The report lists what was dropped. The system prompt alone can be shared on request
    (`--include-system-prompt`, full mode only); see [Injected context](#injected-context).
 2. **Known local values** — exact values of secret-looking env vars

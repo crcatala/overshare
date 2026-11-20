@@ -1,6 +1,6 @@
 ---
 id: ove-m3y1
-status: open
+status: closed
 deps: [ove-f6hn]
 links: []
 created: 2026-11-20T18:20:21Z
@@ -40,3 +40,9 @@ First usable Codex support. Format notes: docs/harnesses/codex.md.
 - [ ] No encrypted blob appears in any share built from the local rollouts (script check), and the re-scan result on them is clean.
 - [ ] typecheck, tests, fixtures for existing harnesses unchanged.
 
+
+## Notes
+
+**2026-11-20T19:18:32Z**
+
+Decisions (Codex MVP PR): (1) extra-files hook = Harness.sidecar {load, key}: load returns plain harness data handed to parse (AdapterOptions.sidecar) and summarize; key is a cheap string stored in the browse index (sidecarKey) so a rename in session_index.jsonl refreshes the cached title. Antigravity will use it for its .db. (2) listFiles reads only the first line (readFirstLine, cap 4 MB), memoized per path in-process; no state_5.sqlite fast path (no node:sqlite warning, walking 65 files is instant). (3) Size limit: generic OVERSHARE_MAX_SESSION_MB, default 256 MB, enforced in readSession (one read path for CLI and browse) with SessionTooLargeError; browse lists a too-large file with a '(too large to read …)' title instead of dropping it. (4) Env var OVERSHARE_CODEX_SESSIONS (else CODEX_HOME/sessions); archived_sessions beside it is listed too. (5) --current: when several harnesses name a session in the environment (one agent running inside another), the most recently modified wins. (6) Code mode: each CommandExecution is a tool step named exec_command (action from parsed_cmd); the exec JS is shown only when it ran no command. (7) $skill prompts get command {name:'$skill', args} plus a skill event. (8) Subagent rollouts are excluded from listing; spawn_agent shows as a subagent step and agent_message as a subagent_notice; the rest is ove-f0o0.

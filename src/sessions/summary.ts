@@ -7,7 +7,7 @@
  * cost, redaction findings and the full transcript come later, on demand, from the real pipeline.
  */
 import { readFileSync } from "node:fs";
-import { HARNESSES } from "../harnesses/index.js";
+import { HARNESSES, loadSidecar, maxSessionBytes } from "../harnesses/index.js";
 import { Collector, oneLine } from "../harnesses/summary-kit.js";
 import { stripControls } from "../sanitize.js";
 import type { HarnessName } from "../schema.js";
@@ -50,6 +50,10 @@ export interface SessionSummary {
   searchText: string;
   /** Set only on the stat-only placeholder row the browser shows before the file is read; never in the cache. */
   pending?: true;
+  /** The file is larger than overshare reads (`maxSessionBytes`): listed, but not read. */
+  tooLarge?: true;
+  /** The harness's `sidecar.key` when this was read: a change reads the session again. */
+  sidecarKey?: string;
 }
 
 export interface SummarizeInput {
@@ -80,9 +84,9 @@ function sanitized(s: SessionSummary): SessionSummary {
   };
 }
 
-export function summarizeRaw(ref: SummarizeInput, raw: string): SessionSummary {
+export function summarizeRaw(ref: SummarizeInput, raw: string, sidecar?: unknown): SessionSummary {
   const c = new Collector();
-  HARNESSES[ref.harness].summarize(raw, c);
+  HARNESSES[ref.harness].summarize(raw, c, sidecar);
   const project = projectFromCwd(c.cwd).name;
   // Without a recorded title, name the session after what was asked; a bare slash command ("/model") says little.
   const asked = c.promptHead.find((p) => !p.startsWith("/")) ?? c.first;
@@ -123,6 +127,19 @@ export function withBranchGuess(s: SessionSummary): SessionSummary {
   return branch ? { ...s, branch, branchGuess: true, searchText: `${s.searchText}\n${branch.toLowerCase()}` } : s;
 }
 
+/** The harness's sidecar key for a session, if it keeps anything beside the transcript. */
+export const sidecarKeyOf = (ref: Pick<SummarizeInput, "harness" | "path">): string | undefined => HARNESSES[ref.harness].sidecar?.key(ref.path);
+
+/** A session too large to read: listed by its size, so it does not vanish from the browser without a word. */
+function tooLargeSummary(ref: SummarizeInput): SessionSummary {
+  const mb = Math.ceil(ref.size / (1024 * 1024)).toLocaleString("en-US");
+  const title = `(too large to read: ${mb} MB; see OVERSHARE_MAX_SESSION_MB)`;
+  return { harness: ref.harness, id: ref.id, path: ref.path, mtimeMs: ref.mtimeMs, size: ref.size, title, models: [], prompts: 0, calls: 0, tools: {}, subagents: 0, worker: false, promptHead: [], promptTail: [], searchText: title.toLowerCase(), tooLarge: true };
+}
+
 export function summarizeFile(ref: SummarizeInput): SessionSummary {
-  return withBranchGuess(summarizeRaw(ref, readFileSync(ref.path, "utf8")));
+  if (ref.size > maxSessionBytes()) return tooLargeSummary(ref);
+  const key = sidecarKeyOf(ref);
+  const summary = withBranchGuess(summarizeRaw(ref, readFileSync(ref.path, "utf8"), loadSidecar(ref.harness, ref.path)));
+  return key === undefined ? summary : { ...summary, sidecarKey: key };
 }

@@ -189,6 +189,9 @@ interface ExecCall {
 
 export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterResult {
   const sidecar: CodexSidecar = isObj(options.sidecar) ? (options.sidecar as CodexSidecar) : {};
+  // A continuation (or fork) rollout keeps history from earlier rollouts: read it first, then this file's own lines.
+  const history = (Array.isArray(sidecar.history) ? sidecar.history : []).filter((h) => isObj(h) && typeof h.raw === "string");
+  const text = history.length ? `${history.map((h) => h.raw).join("\n")}\n${raw}` : raw;
   const dropped: DropCounts = {};
   const b = new TurnBuilder();
   const models: string[] = [];
@@ -216,14 +219,14 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
   /** Calls checkpoints name as the ones they were made with (`compaction_response_id`). */
   const compactionCalls = new Set<string>();
   /** Rollouts with `compacted` lines also mark the compaction as an item; one of the two is enough. */
-  const hasCompactedLines = raw.includes('"type":"compacted"');
+  const hasCompactedLines = text.includes('"type":"compacted"');
   /** Events read before the prompt of the turn they belong to (a model switch is recorded first). */
   let pending: { event: EventKind; text: string; timestamp?: string }[] = [];
   /**
    * Older files have only `token_count` events; current ones repeat in them what `token_usage_record` says. Only a
    * record that parses counts: a torn last line must not turn the fallback off.
    */
-  const hasRecords = raw.includes('"type":"token_usage_record"') && [...lines(raw)].some((l) => l.includes('"type":"token_usage_record"') && isObj(parseLine(l)));
+  const hasRecords = text.includes('"type":"token_usage_record"') && [...lines(text)].some((l) => l.includes('"type":"token_usage_record"') && isObj(parseLine(l)));
   let lastTotal: string | undefined;
   let records = 0;
 
@@ -278,7 +281,16 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
     }
   };
 
-  for (const line of lines(raw)) {
+  /** Every line to read, with whether it is another thread's history: this rollout's header, the kept history, the rest. */
+  function* source(): Generator<{ line: string; from?: { inherited: boolean } }> {
+    const own = lines(raw);
+    const first = own.next();
+    if (!first.done) yield { line: first.value };
+    for (const h of history) for (const line of lines(h.raw)) yield { line, from: { inherited: h.inherited } };
+    for (const line of own) yield { line };
+  }
+
+  for (const { line, from } of source()) {
     const e = parseLine(line);
     if (!isObj(e)) continue;
     const ts = str(e.timestamp);
@@ -287,7 +299,10 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
       endedAt = ts;
     }
     const p: Entry = isObj(e.payload) ? e.payload : {};
-    inherited = typeof e.ordinal === "number" && e.ordinal < ownFrom;
+    // Kept history from another thread (a fork's parent) is inherited; so is what a subagent replays before its own part.
+    inherited = from ? from.inherited : typeof e.ordinal === "number" && e.ordinal < ownFrom;
+    // The kept history's own headers are the earlier rollouts': this rollout's comes first and is the one used.
+    if (from && e.type === "session_meta") continue;
     switch (e.type) {
       case "session_meta":
         // A subagent's rollout has a second one, its parent's: the first is this thread's.
@@ -565,7 +580,7 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
 
   // Legacy rollouts write `user_message` / `agent_message` events instead of display items: read as paginated, they
   // would give a share without prompts. Refuse them plainly instead.
-  if (meta?.history_mode === "legacy" || (!raw.includes('"type":"item_completed"') && /"type":"event_msg","payload":\{"type":"(user_message|agent_message)"/.test(raw))) {
+  if (meta?.history_mode === "legacy" || (!text.includes('"type":"item_completed"') && /"type":"event_msg","payload":\{"type":"(user_message|agent_message)"/.test(text))) {
     throw new UnsupportedFormatError(LEGACY_MESSAGE);
   }
   flushPending();

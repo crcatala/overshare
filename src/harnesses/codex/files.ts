@@ -1,19 +1,33 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { readFirstLine, walkFiles } from "../discovery.js";
+import { SessionTooLargeError, isCompressed, maxSessionBytes, readTranscript } from "../limits.js";
 import { lines, parseLine } from "../summary-kit.js";
 
 /**
  * Where Codex keeps rollouts: `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<local time>-<thread uuid>.jsonl`, and
  * `$CODEX_HOME/archived_sessions/rollout-*.jsonl` after `codex archive`. Folders are by date, not by working directory,
  * so the working directory and whether a rollout is a subagent's come from its first line (`session_meta`).
+ *
+ * Two more shapes (codex-rs `rollout/src/rollout_file_name.rs`, `compression.rs`):
+ * - an idle rollout is recompressed to `rollout-*.jsonl.zst` (the plain file is preferred while both exist);
+ * - a reverted thread continues in `rollout-<time>-<thread>_<rollout id>.jsonl`, whose header's `history_base` names
+ *   the rollout (by its rollout id) and the byte offset its kept history ends at. The thread is one session: its
+ *   newest rollout, with that history read in front of it.
  */
 
-const ROLLOUT = /^rollout-.+\.jsonl$/;
-const THREAD_ID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
+const ROLLOUT = /^rollout-.+\.jsonl(\.zst)?$/;
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const NAME = new RegExp(`(${UUID})(?:_(${UUID}))?\\.jsonl(?:\\.zst)?$`, "i");
 
-/** The thread id at the end of a rollout's file name (`session_meta.payload.id`). */
-export const threadId = (file: string): string => THREAD_ID.exec(basename(file))?.[1] ?? basename(file, ".jsonl");
+/** The thread id in a rollout's file name (`session_meta.payload.id`). */
+export const threadId = (file: string): string => NAME.exec(basename(file))?.[1] ?? basename(file).replace(/\.jsonl(\.zst)?$/, "");
+
+/** The rollout id in a file name: the thread id, or the one after `_` in a continuation file. */
+export const rolloutId = (file: string): string => {
+  const m = NAME.exec(basename(file));
+  return m ? (m[2] ?? m[1]!) : threadId(file);
+};
 
 export interface RolloutHeader {
   /** The thread's id (`session_meta.payload.id`). */
@@ -23,6 +37,19 @@ export interface RolloutHeader {
   cwd?: string;
   /** A spawned agent's own rollout (`thread_source: "subagent"`): part of its parent, not a session on its own. */
   subagent: boolean;
+  /** History kept from another rollout (a reverted thread's earlier one, or a fork's parent): its id and where it ends. */
+  base?: { rollout: string; endByte: number };
+}
+
+/** The first line of a compressed rollout: the file is decompressed whole (within the size limit) to find it. */
+function compressedFirstLine(file: string): string | undefined {
+  try {
+    const text = readTranscript(file);
+    const end = text.indexOf("\n");
+    return end < 0 ? text : text.slice(0, end);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -36,7 +63,7 @@ const HEADER_MAX_BYTES = 4 << 20;
 export function rolloutHeader(file: string): RolloutHeader | undefined {
   const known = headers.get(file);
   if (known) return known;
-  const line = readFirstLine(file, HEADER_MAX_BYTES);
+  const line = isCompressed(file) ? compressedFirstLine(file) : readFirstLine(file, HEADER_MAX_BYTES);
   const e = line === undefined ? undefined : parseLine(line);
   if (e?.type !== "session_meta" || !e.payload || typeof e.payload !== "object") return undefined;
   const p = e.payload;
@@ -47,6 +74,10 @@ export function rolloutHeader(file: string): RolloutHeader | undefined {
     ...(typeof p.cwd === "string" && p.cwd ? { cwd: p.cwd } : {}),
     subagent: p.thread_source === "subagent" || (!!source && typeof source === "object" && "subagent" in source),
   };
+  const base = p.history_base;
+  if (base && typeof base === "object" && typeof base.thread_id === "string" && typeof base.end_byte_offset === "number" && base.end_byte_offset >= 0) {
+    header.base = { rollout: base.thread_id, endByte: base.end_byte_offset };
+  }
   headers.set(file, header);
   return header;
 }
@@ -58,8 +89,24 @@ function rolloutDirs(root: string): string[] {
   return dirs;
 }
 
-/** Every rollout under the root, subagents' too. No root (a caller that names only other harnesses' roots) is none. */
-export const allRollouts = (root: string | undefined): string[] => (root ? rolloutDirs(root).flatMap((d) => walkFiles(d, (name) => ROLLOUT.test(name), 4)) : []);
+/**
+ * Every rollout under the root, subagents' too, each once: a `.jsonl.zst` is left out while its plain `.jsonl` is
+ * there (Codex keeps both only while switching). No root (a caller naming only other harnesses' roots) is none.
+ */
+export function allRollouts(root: string | undefined): string[] {
+  if (!root) return [];
+  const files = rolloutDirs(root).flatMap((d) => walkFiles(d, (name) => ROLLOUT.test(name), 4));
+  const plain = new Set(files.filter((f) => !isCompressed(f)));
+  return files.filter((f) => !isCompressed(f) || !plain.has(f.slice(0, -".zst".length)));
+}
+
+const mtime = (f: string): number => {
+  try {
+    return statSync(f).mtimeMs;
+  } catch {
+    return 0;
+  }
+};
 
 const sameDir = (a: string, b: string): boolean => resolve(a) === resolve(b);
 
@@ -68,12 +115,20 @@ const sameDir = (a: string, b: string): boolean => resolve(a) === resolve(b);
  * this instant) is listed without a working directory: it is never picked for a directory, and is not hidden either.
  */
 export function listRollouts(root: string, cwd?: string): string[] {
-  return allRollouts(root).filter((f) => {
+  const kept = allRollouts(root).filter((f) => {
     const h = rolloutHeader(f);
     if (!h) return cwd === undefined;
     if (h.subagent) return false;
     return cwd === undefined || (h.cwd !== undefined && sameDir(h.cwd, cwd));
   });
+  // A thread with several rollouts (reverted) is one session: the newest rollout, which reads the others' history.
+  const newest = new Map<string, string>();
+  for (const f of kept) {
+    const id = threadId(f);
+    const seen = newest.get(id);
+    if (!seen || mtime(f) > mtime(seen)) newest.set(id, f);
+  }
+  return kept.filter((f) => newest.get(threadId(f)) === f);
 }
 
 /**
@@ -126,10 +181,58 @@ export function subagentRollouts(file: string): string[] {
   return out;
 }
 
+/** History a rollout keeps from another one, oldest first: the text and whether it is another thread's (a fork's parent). */
+export interface CodexHistory {
+  raw: string;
+  /** From another thread: inherited, not this session's own spend. */
+  inherited: boolean;
+}
+
 /** What the Codex adapter reads beside a rollout. */
 export interface CodexSidecar {
   /** The thread's name in `session_index.jsonl` (set when the user renames it). */
   title?: string;
+  /** The history a continuation (or fork) rollout keeps from earlier rollouts, oldest first. */
+  history?: CodexHistory[];
+}
+
+/** The first `end` bytes of a rollout (decompressed if need be). */
+function prefixOf(file: string, end: number): string {
+  if (isCompressed(file)) return readTranscript(file).slice(0, end);
+  const fd = openSync(file, "r");
+  try {
+    const buf = Buffer.alloc(Math.min(end, statSync(file).size));
+    const n = readSync(fd, buf, 0, buf.length, 0);
+    return buf.subarray(0, n).toString("utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * The history a rollout's header says it keeps from other rollouts (`history_base`), following the chain back,
+ * oldest first. A rollout that cannot be found ends the chain; the whole is held to the size limit.
+ */
+export function rolloutHistory(file: string): CodexHistory[] {
+  const root = sessionsRootOf(file);
+  const self = rolloutHeader(file);
+  if (!root || !self?.base) return [];
+  const byRollout = new Map(allRollouts(root).map((f) => [rolloutId(f), f]));
+  const out: CodexHistory[] = [];
+  const seen = new Set<string>([rolloutId(file)]);
+  let total = 0;
+  for (let base = self.base; base && !seen.has(base.rollout); ) {
+    seen.add(base.rollout);
+    const source = byRollout.get(base.rollout);
+    if (!source) break;
+    const raw = prefixOf(source, base.endByte);
+    total += raw.length;
+    if (total > maxSessionBytes()) throw new SessionTooLargeError(total, maxSessionBytes());
+    const header = rolloutHeader(source);
+    out.unshift({ raw, inherited: !!header?.id && !!self.id && header.id !== self.id });
+    base = header?.base as typeof base;
+  }
+  return out;
 }
 
 /** `$CODEX_HOME`, found from a rollout's path: the nearest folder above it with a `session_index.jsonl`. */
@@ -174,7 +277,15 @@ function threadNames(home: string): Map<string, string> {
 export function loadCodexSidecar(file: string): CodexSidecar {
   const home = codexHomeOf(file);
   const title = home ? threadNames(home).get(threadId(file)) : undefined;
-  return title ? { title } : {};
+  const history = rolloutHistory(file);
+  return { ...(title ? { title } : {}), ...(history.length ? { history } : {}) };
+}
+
+/** The sidecar's cache key: the title, and the rollouts whose history is read with it. */
+export function codexSidecarKey(file: string): string {
+  const home = codexHomeOf(file);
+  const title = home ? (threadNames(home).get(threadId(file)) ?? "") : "";
+  return rolloutHeader(file)?.base ? `${title}\u0000${rolloutHeader(file)!.base!.rollout}` : title;
 }
 
 /** Clear the in-process caches (tests). */

@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { zstdCompressSync } from "node:zlib";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
@@ -11,7 +12,7 @@ import { SessionTooLargeError, UnsupportedFormatError, detectHarness, readSessio
 import { toSafeError } from "../src/browse/job.js";
 import { Collector } from "../src/harnesses/summary-kit.js";
 import { prepareShare } from "../src/pipeline.js";
-import { resolveSession } from "../src/resolve.js";
+import { resolveSession, sniffHarness } from "../src/resolve.js";
 import { SHARE_MODES, type SubagentStep, type ToolStep } from "../src/schema.js";
 import { buildIndex } from "../src/sessions/index.js";
 import { summarizeFile } from "../src/sessions/summary.js";
@@ -566,5 +567,110 @@ describe("codex: compaction", () => {
     const t = new CodexTranscript().user("go").say("a").usage({ input: 100 });
     t.line("event_msg", { type: "item_completed", item: { type: "ContextCompaction", id: "cc1" } });
     expect(parseCodex(t.toJsonl()).session.turns[0]!.steps.at(-1)).toMatchObject({ kind: "event", event: "compaction" });
+  });
+});
+
+describe("codex: compressed rollouts and continuation files", () => {
+  afterEach(() => resetCodexCaches());
+  const T = "01a0c0de-0000-7000-8000-0000000000b0";
+  const R = "01a0c0de-0000-7000-8000-0000000000b9";
+
+  function dirs() {
+    const dir = mkdtempSync(join(tmpdir(), "codex-zst-"));
+    const day = join(dir, "sessions", "2026", "01", "02");
+    mkdirSync(day, { recursive: true });
+    return { dir, day, root: join(dir, "sessions") };
+  }
+
+  it("reads a .jsonl.zst rollout like a plain one, and prefers the plain file while both exist", () => {
+    const d = dirs();
+    const t = basic();
+    const zst = join(d.day, `rollout-2026-01-02T00-00-00-${T}.jsonl.zst`);
+    writeFileSync(zst, zstdCompressSync(Buffer.from(t.toJsonl())));
+    expect(codex.listFiles(d.root)).toEqual([zst]);
+    expect(codex.listFiles(d.root, "/home/tester/work/demo")).toEqual([zst]);
+    expect(codex.sessionId(zst)).toBe(T);
+    expect(sniffHarness(zst)).toBe("codex");
+    const { raw, options } = readSession("codex", zst);
+    expect(raw).toBe(t.toJsonl());
+    expect(parseCodex(raw, options).session.turns[0]!.user?.text).toBe("fix the flaky test");
+    expect(summarizeFile({ harness: "codex", id: T, path: zst, mtimeMs: 1, size: 10 })).toMatchObject({ prompts: 1, cwd: "/home/tester/work/demo" });
+    // While Codex switches representations both files exist: the plain one is the session.
+    const plain = zst.slice(0, -".zst".length);
+    writeFileSync(plain, t.toJsonl());
+    resetCodexCaches();
+    expect(codex.listFiles(d.root)).toEqual([plain]);
+  });
+
+  it("holds a compressed rollout to the size limit once decompressed", () => {
+    const d = dirs();
+    const t = basic();
+    while (t.toJsonl().length < 1_200_000) t.say("x".repeat(10_000), "commentary");
+    const zst = join(d.day, `rollout-2026-01-02T00-00-00-${T}.jsonl.zst`);
+    writeFileSync(zst, zstdCompressSync(Buffer.from(t.toJsonl())));
+    expect(() => readSession("codex", zst, { OVERSHARE_MAX_SESSION_MB: "1" })).toThrow(SessionTooLargeError);
+    const prev = process.env.OVERSHARE_MAX_SESSION_MB;
+    process.env.OVERSHARE_MAX_SESSION_MB = "1";
+    try {
+      expect(summarizeFile({ harness: "codex", id: T, path: zst, mtimeMs: 1, size: 5_000 })).toMatchObject({ tooLarge: true, title: "(too large to read once decompressed; see OVERSHARE_MAX_SESSION_MB)" });
+    } finally {
+      if (prev === undefined) delete process.env.OVERSHARE_MAX_SESSION_MB;
+      else process.env.OVERSHARE_MAX_SESSION_MB = prev;
+    }
+  });
+
+  /** A thread reverted after its first turn: the original rollout, and a continuation that keeps its first turn. */
+  function reverted(base = T, own = T) {
+    const original = new CodexTranscript(base).user("first prompt").say("first answer").usage({ input: 1_000, cached: 0, output: 10 }).complete();
+    const keep = original.toJsonl();
+    original.user("abandoned prompt").say("abandoned answer").usage({ input: 2_000, cached: 1_000, output: 20 }).complete();
+    const cont = new CodexTranscript(own);
+    (cont.lines[0]!.payload as Record<string, unknown>).history_base = { thread_id: base, end_ordinal_exclusive: keep.split("\n").length - 1, end_byte_offset: Buffer.byteLength(keep) };
+    if (own !== base) (cont.lines[0]!.payload as Record<string, unknown>).forked_from_id = base;
+    cont.user("second prompt").say("second answer").usage({ input: 1_500, cached: 1_000, output: 15 }).complete();
+    return { original, cont };
+  }
+
+  it("lists a reverted thread once, as its newest rollout, read with the history it kept", () => {
+    const d = dirs();
+    const { original, cont } = reverted();
+    const a = join(d.day, `rollout-2026-01-02T00-00-00-${T}.jsonl`);
+    const b = join(d.day, `rollout-2026-01-02T00-10-00-${T}_${R}.jsonl`);
+    writeFileSync(a, original.toJsonl());
+    writeFileSync(b, cont.toJsonl());
+    utimesSync(a, new Date(2026, 0, 2), new Date(2026, 0, 2));
+    expect(codex.listFiles(d.root)).toEqual([b]);
+    expect(codex.sessionId(b)).toBe(T);
+    expect(codex.currentSession?.({ CODEX_THREAD_ID: T }, d.root, "/x")).toBe(b);
+    const { raw, options } = readSession("codex", b);
+    const p = prepareShare(raw, { mode: "full", config: DEFAULT_CONFIG, harness: "codex", knownSecrets: [], ...options });
+    expect(p.session.turns.map((t) => t.user?.text)).toEqual(["first prompt", "second prompt"]);
+    expect(p.json).not.toContain("abandoned");
+    // Kept history of the same thread is this session's own spend.
+    expect(p.session.stats.tokens).toMatchObject({ input: 1_000 + 500, cacheRead: 1_000 });
+    expect(p.session.stats.inherited).toBeUndefined();
+  });
+
+  it("counts history kept from another thread (a fork) as inherited", () => {
+    const d = dirs();
+    const F = "01a0c0de-0000-7000-8000-0000000000c0";
+    const { original, cont } = reverted(T, F);
+    writeFileSync(join(d.day, `rollout-2026-01-02T00-00-00-${T}.jsonl`), original.toJsonl());
+    const fork = join(d.day, `rollout-2026-01-02T00-10-00-${F}.jsonl`);
+    writeFileSync(fork, cont.toJsonl());
+    const { raw, options } = readSession("codex", fork);
+    const p = prepareShare(raw, { mode: "full", config: DEFAULT_CONFIG, harness: "codex", knownSecrets: [], ...options });
+    expect(p.session.source.sessionId).toBe(F);
+    expect(p.session.stats.tokens).toMatchObject({ input: 500, cacheRead: 1_000 });
+    expect(p.session.stats.inherited).toMatchObject({ responses: 1, tokens: { input: 1_000 } });
+  });
+
+  it("reads a continuation whose kept rollout is missing as itself alone", () => {
+    const d = dirs();
+    const { cont } = reverted();
+    const b = join(d.day, `rollout-2026-01-02T00-10-00-${T}_${R}.jsonl`);
+    writeFileSync(b, cont.toJsonl());
+    const { raw, options } = readSession("codex", b);
+    expect(parseCodex(raw, options).session.turns.map((t) => t.user?.text)).toEqual(["second prompt"]);
   });
 });

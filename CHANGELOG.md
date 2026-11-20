@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   step, prompts are what you typed (so `prompts` mode works), `$skill` prompts show as skills, and model or
   reasoning-effort switches, interrupts and error turns appear as events. Cost is estimated from the tokens at
   OpenAI list price. A renamed thread keeps its name. Codex's instructions, injected context, account ids and
-  encrypted reasoning are never shared. Zstd-compressed rollouts and continuation files come later.
+  encrypted reasoning are never shared. Rollouts Codex has recompressed (`.jsonl.zst`) are read too, and a thread
+  you reverted is one session: its latest rollout with the history it kept, not the abandoned part.
 - Codex subagents: an agent spawned with `spawn_agent` shows the tokens, cost, model and commands of its own rollout
   (and of the agents it spawned), with its final answer as the result, and the session's subagent totals include them.
   The parent history a subagent's rollout replays is not counted. Codex compactions show as compaction events with

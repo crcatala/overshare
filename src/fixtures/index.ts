@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_CONFIG, type OvershareConfig } from "../config.js";
@@ -82,7 +82,10 @@ export function generateFixtures(opts: FixtureOptions): GeneratedFixtures {
   const codexFile = join(codexDir, `rollout-${new Date(start).toISOString().slice(0, 19).replace(/:/g, "-")}-${codexId}.jsonl`);
   mkdirSync(codexDir, { recursive: true });
   writeFileSync(codexFile, emitCodex(script, new Rng(seed * 31 + 3), { sessionId: codexId, start, home }));
-  writeFileSync(join(opts.outDir, "codex", "session_index.jsonl"), `${JSON.stringify({ id: codexId, thread_name: script.title, updated_at: new Date(start).toISOString() })}\n`);
+  // Codex's title index: this session's entry replaced, other sessions' kept (several seeds into one folder).
+  const indexFile = join(opts.outDir, "codex", "session_index.jsonl");
+  const kept = existsSync(indexFile) ? readFileSync(indexFile, "utf8").split("\n").filter((l) => l.trim() && !l.includes(`"id":"${codexId}"`)) : [];
+  writeFileSync(indexFile, [...kept, JSON.stringify({ id: codexId, thread_name: script.title, updated_at: new Date(start).toISOString() })].map((l) => `${l}\n`).join(""));
 
   const antigravityFile = writeAntigravity(script, new Rng(seed * 31 + 4), { dataDir: roots.antigravity, conversationId: new Rng(seed * 17 + 7).uuid(), start, home });
 

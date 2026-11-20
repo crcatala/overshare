@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { encode, type Message } from "../harnesses/antigravity/protobuf.js";
@@ -100,7 +100,10 @@ export function writeAntigravity(script: SessionScript, rng: Rng, opts: { dataDi
           respond(it.blocks);
           break;
         case "apiError":
+          step("ERROR_MESSAGE", "SYSTEM", { error: it.text, content: it.text });
+          break;
         case "interrupt":
+          // The user stopped the agent mid-reply: Antigravity records the cut stream as an error step.
           step("ERROR_MESSAGE", "SYSTEM", { error: "The stream was interrupted. Please continue the task you were working on.", content: "" });
           break;
         case "subagentNotice":
@@ -136,7 +139,10 @@ export function writeAntigravity(script: SessionScript, rng: Rng, opts: { dataDi
   mkdirSync(join(opts.dataDir, "annotations"), { recursive: true });
   writeFileSync(join(opts.dataDir, "annotations", `${opts.conversationId}.pbtxt`), `title:${JSON.stringify(script.title)}\n`);
   mkdirSync(join(opts.dataDir, "conversations"), { recursive: true });
-  const db = createDatabase(join(opts.dataDir, "conversations", `${opts.conversationId}.db`));
+  // A run into the same folder replaces the database this generator wrote before.
+  const dbPath = join(opts.dataDir, "conversations", `${opts.conversationId}.db`);
+  for (const f of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`, `${dbPath}-journal`]) rmSync(f, { force: true });
+  const db = createDatabase(dbPath);
   if (db) {
     db.exec("CREATE TABLE steps (`idx` integer, `step_type` integer NOT NULL DEFAULT 0, `status` integer NOT NULL DEFAULT 0, `metadata` blob, `step_payload` blob, PRIMARY KEY (`idx`))");
     db.exec('CREATE TABLE trajectory_metadata_blob (`id` text DEFAULT "main", `data` blob, PRIMARY KEY (`id`))');

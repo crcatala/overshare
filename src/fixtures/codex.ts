@@ -98,13 +98,19 @@ export function emitCodex(script: SessionScript, rng: Rng, opts: { sessionId: st
       usage(outputChars, reasoning);
       return;
     }
-    // Commands and searches go through one `exec` call; edits and subagents are calls of their own.
-    const commands = calls.filter((b): b is Extract<Block, { k: "tool" }> => b.k === "tool" && b.call.kind !== "edit" && b.call.kind !== "write" && b.call.kind !== "todo" && b.call.kind !== "mcp");
-    if (commands.length) {
+    // In the story's order: each run of adjacent commands and searches is one `exec` call; an edit or a subagent is a
+    // call of its own. The response's usage is recorded after its first call, as Codex writes it.
+    let recorded = false;
+    const record = (chars: number) => {
+      if (!recorded) usage(outputChars + chars, reasoning);
+      recorded = true;
+    };
+    const isCommand = (b: Block): boolean => b.k === "tool" && b.call.kind !== "edit" && b.call.kind !== "write" && b.call.kind !== "todo" && b.call.kind !== "mcp";
+    const execBatch = (commands: Extract<Block, { k: "tool" }>[]) => {
       const callId = id("call");
       const code = `const r = await Promise.allSettled([\n${commands.map((c) => `  ${jsCall(c.call)}`).join(",\n")}\n]);\ntext(JSON.stringify(r));`;
       line("response_item", { type: "custom_tool_call", id: id("ctc"), status: "completed", call_id: callId, name: "exec", input: code });
-      usage(outputChars + code.length, reasoning);
+      record(code.length);
       for (const c of commands) {
         tick(1, 8);
         if (c.call.kind === "web") {
@@ -116,14 +122,24 @@ export function emitCodex(script: SessionScript, rng: Rng, opts: { sessionId: st
         tokens.add(c.call.output.length);
       }
       line("response_item", { type: "custom_tool_call_output", call_id: callId, output: [{ type: "input_text", text: "Script completed\nOutput:\n" }] });
-    }
+    };
+    let batch: Extract<Block, { k: "tool" }>[] = [];
+    const flush = () => {
+      if (batch.length) execBatch(batch);
+      batch = [];
+    };
     for (const b of calls) {
+      if (b.k === "tool" && isCommand(b)) {
+        batch.push(b);
+        continue;
+      }
+      flush();
       if (b.k === "subagent") {
         const callId = id("call");
         const child = `${rng.hex(8)}-${rng.hex(4)}-7${rng.hex(3)}-8${rng.hex(3)}-${rng.hex(12)}`;
         const task = b.call.agents[0]?.toLowerCase().replace(/[^a-z0-9]+/g, "_") || "helper";
         line("response_item", { type: "function_call", name: "spawn_agent", namespace: "collaboration", arguments: JSON.stringify({ task_name: task, message: `gAAAAA${rng.token(200)}` }), call_id: callId });
-        if (!commands.length) usage(outputChars, reasoning);
+        record(0);
         item({ type: "SubAgentActivity", id: callId, kind: "started", agent_thread_id: child, agent_path: `/root/${task}`, model, reasoning_effort: effort });
         line("response_item", { type: "function_call_output", call_id: callId, output: JSON.stringify({ agent_path: `/root/${task}` }) });
         tick(20, 90);
@@ -134,11 +150,12 @@ export function emitCodex(script: SessionScript, rng: Rng, opts: { sessionId: st
         const rel = (b.call.path ?? "").replace(`${script.cwd}/`, "");
         const patch = b.call.kind === "write" ? `*** Begin Patch\n*** Add File: ${rel}\n${(b.call.content ?? "").split("\n").map((l) => `+${l}`).join("\n")}\n*** End Patch` : `*** Begin Patch\n*** Update File: ${rel}\n@@\n${(b.call.oldText ?? "").split("\n").map((l) => `-${l}`).join("\n")}\n${(b.call.newText ?? "").split("\n").map((l) => `+${l}`).join("\n")}\n*** End Patch`;
         line("response_item", { type: "custom_tool_call", id: id("ctc"), status: "completed", call_id: callId, name: "apply_patch", input: patch });
-        if (!commands.length) usage(outputChars + patch.length, reasoning);
+        record(patch.length);
         tick(1, 5);
         line("response_item", { type: "custom_tool_call_output", call_id: callId, output: `Success. Updated the following files:\n${b.call.kind === "write" ? "A" : "M"} ${rel}` });
       }
     }
+    flush();
   };
 
   const emit = (items: Item[]) => {

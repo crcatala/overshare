@@ -11,6 +11,7 @@ import { readSession } from "../src/harnesses/index.js";
 import { SCHEMA_VERSION, SHARE_MODES } from "../src/schema.js";
 
 const home = "/home/fixture-user";
+const codexIdOf = (file: string) => /([0-9a-f-]{36})\.jsonl$/.exec(file)![1]!;
 const machine = { homeDir: home, username: "fixture-user" };
 
 function generate(seed = 3) {
@@ -139,6 +140,26 @@ describe("fixture generator", () => {
       expect(listSessions("antigravity", fx.roots).map((r) => r.path)).toEqual([fx.antigravityFile]);
     });
 
+    it("can be generated again into the same folder, with another seed beside them", () => {
+      const out = mkdtempSync(join(tmpdir(), "as-fx-again-"));
+      const first = generateFixtures({ outDir: out, seed: 3, home, username: "fixture-user" });
+      const again = generateFixtures({ outDir: out, seed: 3, home, username: "fixture-user" });
+      expect(readFileSync(again.antigravityFile, "utf8")).toBe(readFileSync(first.antigravityFile, "utf8"));
+      expect(readSession("antigravity", again.antigravityFile).options.sidecar).toMatchObject({ workspaces: [expect.objectContaining({ branch: "fix/invoice-currency" })] });
+      const other = generateFixtures({ outDir: out, seed: 4, home, username: "fixture-user" });
+      const titles = readFileSync(join(out, "codex", "session_index.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l).id as string);
+      expect(titles.sort()).toEqual([codexIdOf(first.codexFile), codexIdOf(other.codexFile)].sort());
+    });
+
+    it("keeps the story's order in the Codex session: a command never runs ahead of an edit made before it", () => {
+      const { session } = prepareShare(readFileSync(fx.codexFile, "utf8"), { mode: "full", config: DEFAULT_CONFIG, harness: "codex", machine, knownSecrets: [] });
+      const steps = session.turns.flatMap((t) => t.steps).filter((s) => s.kind === "tool");
+      const written = steps.findIndex((s) => s.kind === "tool" && s.action === "write" && s.summary.includes("currency.test.ts"));
+      const run = steps.findIndex((s) => s.kind === "tool" && s.summary.includes("npm test -- src/invoices/currency.test.ts"));
+      expect(written).toBeGreaterThanOrEqual(0);
+      expect(run).toBeGreaterThan(written);
+    });
+
     for (const [harness, file] of more) {
       const { raw, options } = readSession(harness, file);
       const opts = { config: DEFAULT_CONFIG, harness, machine, knownSecrets: [], extraKnownSecrets: extra, ...options };
@@ -168,6 +189,8 @@ describe("fixture generator", () => {
         expect(steps.some((s) => s.kind === "thinking" && s.text)).toBe(true);
         expect(steps.some((s) => s.kind === "tool" && s.action === "edit")).toBe(true);
         for (const e of ["error", "compaction", "model_change"] as const) expect(events.has(e), e).toBe(true);
+        // The scripted API error itself, not only some error.
+        expect(steps.some((s) => s.kind === "event" && s.event === "error" && /529/.test(s.text))).toBe(true);
         expect(session.stats.cache?.rebuilds).toBeGreaterThanOrEqual(1);
         if (harness === "codex") {
           // Antigravity's results carry no exit status; Codex's commands do.

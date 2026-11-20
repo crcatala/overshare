@@ -25,7 +25,8 @@ export function summarizeAntigravity(raw: string, c: Collector, sidecar?: unknow
       if (text) c.prompt(text);
     } else if (e.type === "PLANNER_RESPONSE") {
       c.calls++;
-      c.model(e.model);
+      // As the parser does: the database's base model when the transcript names none.
+      c.model(e.model ?? (typeof e.step_index === "number" ? side.models?.[e.step_index] : undefined));
       if (typeof e.content === "string") c.say([{ type: "text", text: e.content }]);
       for (const call of Array.isArray(e.tool_calls) ? e.tool_calls : []) c.tool(call?.name);
     }

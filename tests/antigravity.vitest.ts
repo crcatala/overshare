@@ -189,10 +189,53 @@ describe("antigravity: parse with the conversation database", () => {
     expect(dropped["db-call-mismatch"]).toBe(1);
   });
 
+  it("gives a verified call's late result to that call, never by position to a later unverified one", () => {
+    // A: a background command whose result comes after B's response. B: the database lists other tools (unverified).
+    const c = new AntigravityConversation().user("go");
+    c.respond({ calls: [{ name: "run_command", args: { CommandLine: "a" }, result: "A" }] }).respond({ calls: [{ name: "read_file", args: { Path: "/x" }, result: "X" }] });
+    const [user, planA, resultA, planB, resultB] = c.steps;
+    c.steps = [user!, { ...planA!, step_index: 1 }, { ...planB!, step_index: 2 }, { ...resultA!, step_index: 3 }, { ...resultB!, step_index: 4 }];
+    const rows = c.dbSteps;
+    const byOld = (i: number) => rows.find((r) => r.idx === i)!;
+    c.dbSteps = [byOld(0), { ...byOld(1), idx: 1 }, { ...byOld(3), idx: 2 }, { ...byOld(2), idx: 3 }, { ...byOld(4), idx: 4 }];
+    const listed = c.dbSteps[2]!.payload.find(([f]) => f === 20)![1] as [number, [number, unknown][]][];
+    for (const [, call] of listed) call.find(([f]) => f === 2)![1] = "something_else";
+    const l = load(c);
+    const t = tools(parseAntigravity(l.raw, l.options).session.turns[0]!.steps);
+    expect(t.find((s) => s.name === "run_command")?.result?.text).toBe("A");
+    expect(t.find((s) => s.name === "read_file")?.result?.text).not.toBe("A");
+  });
+
+  it("does not accept the database's ids for two calls of one tool listed in another order", () => {
+    const c = new AntigravityConversation().user("go").respond({ calls: [{ name: "run_command", args: { CommandLine: "first" }, result: "1" }, { name: "run_command", args: { CommandLine: "second" }, result: "2" }] });
+    // The database lists the same two calls swapped (names agree, arguments do not).
+    const row = c.dbSteps.find((r) => r.type === 15)!;
+    const listed = row.payload.find(([f]) => f === 20)![1] as [number, [number, unknown][]][];
+    const [x, y] = [listed[0]![1].find(([f]) => f === 3)!, listed[1]![1].find(([f]) => f === 3)!];
+    [x[1], y[1]] = [y[1], x[1]];
+    const l = load(c);
+    const { session, dropped } = parseAntigravity(l.raw, l.options);
+    expect(dropped["db-call-mismatch"]).toBe(1);
+    expect(tools(session.turns[0]!.steps).map((s) => [s.summary, s.result?.text])).toEqual([["first", "1"], ["second", "2"]]);
+  });
+
+  it("keeps the transcript's cache writes when it records them, and counts a disagreement", () => {
+    const c = new AntigravityConversation().user("go").respond({ text: "a", input: 500, cacheRead: 1_000, output: 20, db: { cacheWrite: 9_000 } });
+    (c.steps[1] as Record<string, unknown>).cache_write_tokens = 300;
+    const l = load(c);
+    const { session, dropped } = parseAntigravity(l.raw, l.options);
+    expect(session.responses[0]!.usage.cacheWrite).toBe(300);
+    expect(dropped["db-usage-mismatch"]).toBe(1);
+  });
+
   it("takes the base model from the database when the transcript names none", () => {
     const c = new AntigravityConversation().user("go").respond({ text: "a", omitModel: true, db: { baseModel: "gemini-4-argon" } });
     const l = load(c);
     expect(parseAntigravity(l.raw, l.options).session.responses[0]!.model).toBe("gemini-4-argon");
+    // The browser's index reads it the same way, so a `model:` search finds the session.
+    const collector = new Collector();
+    antigravity.summarize(l.raw, collector, antigravity.sidecar!.load(l.file, "summary"));
+    expect(collector.models).toEqual(["gemini-4-argon"]);
   });
 
   it("falls back to the transcript alone when the database has an unknown layout", () => {

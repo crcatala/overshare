@@ -97,6 +97,8 @@ export interface ConversationDb {
   calls: Record<string, string[]>;
   /** The same calls' tool names, to check the ids belong to the calls the transcript lists. */
   callNames: Record<string, string[]>;
+  /** And their arguments (JSON text), to tell apart two calls of one tool. */
+  callArgs: Record<string, string[]>;
   /** The call each tool result answers, by step index. */
   answers: Record<string, string>;
   /** Each model response's usage as the database records it, by step index (thinking and reply split, cache writes). */
@@ -156,6 +158,7 @@ export function readConversationDb(path: string): ConversationDb | undefined {
     const workspaces = meta instanceof Uint8Array ? workspacesOf(meta) : [];
     const calls: Record<string, string[]> = {};
     const callNames: Record<string, string[]> = {};
+    const callArgs: Record<string, string[]> = {};
     const answers: Record<string, string> = {};
     const usage: Record<string, DbUsage> = {};
     const skipped: Record<string, { answers?: string }> = {};
@@ -170,6 +173,7 @@ export function readConversationDb(path: string): ConversationDb | undefined {
         if (listed.length) {
           calls[idx] = listed.map((c) => getString(c, [1]) ?? "");
           callNames[idx] = listed.map((c) => getString(c, [2]) ?? "");
+          callArgs[idx] = listed.map((c) => getString(c, [3]) ?? "");
         }
         const u = row.metadata instanceof Uint8Array ? getMessages(row.metadata, [9])[0] : undefined;
         if (u) usage[idx] = { input: getNumber(u, [2]) ?? 0, output: getNumber(u, [3]) ?? 0, cacheWrite: getNumber(u, [4]) ?? 0, cacheRead: getNumber(u, [5]) ?? 0, thinking: getNumber(u, [9]) ?? 0 };
@@ -180,7 +184,7 @@ export function readConversationDb(path: string): ConversationDb | undefined {
       }
       if (row.status === STATUS_SKIPPED) skipped[idx] = { ...(answers[idx] ? { answers: answers[idx] } : {}) };
     }
-    return { workspaces, calls, callNames, answers, usage, models: generationModels(db, responseSteps), skipped };
+    return { workspaces, calls, callNames, callArgs, answers, usage, models: generationModels(db, responseSteps), skipped };
   });
 }
 
@@ -294,6 +298,7 @@ export interface AntigravitySidecar {
   workspaces?: Workspace[];
   calls?: Record<string, string[]>;
   callNames?: Record<string, string[]>;
+  callArgs?: Record<string, string[]>;
   answers?: Record<string, string>;
   usage?: Record<string, DbUsage>;
   models?: Record<string, string>;
@@ -363,7 +368,7 @@ export function loadAntigravitySidecar(file: string, purpose: "parse" | "summary
     id: conversationId(file),
     ...(title ? { title } : {}),
     ...(workspaces.length ? { workspaces } : {}),
-    ...(db ? { calls: db.calls, callNames: db.callNames, answers: db.answers, usage: db.usage, models: db.models, skipped: db.skipped } : {}),
+    ...(db ? { calls: db.calls, callNames: db.callNames, callArgs: db.callArgs, answers: db.answers, usage: db.usage, models: db.models, skipped: db.skipped } : {}),
     ...(Object.keys(outputs).length ? { outputs } : {}),
   };
 }

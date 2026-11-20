@@ -96,6 +96,13 @@ function withoutShortenedFields(e: Entry, dropped: DropCounts): Entry {
   return out;
 }
 
+/** JSON text with object keys sorted, to compare arguments however their keys were ordered. */
+function stableJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stableJson).join(",")}]`;
+  if (isObj(v)) return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stableJson(v[k])}`).join(",")}}`;
+  return JSON.stringify(v) ?? "null";
+}
+
 /** A tool result's text without the `Created At` / `Completed At` lines Antigravity puts first. */
 const resultBody = (content: string): string => content.replace(/^(?:(?:Created|Completed) At: [^\n]*\n)+/, "");
 
@@ -158,10 +165,21 @@ export function parseAntigravity(raw: string, options: AdapterOptions = {}): Ada
         const calls: Entry[] = (Array.isArray(e.tool_calls) ? e.tool_calls : []).filter(isObj);
         // The database's ids, when its calls for this response are the transcript's (same names, same order);
         // otherwise the transcript stands: its results are paired by position, and the report says so.
+        // Names, and arguments where the database records them, so two calls of one tool in another order do not pass.
         const names = calls.map((c) => str(c.name) ?? "unknown");
         const dbNames = sidecar.callNames?.[idx];
+        const dbArgs = sidecar.callArgs?.[idx];
         const dbIds = sidecar.calls?.[idx] ?? [];
-        const matches = dbIds.length === calls.length && (!dbNames || (dbNames.length === names.length && dbNames.every((n, i) => n === names[i])));
+        const sameArgs = (i: number): boolean => {
+          const recorded = dbArgs?.[i];
+          if (!recorded) return true;
+          try {
+            return stableJson(JSON.parse(recorded)) === stableJson(isObj(calls[i]!.args) ? calls[i]!.args : {});
+          } catch {
+            return false;
+          }
+        };
+        const matches = dbIds.length === calls.length && (!dbNames || (dbNames.length === names.length && dbNames.every((n, i) => n === names[i]))) && calls.every((_, i) => sameArgs(i));
         if (calls.length && hasDb && !matches) bump(dropped, "db-call-mismatch");
         const callIds = calls.map((_, i) => (matches && dbIds[i]) || `${responseId}-call-${i}`);
         calls.forEach((call, i) => {
@@ -177,9 +195,11 @@ export function parseAntigravity(raw: string, options: AdapterOptions = {}): Ada
         // when it agrees with the transcript on what both record; otherwise the transcript stands, and the report says so.
         const db = sidecar.usage?.[idx];
         if (db) {
-          if (db.input === usage.input && db.output === usage.output && db.cacheRead === usage.cacheRead) {
+          // Cache writes count towards agreement only when the transcript records them; otherwise they come from the database.
+          const writesAgree = e.cache_write_tokens === undefined || db.cacheWrite === usage.cacheWrite;
+          if (db.input === usage.input && db.output === usage.output && db.cacheRead === usage.cacheRead && writesAgree) {
             usage.reasoning = Math.min(db.thinking, usage.output);
-            usage.cacheWrite = Math.max(usage.cacheWrite, db.cacheWrite);
+            if (e.cache_write_tokens === undefined) usage.cacheWrite = db.cacheWrite;
           } else bump(dropped, "db-usage-mismatch");
         }
         if (usage.input + usage.output + usage.cacheRead + usage.cacheWrite > 0) b.setResponseUsage(responseId, usage, { model, timestamp: ts });
@@ -196,10 +216,11 @@ export function parseAntigravity(raw: string, options: AdapterOptions = {}): Ada
           if (typeof full !== "string") bump(dropped, "shortened-output");
         }
         const result = { text, ...(images ? { images } : {}) };
-        // By the id the database gives, else (no database, or its calls did not match) by position while it lines up.
+        // By the id the database gives, when it names a call still waiting (a verified call's late result never goes
+        // to another call), else (no database, or its calls did not match) by position while it lines up.
         let attached = false;
         const answer = sidecar.answers?.[idx];
-        if (answer && !positional) attached = !!b.attachToolResult(answer, result);
+        if (answer) attached = !!b.attachToolResult(answer, result);
         if (!attached && positional) {
           const callId = positional.ids.shift();
           positional.at = idx;

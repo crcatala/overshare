@@ -91,7 +91,7 @@ harnesses/           pipeline                                   publish/        
 ## Fake sessions for testing
 
 `overshare fixtures` (or `npm run fixtures`) writes realistic, deterministic Claude
-Code and pi transcripts — plus redacted shares in every mode — that exercise the whole
+Code, pi, Codex and Antigravity transcripts (Antigravity's with its conversation database) — plus redacted shares in every mode — that exercise the whole
 viewer (thinking, all tool kinds, errors, diffs, images, subagents, slash commands,
 skills, interrupts, API errors, compaction, model changes, rewinds/branches, queued
 prompts, a truncated build log) and every redaction layer (an `env` dump, `.env`, keys
@@ -114,6 +114,7 @@ overshare fixtures --out fixtures-out --seed 1 [--turns 30]
 overshare serve fixtures-out/shares/*.json                       # browse them
 overshare report fixtures-out/claude/projects/*/*.jsonl --mode full --secrets-file fixtures-out/secrets.env
 OVERSHARE_CLAUDE_PROJECTS=fixtures-out/claude/projects overshare list
+OVERSHARE_CODEX_SESSIONS=fixtures-out/codex/sessions OVERSHARE_ANTIGRAVITY_DIR=fixtures-out/antigravity overshare list --harness codex
 ```
 
 Transcripts use your home directory and username by default (so home-path redaction

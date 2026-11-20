@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cache writes, read from the conversation's database where it agrees with the transcript (a disagreement is
   noted in the report and the transcript's figures are kept). A tool call whose step Antigravity cancelled shows as
   not run instead of having no result.
+- `overshare demo` and `overshare fixtures` also generate fake Codex and Antigravity sessions from the same story,
+  so the local viewer shows all four agents.
 - Sessions larger than 256 MB (`OVERSHARE_MAX_SESSION_MB` to change it) are listed in `browse` as too large to
   read, and `report`/`export`/`publish` say so, instead of the session vanishing or the read failing.
 

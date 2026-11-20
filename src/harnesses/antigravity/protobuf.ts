@@ -86,3 +86,31 @@ export const getNumber = (b: Uint8Array, path: readonly number[]): number | unde
 
 /** The submessages at a path. */
 export const getMessages = (b: Uint8Array, path: readonly number[]): Uint8Array[] => getAll(b, path).filter((v): v is Uint8Array => v instanceof Uint8Array);
+
+/** A message to encode: [field, value] pairs; a number is a varint, a string or bytes length-delimited, a list a submessage. */
+export type Message = [number, number | string | Uint8Array | Message][];
+
+const encodeVarint = (n: number): number[] => {
+  const out: number[] = [];
+  let v = n;
+  do {
+    let b = v % 128;
+    v = Math.floor(v / 128);
+    if (v > 0) b |= 0x80;
+    out.push(b);
+  } while (v > 0);
+  return out;
+};
+
+/** Wire-format encoding, the inverse of `fields` (for the fake sessions `overshare fixtures` writes). */
+export function encode(msg: Message): Uint8Array {
+  const bytes: number[] = [];
+  for (const [field, value] of msg) {
+    if (typeof value === "number") bytes.push(...encodeVarint(field * 8), ...encodeVarint(value));
+    else {
+      const body = typeof value === "string" ? new TextEncoder().encode(value) : value instanceof Uint8Array ? value : encode(value);
+      bytes.push(...encodeVarint(field * 8 + 2), ...encodeVarint(body.length), ...body);
+    }
+  }
+  return Uint8Array.from(bytes);
+}

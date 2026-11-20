@@ -2,7 +2,7 @@
 id: ass-6jd4
 status: open
 deps: []
-links: [ass-zl0d]
+links: [ass-zl0d, ove-v5c6]
 created: 2026-10-04T16:25:13Z
 type: feature
 priority: 4
@@ -38,3 +38,9 @@ codex-to-agentshare <rollout.jsonl> | agent-share export - --normalized -o out.j
 ## Done when
 A decision is recorded (build / don't build / only document), and if build: a scoped follow-up ticket with the validation rules above.
 
+
+## Notes
+
+**2026-11-20T18:20:21Z**
+
+2026-11-20: superseded in direction. The user now wants Codex and Antigravity supported in-tree (epic ove-v5c6). This converter idea stays open only as a route for other harnesses.

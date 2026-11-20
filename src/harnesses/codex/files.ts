@@ -1,7 +1,7 @@
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { readFirstLine, walkFiles } from "../discovery.js";
-import { SessionTooLargeError, isCompressed, maxSessionBytes, readTranscript } from "../limits.js";
+import { SessionTooLargeError, isCompressed, maxSessionBytes, readTranscript, readTranscriptBytes } from "../limits.js";
 import { lines, parseLine } from "../summary-kit.js";
 
 /**
@@ -100,6 +100,14 @@ export function allRollouts(root: string | undefined): string[] {
   return files.filter((f) => !isCompressed(f) || !plain.has(f.slice(0, -".zst".length)));
 }
 
+const fileSize = (f: string): number => {
+  try {
+    return statSync(f).size;
+  } catch {
+    return 0;
+  }
+};
+
 const mtime = (f: string): number => {
   try {
     return statSync(f).mtimeMs;
@@ -114,21 +122,33 @@ const sameDir = (a: string, b: string): boolean => resolve(a) === resolve(b);
  * Top-level rollouts, optionally only those run in `cwd`. A rollout whose header cannot be read yet (a thread starting
  * this instant) is listed without a working directory: it is never picked for a directory, and is not hidden either.
  */
+/** `rollout-<YYYY-MM-DDTHH-MM-SS>-…`: when a rollout was started, sortable as text. */
+const startedAt = (f: string): string => /^rollout-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})/.exec(basename(f))?.[1] ?? "";
+
+/**
+ * The rollout a thread continues in, among several (a reverted thread): the one started last by its file name, then
+ * the one written last, then by name, so the choice never depends on the order files are listed in.
+ */
+export function newestRollout(files: readonly string[]): string | undefined {
+  return [...files].sort((a, b) => startedAt(b).localeCompare(startedAt(a)) || mtime(b) - mtime(a) || basename(b).localeCompare(basename(a)))[0];
+}
+
+/** Each thread's current rollout (see `newestRollout`): the others are history it reads. */
+function currentRollouts(files: readonly string[]): string[] {
+  const byThread = new Map<string, string[]>();
+  for (const f of files) byThread.set(threadId(f), [...(byThread.get(threadId(f)) ?? []), f]);
+  const current = new Set([...byThread.values()].map((list) => newestRollout(list)!));
+  return files.filter((f) => current.has(f));
+}
+
 export function listRollouts(root: string, cwd?: string): string[] {
-  const kept = allRollouts(root).filter((f) => {
+  // The current rollout of each thread first, then the filters: an older rollout of a thread never stands in for it.
+  return currentRollouts(allRollouts(root)).filter((f) => {
     const h = rolloutHeader(f);
     if (!h) return cwd === undefined;
     if (h.subagent) return false;
     return cwd === undefined || (h.cwd !== undefined && sameDir(h.cwd, cwd));
   });
-  // A thread with several rollouts (reverted) is one session: the newest rollout, which reads the others' history.
-  const newest = new Map<string, string>();
-  for (const f of kept) {
-    const id = threadId(f);
-    const seen = newest.get(id);
-    if (!seen || mtime(f) > mtime(seen)) newest.set(id, f);
-  }
-  return kept.filter((f) => newest.get(threadId(f)) === f);
 }
 
 /**
@@ -198,7 +218,8 @@ export interface CodexSidecar {
 
 /** The first `end` bytes of a rollout (decompressed if need be). */
 function prefixOf(file: string, end: number): string {
-  if (isCompressed(file)) return readTranscript(file).slice(0, end);
+  // `end` is a byte offset: cut the bytes, then decode (a cut in decoded text would count characters).
+  if (isCompressed(file)) return readTranscriptBytes(file).subarray(0, end).toString("utf8");
   const fd = openSync(file, "r");
   try {
     const buf = Buffer.alloc(Math.min(end, statSync(file).size));
@@ -220,14 +241,16 @@ export function rolloutHistory(file: string): CodexHistory[] {
   const byRollout = new Map(allRollouts(root).map((f) => [rolloutId(f), f]));
   const out: CodexHistory[] = [];
   const seen = new Set<string>([rolloutId(file)]);
-  let total = 0;
+  // One budget for the rollout and all the history it keeps, checked before each prefix is read.
+  const limit = maxSessionBytes();
+  let total = isCompressed(file) ? 0 : fileSize(file);
   for (let base = self.base; base && !seen.has(base.rollout); ) {
     seen.add(base.rollout);
     const source = byRollout.get(base.rollout);
     if (!source) break;
+    total += base.endByte;
+    if (total > limit) throw new SessionTooLargeError(total, limit);
     const raw = prefixOf(source, base.endByte);
-    total += raw.length;
-    if (total > maxSessionBytes()) throw new SessionTooLargeError(total, maxSessionBytes());
     const header = rolloutHeader(source);
     out.unshift({ raw, inherited: !!header?.id && !!self.id && header.id !== self.id });
     base = header?.base as typeof base;
@@ -285,7 +308,25 @@ export function loadCodexSidecar(file: string): CodexSidecar {
 export function codexSidecarKey(file: string): string {
   const home = codexHomeOf(file);
   const title = home ? (threadNames(home).get(threadId(file)) ?? "") : "";
-  return rolloutHeader(file)?.base ? `${title}\u0000${rolloutHeader(file)!.base!.rollout}` : title;
+  if (!rolloutHeader(file)?.base) return title;
+  // The rollouts whose history is read, as found now: one that appears (or changes) reads the session again.
+  return [title, ...historySources(file).map((f) => `${f}:${mtime(f)}`)].join("\u0000");
+}
+
+/** The rollouts a rollout's `history_base` chain resolves to, newest first. */
+function historySources(file: string): string[] {
+  const root = sessionsRootOf(file);
+  if (!root) return [];
+  const byRollout = new Map(allRollouts(root).map((f) => [rolloutId(f), f]));
+  const out: string[] = [];
+  const seen = new Set<string>([rolloutId(file)]);
+  for (let base = rolloutHeader(file)?.base; base && !seen.has(base.rollout); base = rolloutHeader(out.at(-1)!)?.base) {
+    seen.add(base.rollout);
+    const source = byRollout.get(base.rollout);
+    if (!source) break;
+    out.push(source);
+  }
+  return out;
 }
 
 /** Clear the in-process caches (tests). */

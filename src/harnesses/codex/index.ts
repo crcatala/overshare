@@ -1,7 +1,6 @@
-import { statSync } from "node:fs";
 import { join } from "node:path";
 import type { Harness } from "../types.js";
-import { allRollouts, codexSidecarKey, listRollouts, loadCodexSidecar, rolloutHeader, threadId } from "./files.js";
+import { allRollouts, codexSidecarKey, listRollouts, loadCodexSidecar, newestRollout, rolloutHeader, threadId } from "./files.js";
 import { parseCodex } from "./parse.js";
 import { countCodexSubagents, loadCodexSubagents } from "./subagents.js";
 import { summarizeCodex } from "./summarize.js";
@@ -26,11 +25,8 @@ export const codex: Harness = {
   currentSession(env, root) {
     const id = env.CODEX_THREAD_ID;
     if (!id) return undefined;
-    // A reverted thread has several rollouts: the newest is the one being written.
-    return allRollouts(root)
-      .filter((f) => threadId(f) === id)
-      .map((f) => ({ f, at: statSync(f).mtimeMs }))
-      .sort((a, b) => b.at - a.at)[0]?.f;
+    // A reverted thread has several rollouts: the one it continues in, as `list` picks it.
+    return newestRollout(allRollouts(root).filter((f) => threadId(f) === id));
   },
   // Spawned agents write their own rollouts, filed by date like any thread; their headers name the parent.
   subagents: { load: loadCodexSubagents, count: (file) => countCodexSubagents(file) },

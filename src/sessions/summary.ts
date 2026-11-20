@@ -6,8 +6,7 @@
  * names) and titles. Tool results (the bulk of most files) are skipped after a prefix check. Exact
  * cost, redaction findings and the full transcript come later, on demand, from the real pipeline.
  */
-import { readFileSync } from "node:fs";
-import { HARNESSES, loadSidecar, maxSessionBytes } from "../harnesses/index.js";
+import { HARNESSES, SessionTooLargeError, isCompressed, loadSidecar, maxSessionBytes, readTranscript } from "../harnesses/index.js";
 import { Collector, oneLine } from "../harnesses/summary-kit.js";
 import { stripControls } from "../sanitize.js";
 import type { HarnessName } from "../schema.js";
@@ -54,6 +53,11 @@ export interface SessionSummary {
   tooLarge?: true;
   /** The harness's `sidecar.key` when this was read: a change reads the session again. */
   sidecarKey?: string;
+  /**
+   * For a compressed transcript, whose size on disk says nothing about the limit: the limit it was read under (a
+   * different limit reads it again).
+   */
+  readLimit?: number;
 }
 
 export interface SummarizeInput {
@@ -133,13 +137,29 @@ export const sidecarKeyOf = (ref: Pick<SummarizeInput, "harness" | "path">): str
 /** A session too large to read: listed by its size, so it does not vanish from the browser without a word. */
 function tooLargeSummary(ref: SummarizeInput): SessionSummary {
   const mb = Math.ceil(ref.size / (1024 * 1024)).toLocaleString("en-US");
-  const title = `(too large to read: ${mb} MB; see OVERSHARE_MAX_SESSION_MB)`;
-  return { harness: ref.harness, id: ref.id, path: ref.path, mtimeMs: ref.mtimeMs, size: ref.size, title, models: [], prompts: 0, calls: 0, tools: {}, subagents: 0, worker: false, promptHead: [], promptTail: [], searchText: title.toLowerCase(), tooLarge: true };
+  const title = ref.size > maxSessionBytes() ? `(too large to read: ${mb} MB; see OVERSHARE_MAX_SESSION_MB)` : "(too large to read once decompressed; see OVERSHARE_MAX_SESSION_MB)";
+  return { harness: ref.harness, id: ref.id, path: ref.path, mtimeMs: ref.mtimeMs, size: ref.size, title, models: [], prompts: 0, calls: 0, tools: {}, subagents: 0, worker: false, promptHead: [], promptTail: [], searchText: title.toLowerCase(), tooLarge: true, ...(isCompressed(ref.path) ? { readLimit: maxSessionBytes() } : {}) };
 }
 
 export function summarizeFile(ref: SummarizeInput): SessionSummary {
   if (ref.size > maxSessionBytes()) return tooLargeSummary(ref);
   const key = sidecarKeyOf(ref);
-  const summary = withBranchGuess(summarizeRaw(ref, readFileSync(ref.path, "utf8"), loadSidecar(ref.harness, ref.path)));
-  return key === undefined ? summary : { ...summary, sidecarKey: key };
+  let raw: string;
+  try {
+    raw = readTranscript(ref.path);
+  } catch (err) {
+    // A compressed file can be small on disk and too large once decompressed.
+    if (err instanceof SessionTooLargeError) return tooLargeSummary(ref);
+    throw err;
+  }
+  let sidecar: unknown;
+  try {
+    sidecar = loadSidecar(ref.harness, ref.path);
+  } catch (err) {
+    // What the session keeps beside it (a continuation's history) can push it over the limit too.
+    if (err instanceof SessionTooLargeError) return tooLargeSummary(ref);
+    throw err;
+  }
+  const summary = withBranchGuess(summarizeRaw(ref, raw, sidecar));
+  return { ...summary, ...(key === undefined ? {} : { sidecarKey: key }), ...(isCompressed(ref.path) ? { readLimit: maxSessionBytes() } : {}) };
 }

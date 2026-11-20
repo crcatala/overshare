@@ -1,4 +1,6 @@
-/** How large a transcript overshare reads into memory. */
+/** How large a transcript overshare reads into memory, and reading one (plain, or zstd-compressed). */
+import { readFileSync, statSync } from "node:fs";
+import { zstdDecompressSync } from "node:zlib";
 
 /** Default for `maxSessionBytes`: well under the longest string Node can hold, which a whole-file read needs. */
 const DEFAULT_MAX_SESSION_MB = 256;
@@ -26,4 +28,31 @@ export class SessionTooLargeError extends Error {
 export function checkSessionSize(size: number, env: NodeJS.ProcessEnv = process.env): void {
   const limit = maxSessionBytes(env);
   if (size > limit) throw new SessionTooLargeError(size, limit);
+}
+
+/** A transcript file kept zstd-compressed (Codex recompresses idle rollouts to `rollout-*.jsonl.zst`). */
+export const isCompressed = (path: string): boolean => path.endsWith(".zst");
+
+/**
+ * The text of a transcript file, decompressing a `.zst` one (Node's zlib has zstd since 22.15, without an
+ * ExperimentalWarning), within `maxSessionBytes`: a plain file is checked by its size before it is read, a compressed
+ * one while it is decompressed (it may grow far past its size on disk).
+ */
+export function readTranscript(path: string, env: NodeJS.ProcessEnv = process.env): string {
+  return readTranscriptBytes(path, env).toString("utf8");
+}
+
+/** `readTranscript` as bytes, for a caller that cuts at a byte offset (a cut in decoded text would count characters). */
+export function readTranscriptBytes(path: string, env: NodeJS.ProcessEnv = process.env): Buffer {
+  const limit = maxSessionBytes(env);
+  if (!isCompressed(path)) {
+    checkSessionSize(statSync(path).size, env);
+    return readFileSync(path);
+  }
+  try {
+    return zstdDecompressSync(readFileSync(path), { maxOutputLength: limit });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ERR_BUFFER_TOO_LARGE") throw new SessionTooLargeError(limit + 1, limit);
+    throw err;
+  }
 }

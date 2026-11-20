@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { Harness } from "../types.js";
-import { allRollouts, listRollouts, loadCodexSidecar, rolloutHeader, threadId } from "./files.js";
+import { allRollouts, codexSidecarKey, listRollouts, loadCodexSidecar, newestRollout, rolloutHeader, threadId } from "./files.js";
 import { parseCodex } from "./parse.js";
 import { countCodexSubagents, loadCodexSubagents } from "./subagents.js";
 import { summarizeCodex } from "./summarize.js";
@@ -25,13 +25,14 @@ export const codex: Harness = {
   currentSession(env, root) {
     const id = env.CODEX_THREAD_ID;
     if (!id) return undefined;
-    return allRollouts(root).find((f) => threadId(f) === id);
+    // A reverted thread has several rollouts: the one it continues in, as `list` picks it.
+    return newestRollout(allRollouts(root).filter((f) => threadId(f) === id));
   },
   // Spawned agents write their own rollouts, filed by date like any thread; their headers name the parent.
   subagents: { load: loadCodexSubagents, count: (file) => countCodexSubagents(file) },
   sidecar: {
     load: loadCodexSidecar,
-    key: (file) => loadCodexSidecar(file).title ?? "",
+    key: codexSidecarKey,
   },
   credentialFiles: (env, home) => [join(codexHome(env, home), "auth.json")],
 };

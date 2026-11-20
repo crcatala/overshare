@@ -2,7 +2,7 @@ import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { HARNESSES, HARNESS_NAMES, UnrecognizedFormatError, detectHarnessInLines, type HarnessName } from "./harnesses/index.js";
+import { HARNESSES, HARNESS_NAMES, UnrecognizedFormatError, detectHarnessInLines, isCompressed, readTranscript, type HarnessName } from "./harnesses/index.js";
 import { harnessLabel } from "./harnesses/meta.js";
 
 export type SessionRoots = Record<HarnessName, string>;
@@ -111,7 +111,7 @@ function* fileLines(path: string): Generator<string> {
  * pasted file in the first message, a run of bookkeeping lines). A file no harness claims is an error, not a guess.
  */
 export function sniffHarness(path: string): HarnessName {
-  const found = detectHarnessInLines(fileLines(path));
+  const found = detectHarnessInLines(isCompressed(path) ? readTranscript(path).split("\n") : fileLines(path));
   if (!found) throw new UnrecognizedFormatError();
   return found;
 }

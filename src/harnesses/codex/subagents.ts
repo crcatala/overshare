@@ -1,10 +1,10 @@
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { basename } from "node:path";
 import type { ResponseUsage } from "../../schema.js";
 import { estimateCosts, type SubagentFileInput } from "../shared.js";
 import type { SubagentRun } from "../subagent-runs.js";
 import { lines, parseLine } from "../summary-kit.js";
-import { maxSessionBytes } from "../limits.js";
+import { isCompressed, maxSessionBytes, readTranscript } from "../limits.js";
 import { subagentRollouts } from "./files.js";
 import { codexUsage } from "./parse.js";
 
@@ -18,8 +18,8 @@ export function loadCodexSubagents(sessionPath: string): SubagentFileInput[] {
   const files: SubagentFileInput[] = [];
   for (const f of subagentRollouts(sessionPath)) {
     try {
-      if (statSync(f).size > maxSessionBytes()) continue;
-      files.push({ fileName: basename(f), raw: readFileSync(f, "utf8") });
+      if (!isCompressed(f) && statSync(f).size > maxSessionBytes()) continue;
+      files.push({ fileName: basename(f), raw: readTranscript(f) });
     } catch {
       // vanished or unreadable
     }

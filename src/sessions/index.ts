@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { defaultRoots, listSessions, type SessionRef, type SessionRoots } from "../resolve.js";
-import { maxSessionBytes } from "../harnesses/index.js";
+import { isCompressed, maxSessionBytes } from "../harnesses/index.js";
 import { HARNESS_NAMES, type HarnessName } from "../harnesses/meta.js";
 import { writePrivateFile } from "./private-files.js";
 import { sidecarKeyOf, summarizeFile, type SessionSummary } from "./summary.js";
@@ -79,8 +79,9 @@ function fresh(hit: SessionSummary | undefined, ref: SessionRef): boolean {
     hit.mtimeMs === ref.mtimeMs &&
     hit.size === ref.size &&
     hit.sidecarKey === sidecarKeyOf(ref) &&
-    // The size limit can change between runs: a row read under another limit says the wrong thing.
-    !!hit.tooLarge === ref.size > maxSessionBytes()
+    // The size limit can change between runs: a row read under another limit says the wrong thing. A compressed
+    // file's size on disk says nothing about it, so its row records the limit it was read under.
+    (isCompressed(ref.path) ? hit.readLimit === maxSessionBytes() : !!hit.tooLarge === ref.size > maxSessionBytes())
   );
 }
 

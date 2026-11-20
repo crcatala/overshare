@@ -1,8 +1,7 @@
 # OpenAI Codex session format (research notes)
 
-Status: current rollouts (history mode `paginated`), subagents and compaction are supported by
-`src/harnesses/codex/` (ove-m3y1, ove-f0o0); `.jsonl.zst` and continuation files are the rest of ove-f0o0, legacy
-history mode ove-l2s7. Plan and tickets:
+Status: current rollouts (history mode `paginated`), subagents, compaction, `.jsonl.zst` and continuation files are
+supported by `src/harnesses/codex/` (ove-m3y1, ove-f0o0); legacy history mode is ove-l2s7. Plan and tickets:
 `.tickets/` epic "Support Codex and Antigravity sessions". Gathered 2026-11-20 from 62 local rollouts (Codex CLI 0.163–0.169, plus one 0.58 file), the
 `openai/codex` source, and other parsers. OpenAI calls the rollout file an internal resume log, not a public
 format, so expect drift: skip unknown line types instead of failing, and add a fixture for every new shape.
@@ -26,7 +25,10 @@ $CODEX_HOME (default ~/.codex)/
 - `--current`: Codex sets `CODEX_THREAD_ID` in the environment of every command it runs
   (`codex-rs/core/src/exec_env.rs`).
 - Reported by other parsers, not seen locally: idle rollouts are recompressed to `rollout-*.jsonl.zst` after
-  about 7 days, and a thread can continue in `rollout-<time>-<thread>_<rollout-id>.jsonl`. Node can read the
+  about 7 days, and a thread can continue in `rollout-<time>-<thread>_<rollout-id>.jsonl`. In codex-rs
+  (`rollout/src/rollout_file_name.rs`, `protocol.rs` `HistoryPosition`) the second is a reverted thread: its header's
+  `history_base` names the rollout it keeps a prefix of (`thread_id`, which is a rollout id) and where that prefix
+  ends (`end_ordinal_exclusive`, `end_byte_offset`). A fork can point at another thread's rollout the same way. Node can read the
   `.zst` files without a dependency: `zlib.zstdDecompressSync` / `createZstdDecompress` exist since 22.15.0
   (overshare needs ≥ 22.19). The docs mark them Experimental, but `lib/zlib.js` in 22.19 emits no
   `ExperimentalWarning` for them.

@@ -1,17 +1,16 @@
-import { readFileSync, statSync } from "node:fs";
 import { HARNESS_NAMES, type HarnessName } from "./meta.js";
 import { claudeCode } from "./claude-code/index.js";
 import { codex } from "./codex/index.js";
 import { pi } from "./pi/index.js";
 import type { AdapterOptions, AdapterResult, SubagentFileInput } from "./shared.js";
 import type { Harness } from "./types.js";
-import { checkSessionSize } from "./limits.js";
+import { readTranscript } from "./limits.js";
 
 export { HARNESS_NAMES, type HarnessName } from "./meta.js";
 export type { AdapterOptions, AdapterResult, SubagentFileInput } from "./shared.js";
 export { UnsupportedFormatError } from "./shared.js";
 export type { Harness } from "./types.js";
-export { SessionTooLargeError, checkSessionSize, maxSessionBytes } from "./limits.js";
+export { SessionTooLargeError, checkSessionSize, isCompressed, maxSessionBytes, readTranscript } from "./limits.js";
 
 /**
  * Every harness we read. Typed by `HarnessName`, so a name added to `meta.ts` without a descriptor here is a type
@@ -78,8 +77,7 @@ export function loadSidecar(harness: HarnessName, sessionPath: string): unknown 
  * harness keeps beside it (subagent transcripts, sidecar data). The one place the CLI and the browser read a session.
  */
 export function readSession(harness: HarnessName, path: string, env: NodeJS.ProcessEnv = process.env): { raw: string; options: AdapterOptions } {
-  checkSessionSize(statSync(path).size, env);
-  const raw = readFileSync(path, "utf8");
+  const raw = readTranscript(path, env);
   const subagentFiles = loadSubagentFiles(harness, path);
   const sidecar = loadSidecar(harness, path);
   return { raw, options: { ...(subagentFiles ? { subagentFiles } : {}), ...(sidecar !== undefined ? { sidecar } : {}) } };

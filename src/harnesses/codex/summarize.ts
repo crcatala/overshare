@@ -7,9 +7,18 @@ import type { CodexSidecar } from "./files.js";
  * header are parsed. Command output (`CommandExecution` items, tool outputs) is the bulk and is skipped unread.
  */
 export function summarizeCodex(raw: string, c: Collector, sidecar?: unknown): void {
-  const title = (sidecar as CodexSidecar | undefined)?.title;
-  if (title) c.title = title;
-  for (const line of lines(raw)) {
+  const side = (sidecar ?? {}) as CodexSidecar;
+  if (side.title) c.title = side.title;
+  // A continuation's kept history comes first (its prompts are this session's too); this file's header first of all.
+  const history = (Array.isArray(side.history) ? side.history : []).filter((h) => typeof h?.raw === "string");
+  const own = lines(raw);
+  const first = own.next();
+  const all = function* () {
+    if (!first.done) yield first.value;
+    for (const h of history) for (const line of lines(h.raw)) if (!line.includes('"type":"session_meta"')) yield line;
+    yield* own;
+  };
+  for (const line of all()) {
     const head = headOf(line);
     c.stamp(/^\{"timestamp":"([^"]+)"/.exec(head)?.[1]);
     if (head.includes('"type":"token_usage_record"')) {

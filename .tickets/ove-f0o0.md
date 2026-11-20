@@ -1,6 +1,6 @@
 ---
 id: ove-f0o0
-status: in_progress
+status: closed
 deps: [ove-m3y1]
 links: []
 created: 2026-11-20T18:20:21Z
@@ -30,3 +30,7 @@ Resolved 2026-11-20: .jsonl.zst needs no dependency. Node >= 22.15 has zlib.zstd
 **2026-11-20T19:29:38Z**
 
 Split into two PRs: (1) subagents + compaction (this branch, feat/codex-subagents); (2) .jsonl.zst + continuation (revert) files. Continuation files per upstream codex-rs rollout_file_name.rs: rollout-<ts>-<thread>_<rollout-id>.jsonl, header history_base {thread_id: prefix rollout id, end_ordinal_exclusive, end_byte_offset} = an immutable prefix of the earlier rollout. Decisions for (1): subagent files found by header parent_thread_id across the sessions tree (BFS, grandchildren included); only lines from subagent_history_start_ordinal count; spawn step linked via SubAgentActivity(started).agent_thread_id (task name match, else latest unmatched spawn); linking code moved to src/harnesses/subagent-runs.ts unchanged; codex meta sumsSubagentUsage; compaction = 'compacted' line (ContextCompaction item only if no such lines), the bare usage record just before it gets purpose compaction.
+
+**2026-11-20T19:44:08Z**
+
+Part 2 (.jsonl.zst + continuation files) decisions: generic readTranscript (limits.ts) decompresses .zst with zlib.zstdDecompressSync, size limit applied to decompressed bytes (maxOutputLength); listing prefers the plain file while both exist; header of a .zst is read by decompressing the file (cached per path). Continuation (reverted thread) = newest rollout of the thread by mtime; its header history_base chain is read into the sidecar (prefix of end_byte_offset bytes per rollout) and parsed before the file's own lines; history from another thread (fork) is inherited. Abandoned tail of the earlier rollout is not shown (no otherBranches figure yet). No local samples of either: synthetic tests + all 68 local rollouts recompressed to .zst in scratch (totals match).

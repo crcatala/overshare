@@ -13,7 +13,7 @@
  * is per model).
  */
 import { metaOf } from "./harnesses/meta.js";
-import { cacheWrite1hRate, findPrice, ratesFor } from "./pricing.js";
+import { cacheWrite1hRate, findPrice, priceProvider, ratesFor } from "./pricing.js";
 import { contextTokens, totalTokens, type CacheEvent, type CacheSummary, type NormalizedSession, type ResponseUsage, type TokenRates, type Usage } from "./schema.js";
 
 /**
@@ -104,10 +104,10 @@ export function markCacheEvents(session: Pick<NormalizedSession, "responses" | "
     models.set(r.model ?? "", m);
   }
   for (const [model, m] of models) {
-    // Anthropic models cache explicitly by definition. For any other model go by what it reports: writes on
-    // nearly every call, over enough calls to tell (a stray write on an implicit cache, 1% of one GPT
-    // model's calls or 1 call in 3, does not make it explicit).
-    m.explicit = (model !== "" && findPrice(model) !== undefined) || (m.calls >= EXPLICIT_MIN_CALLS && m.writes >= m.calls * 0.25);
+    // Anthropic models cache explicitly by definition (by provider, not by having a price: OpenAI and Gemini models
+    // are priced too). For any other model go by what it reports: writes on nearly every call, over enough calls to
+    // tell (a stray write on an implicit cache, 1% of one GPT model's calls or 1 call in 3, does not make it explicit).
+    m.explicit = (model !== "" && priceProvider(model) === "anthropic") || (m.calls >= EXPLICIT_MIN_CALLS && m.writes >= m.calls * 0.25);
     m.ttl = m.oneHour || !(shortCacheTtl && m.explicit) ? HOUR_MS : FIVE_MIN_MS;
   }
   const rates = session.stats?.rates;

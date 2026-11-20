@@ -4,7 +4,7 @@ import { parsePi } from "../src/harnesses/pi/parse.js";
 import { MISS_RULE, markCacheEvents } from "../src/cache.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { prepareShare } from "../src/pipeline.js";
-import { estimateCost } from "../src/pricing.js";
+import { estimateCost, findPrice } from "../src/pricing.js";
 import { SHARE_MODES, type NormalizedSession, type ResponseUsage, type Step, type Turn, type Usage } from "../src/schema.js";
 import { computeStats } from "../src/stats.js";
 import { ClaudeTranscript, PiTranscript, ccUsage, piUsage } from "./helpers.js";
@@ -121,6 +121,26 @@ describe("cache miss detection", () => {
       markCacheEvents(lost);
       expect(lost.responses[2]!.cacheEvent).toMatchObject({ kind: "miss", recached: 30_000 });
       expect(MISS_RULE.implicit.tokens).toBeGreaterThan(MISS_RULE.explicit.tokens);
+    });
+
+    it("keeps a priced GPT or Gemini model on the implicit rule: a price is not an explicit cache", () => {
+      // Only cached reads, lagging the prefix by a block or two as best-effort caches do: no misses.
+      for (const m of ["gpt-6.1-sol", "gemini-4-neon-high"]) {
+        expect(findPrice(m), m).toBeDefined();
+        const s = session([{ input: 30_000, model: m }, { input: 5_000, read: 27_648, model: m }, { input: 4_000, read: 32_000, model: m }, { input: 6_000, read: 33_536, model: m }]);
+        const summary = markCacheEvents(s);
+        expect(events(s), m).toEqual([undefined, undefined, undefined, undefined]);
+        expect(summary, m).toMatchObject({ requests: 4, misses: 0 });
+      }
+    });
+
+    it("prices a lost GPT prefix from the price table when the harness recorded no rates", () => {
+      const m = "gpt-6.1-sol";
+      const s = session([{ input: 30_000, read: 0, model: m }, { input: 500, read: 29_500, model: m }, { input: 32_000, read: 0, model: m }]);
+      markCacheEvents(s);
+      // 30,000 re-processed tokens at the input rate ($2) instead of the cached-input rate ($0.10).
+      expect(s.responses[2]!.cacheEvent).toMatchObject({ kind: "miss", recached: 30_000 });
+      expect(s.responses[2]!.cacheEvent!.cost).toBeCloseTo((30_000 * (2 - 0.1)) / 1e6, 12);
     });
 
     it("treats a Claude model as explicit however few calls a short session has", () => {

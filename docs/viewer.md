@@ -108,7 +108,8 @@ list price, not a bill: pi records a cost for every call, while Claude Code reco
 tokens, so its cost is computed from the token counts, the model and the 5-minute/1-hour
 cache-write split with the price table in `src/pricing-data.ts`, generated from
 [models.dev](https://models.dev) and cross-checked against LiteLLM's price list (regenerate it
-with `npm run update:prices`; older models neither lists are kept by hand in `src/pricing.ts`).
+with `npm run update:prices`; it lists Claude, OpenAI and Gemini models, and models neither source lists are
+kept by hand in `src/pricing.ts`).
 The table is a snapshot in the repo, never fetched at run time: the cost is computed when the
 share is made and stored in it. A model with no known price adds no cost rather than zero, and the
 total then ends in `+`. A model with long-context rates (Haiku 5.5: higher rates above 100k
@@ -161,7 +162,8 @@ blocks, so an ordinary call lags the previous prompt by a block or two; for an
 unexplained miss on those, more than half the prefix and at least 10,000 tokens must have
 been re-processed. The extra cost is the re-processed tokens at what the call paid (5-minute
 or 1-hour writes, uncached input) minus the cache-read price: from the price table for
-Claude Code, from the per-model prices in pi's recorded costs for pi.
+Claude Code, from the per-model prices in pi's recorded costs for pi (or the price table, which also
+lists OpenAI and Gemini models, when those costs don't give a model's rates).
 Limits: the compaction request itself (which pays for a cold cache after an idle break) is not
 written to Claude Code transcripts, so it cannot be flagged and only the rebuild after it shows.
 Claude Code also counts tool-result clearing as an expected rebuild; no transcript we have

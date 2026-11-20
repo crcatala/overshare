@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ANTHROPIC_PRICES } from "../src/pricing-data.js";
-import { estimateCost, findPrice, type ModelPrice } from "../src/pricing.js";
+import { ANTHROPIC_PRICES, GOOGLE_PRICES, OPENAI_PRICES } from "../src/pricing-data.js";
+import { estimateCost, findPrice, priceProvider, providerOfId, type ModelPrice } from "../src/pricing.js";
 import { emptyUsage } from "../src/schema.js";
 import { CLAUDE_FIXTURE_MODEL } from "../src/fixtures/claude-code.js";
 
@@ -21,9 +21,55 @@ describe("pricing", () => {
   it("has no price for models it does not know, rather than a zero", () => {
     expect(findPrice(undefined)).toBeUndefined();
     expect(findPrice("<synthetic>")).toBeUndefined();
-    expect(findPrice("gpt-5.6-terra")).toBeUndefined();
     expect(findPrice("claude-unreleased-9")).toBeUndefined();
+    expect(findPrice("gpt-99-unreleased")).toBeUndefined();
+    expect(findPrice("gemini-99-unreleased-high")).toBeUndefined();
+    // Families we keep no price list for, wherever they are served.
+    for (const id of ["z-ai/glm-5.3-flash", "grok-4.6", "deepseek/deepseek-v4.1-flash", "openrouter/z-ai/glm-5.3-flash:high", "solo3"]) expect(findPrice(id), id).toBeUndefined();
     expect(estimateCost("claude-unreleased-9", usage({ input: 1000 }))).toBeUndefined();
+  });
+
+  it("finds OpenAI ids as Codex and pi write them, and Gemini ids with Antigravity's thinking level", () => {
+    const sol = OPENAI_PRICES["gpt-6.1-sol"];
+    expect(sol).toEqual({ input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5, tiers: [{ above: 272_000, input: 4, output: 15, cacheRead: 0.2, cacheWrite: 5 }] });
+    for (const id of ["gpt-6.1-sol", "GPT-6.1-Sol", "openai/gpt-6.1-sol", "openai-codex/gpt-6.1-sol:high", "openrouter/openai/gpt-6.1-sol"]) expect(findPrice(id), id).toEqual(sol);
+    expect(findPrice("gpt-5.6-terra")).toEqual(OPENAI_PRICES["gpt-5.6-terra"]);
+    expect(findPrice("o3")).toEqual(OPENAI_PRICES["o3"]);
+    // A dated OpenAI id falls back to the undated one.
+    expect(findPrice("gpt-6.1-sol-2026-09-29")).toEqual(sol);
+    const neon = GOOGLE_PRICES["gemini-4-neon"];
+    expect(neon).toEqual({ input: 3, output: 15, cacheRead: 0.15, cacheWrite: 3 });
+    for (const id of ["gemini-4-neon", "gemini-4-neon-high", "gemini-4-neon-medium", "gemini-4-neon-low", "google/gemini-4-neon"]) expect(findPrice(id), id).toEqual(neon);
+    // An id that is itself listed wins over stripping a suffix from it.
+    expect(findPrice("gemini-flash-latest")).toEqual(GOOGLE_PRICES["gemini-flash-latest"]);
+  });
+
+  it("says whose price list a model is on, which is what tells an explicit cache", () => {
+    expect(priceProvider("claude-opus-5-5")).toBe("anthropic");
+    expect(priceProvider("us.anthropic.claude-opus-5-5-v1:0")).toBe("anthropic");
+    expect(priceProvider("gpt-6.1-sol")).toBe("openai");
+    expect(priceProvider("gpt-5.1-codex")).toBe("openai");
+    expect(priceProvider("gemini-4-neon-high")).toBe("google");
+    // Unpriced: no provider, even for a family we know.
+    expect(priceProvider("claude-unreleased-9")).toBeUndefined();
+    expect(priceProvider("grok-4.6")).toBeUndefined();
+    expect(providerOfId("o4-mini")).toBe("openai");
+    expect(providerOfId("o4x")).toBeUndefined();
+  });
+
+  it("prices OpenAI cache reads at the cached-input rate, with the long-context tier", () => {
+    // 10,000 uncached + 90,000 cached input, 2,000 output on GPT-6.1 Sol: 10,000*2 + 90,000*0.1 + 2,000*10.
+    expect(estimateCost("gpt-6.1-sol", usage({ input: 10_000, cacheRead: 90_000, output: 2_000 }))).toBeCloseTo((20_000 + 9_000 + 20_000) / 1e6, 12);
+    // Over 272k of prompt the whole call is billed at the tier: 10,000*4 + 270,000*0.2 + 2,000*15.
+    expect(estimateCost("gpt-6.1-sol", usage({ input: 10_000, cacheRead: 270_000, output: 2_000 }))).toBeCloseTo((40_000 + 54_000 + 30_000) / 1e6, 12);
+    // Gemini through Antigravity's id: 6,501*3 + 35,192*0.15 + 223*15.
+    expect(estimateCost("gemini-4-neon-high", usage({ input: 6_501, cacheRead: 35_192, output: 223 }))).toBeCloseTo((19_503 + 5_278.8 + 3_345) / 1e6, 9);
+  });
+
+  it("prices the Codex variants models.dev does not list from the hand-kept supplement", () => {
+    expect(findPrice("gpt-5.1-codex")).toEqual({ input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 1.25 });
+    expect(findPrice("gpt-5.1-codex-mini")).toMatchObject({ input: 0.25, output: 2 });
+    expect(findPrice("openai/gpt-5.2-codex")).toMatchObject({ input: 1.75, output: 14 });
   });
 
   it("prices each token kind, with 1-hour cache writes at twice the input rate", () => {
@@ -60,6 +106,26 @@ describe("pricing", () => {
 
   it("prices the model the generated Claude Code fixtures use", () => {
     expect(findPrice(CLAUDE_FIXTURE_MODEL)).toBeDefined();
+  });
+
+  it("reads a cache rate models.dev leaves out as the input rate, never as free", () => {
+    // GPT-5 Pro lists no cache rates: cached tokens cost what input does.
+    expect(OPENAI_PRICES["gpt-5-pro"]).toMatchObject({ input: 15, cacheRead: 15, cacheWrite: 15 });
+    for (const [id, price] of Object.entries({ ...OPENAI_PRICES, ...GOOGLE_PRICES })) {
+      for (const p of [price, ...(price.tiers ?? [])]) {
+        expect(p.input, id).toBeGreaterThan(0);
+        expect(p.output, id).toBeGreaterThan(0);
+        expect(p.cacheRead, id).toBeLessThanOrEqual(p.input);
+        expect(p.cacheWrite, id).toBeGreaterThanOrEqual(p.input);
+      }
+    }
+  });
+
+  it("keeps each provider's own family in its table", () => {
+    for (const [provider, table] of [["anthropic", ANTHROPIC_PRICES], ["openai", OPENAI_PRICES], ["google", GOOGLE_PRICES]] as const) {
+      expect(Object.keys(table).length, provider).toBeGreaterThan(0);
+      for (const id of Object.keys(table)) expect(providerOfId(id), id).toBe(provider);
+    }
   });
 
   it("lists only positive prices", () => {

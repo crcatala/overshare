@@ -1,6 +1,6 @@
 ---
 id: ove-f6hn
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-11-20T18:20:21Z
@@ -30,3 +30,9 @@ src/cache.ts decides a model caches explicitly (Anthropic style, 5-minute TTL lo
 - [ ] cache.ts classifies by provider; existing cache tests unchanged; a new test shows a GPT session with only cached reads reports no explicit-cache misses.
 - [ ] Claude Code share output unchanged (fixtures diff only in sharedAt); pi output unchanged too, or changed only where the decision above says so.
 
+
+## Notes
+
+**2026-11-20T18:58:14Z**
+
+Decisions (PR for ove-f6hn): (1) pi side effect accepted: a pi miss on a GPT/Gemini model is priced from the table only when pi's recorded costs don't give that model's rates; 0 of 522 local pi sessions changed, fixtures unchanged; noted in CHANGELOG. (2) cache.ts asks priceProvider(model) === 'anthropic' instead of findPrice(model) !== undefined. (3) One generated file, three tables (ANTHROPIC_/OPENAI_/GOOGLE_PRICES); the provider follows from the id family (providerOfId), so the flat id space and diff/bot code stay as they were. (4) OpenAI/Google cache rates models.dev omits are read as the input rate (no discount / no write premium), never 0. (5) Codex variants models.dev lacks (gpt-5-codex, gpt-5.1-codex[-mini|-max], gpt-5.2-codex) are hand-kept in SUPPLEMENTAL_PRICES from LiteLLM/OpenAI list prices. (6) Gemini thinking-level suffix stripped in findPrice as a fallback after the exact id.

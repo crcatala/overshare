@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { crossCheck, diffTables, fromModelsDev, parseTable, renderPrBody, renderTable, shadowedSupplements } from "../scripts/prices.ts";
-import { ANTHROPIC_PRICES } from "../src/pricing-data.js";
+import { ANTHROPIC_PRICES, GOOGLE_PRICES, OPENAI_PRICES } from "../src/pricing-data.js";
 import { SUPPLEMENTAL_PRICES } from "../src/pricing.js";
 
 // Trimmed copies of the real sources (2026-11-13): models.dev's catalog and LiteLLM's price file.
@@ -15,9 +15,10 @@ const modelsDev = () => JSON.parse(readFileSync(MODELS_DEV, "utf8"));
 const litellm = () => JSON.parse(readFileSync(LITELLM, "utf8"));
 
 describe("models.dev converter", () => {
-  it("converts a plain model and a tiered one, keeping only priced claude-* ids", () => {
+  it("converts a plain model and a tiered one, keeping each provider's priced chat models", () => {
     const { prices, snapshot } = fromModelsDev(modelsDev());
-    expect(Object.keys(prices)).toEqual(["claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5"]);
+    // Not kept: an unpriced entry, an image model, an embedding model, a speech model.
+    expect(Object.keys(prices)).toEqual(["claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5", "gemini-2.5-pro", "gemini-4-neon", "gpt-5-pro", "gpt-6.1-sol"]);
     expect(prices["claude-opus-5-5"]).toEqual({ input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 });
     expect(prices["claude-haiku-5-5"]).toEqual({
       input: 0.1,
@@ -26,8 +27,20 @@ describe("models.dev converter", () => {
       cacheWrite: 0.125,
       tiers: [{ above: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 }],
     });
-    // The newest last_updated of the models kept (the unpriced entry and other providers do not count).
+    // The newest last_updated of the models kept (the unpriced entry and the models left out do not count).
     expect(snapshot).toBe("2026-10-07");
+  });
+
+  it("reads OpenAI and Google cache rates it does not find as the input rate, and keeps their tiers", () => {
+    const { prices } = fromModelsDev(modelsDev());
+    expect(prices["gpt-6.1-sol"]).toEqual({ input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5, tiers: [{ above: 272_000, input: 4, output: 15, cacheRead: 0.2, cacheWrite: 5 }] });
+    expect(prices["gpt-5-pro"]).toEqual({ input: 15, output: 120, cacheRead: 15, cacheWrite: 15 });
+    expect(prices["gemini-4-neon"]).toEqual({ input: 3, output: 15, cacheRead: 0.15, cacheWrite: 3 });
+    expect(prices["gemini-2.5-pro"]!.tiers).toEqual([{ above: 200_000, input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 2.5 }]);
+    // Input and output are still required.
+    const api = modelsDev();
+    delete api.openai.models["gpt-6.1-sol"].cost.output;
+    expect(() => fromModelsDev(api)).toThrow(/gpt-6.1-sol output: expected a non-negative price/);
   });
 
   it("fails loudly on a tier type it does not know, or a missing price", () => {
@@ -41,6 +54,12 @@ describe("models.dev converter", () => {
     delete noRead.anthropic.models["claude-opus-5-5"].cost.cache_read;
     expect(() => fromModelsDev(noRead)).toThrow(/claude-opus-5-5 cache_read: expected a non-negative price/);
     expect(() => fromModelsDev({ openai: {} })).toThrow(/no anthropic.models/);
+    const noGoogle = modelsDev();
+    delete noGoogle.google;
+    expect(() => fromModelsDev(noGoogle)).toThrow(/no google.models/);
+    const noOpenai = modelsDev();
+    noOpenai.openai.models = { "gpt-image-2": noOpenai.openai.models["gpt-image-2"] };
+    expect(() => fromModelsDev(noOpenai)).toThrow(/no priced openai models/);
   });
 
   it("sorts tiers by size", () => {
@@ -59,10 +78,16 @@ describe("generated table", () => {
     expect(parseTable(text)).toEqual(snap.prices);
     expect(text).toContain("from models.dev (snapshot 2026-10-07)");
     expect(text).toContain(`"claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, tiers: [{ above: 100000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 }] },`);
+    // One table per provider, each holding only its own family.
+    const table = (name: string) => text.slice(text.indexOf(`export const ${name}`), text.indexOf("\n};", text.indexOf(`export const ${name}`)));
+    expect(table("ANTHROPIC_PRICES")).not.toMatch(/"g(pt|emini)-/);
+    expect(table("OPENAI_PRICES")).toContain(`"gpt-6.1-sol": {`);
+    expect(table("OPENAI_PRICES")).not.toMatch(/"(claude|gemini)-/);
+    expect(table("GOOGLE_PRICES")).toContain(`"gemini-4-neon": {`);
   });
 
   it("reads the committed table, and one in the old pre-tier format", () => {
-    expect(parseTable(readFileSync(join(import.meta.dirname, "..", "src", "pricing-data.ts"), "utf8"))).toEqual(ANTHROPIC_PRICES);
+    expect(parseTable(readFileSync(join(import.meta.dirname, "..", "src", "pricing-data.ts"), "utf8"))).toEqual({ ...ANTHROPIC_PRICES, ...OPENAI_PRICES, ...GOOGLE_PRICES });
     const old = `export interface ModelPrice {\n  input: number;\n}\n\nexport const ANTHROPIC_PRICES: Record<string, ModelPrice> = {\n  "claude-x": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },\n};\n`;
     expect(parseTable(old)).toEqual({ "claude-x": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 } });
     expect(() => parseTable("export const X = {};")).toThrow(/no ANTHROPIC_PRICES table/);
@@ -89,7 +114,7 @@ describe("generated table", () => {
     expect(shadowedSupplements({ "claude-sonnet-4-20250514": { input: 3, output: 15, cacheRead: 0.25, cacheWrite: 3.75 } }, sup)).toEqual(["claude-sonnet-4-20250514"]);
     expect(shadowedSupplements({ "claude-sonnet-4-5": { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } }, sup)).toEqual([]);
     // The committed table shadows nothing.
-    expect(shadowedSupplements(ANTHROPIC_PRICES, SUPPLEMENTAL_PRICES)).toEqual([]);
+    expect(shadowedSupplements({ ...ANTHROPIC_PRICES, ...OPENAI_PRICES, ...GOOGLE_PRICES }, SUPPLEMENTAL_PRICES)).toEqual([]);
   });
 });
 
@@ -98,7 +123,22 @@ describe("LiteLLM cross-check", () => {
     const r = crossCheck(fromModelsDev(modelsDev()).prices, litellm());
     expect(r.disagreements).toEqual([]);
     expect(r.onlyOurs).toEqual([]);
-    expect(r.onlyLitellm).toEqual([]); // gpt-4o is another provider, not listed
+    // gpt-4o is in LiteLLM only; the dated alias of a model we list, and Vertex's copy of a Gemini one, are not named.
+    expect(r.onlyLitellm).toEqual(["gpt-4o"]);
+  });
+
+  it("checks OpenAI and Gemini rates and tiers, and the Gemini entries under their gemini/ key", () => {
+    const ll = litellm();
+    ll["gpt-6.1-sol"].cache_read_input_token_cost_above_272k_tokens = 3e-7;
+    ll["gemini/gemini-4-neon"].output_cost_per_token = 1.2e-5;
+    delete ll["gemini/gemini-2.5-pro"].cache_read_input_token_cost;
+    // A cache rate LiteLLM leaves out agrees with ours when ours is the input rate (no discount listed by either).
+    expect(ll["gpt-5-pro"].cache_read_input_token_cost).toBeUndefined();
+    expect(crossCheck(fromModelsDev(modelsDev()).prices, ll).disagreements).toEqual([
+      { id: "gemini-2.5-pro", field: "cacheRead", ours: 0.125 },
+      { id: "gemini-4-neon", field: "output", ours: 15, litellm: 12 },
+      { id: "gpt-6.1-sol", field: "cacheRead above 272k", ours: 0.2, litellm: 0.3 },
+    ]);
   });
 
   it("reports every kind of disagreement, and models only one source lists", () => {
@@ -118,7 +158,7 @@ describe("LiteLLM cross-check", () => {
       { id: "claude-sonnet-5-5", field: "tier above 200k", litellm: 4 },
     ]);
     expect(r.onlyOurs).toEqual(["claude-new-1"]);
-    expect(r.onlyLitellm).toEqual(["claude-legacy-1"]);
+    expect(r.onlyLitellm).toEqual(["claude-legacy-1", "gpt-4o"]);
   });
 
   it("reports a rate LiteLLM leaves out or lists as something other than a number", () => {
@@ -184,7 +224,7 @@ describe("update-prices CLI (saved sources, no network)", () => {
     const summary = JSON.parse(readFileSync(join(dir, "summary.json"), "utf8"));
     // The fixture lists 3 of the committed table's models, so the rest read as removed.
     expect(summary).toMatchObject({ snapshot: "2026-10-07", upToDate: false, added: [], crossCheck: { disagreements: [] } });
-    expect(Object.keys(summary.prices)).toEqual(["claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5"]);
+    expect(Object.keys(summary.prices)).toEqual(["claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5", "gemini-2.5-pro", "gemini-4-neon", "gpt-5-pro", "gpt-6.1-sol"]);
     expect(summary.removed).toContain("claude-fable-5");
 
     expect(run(table).status).toBe(0);

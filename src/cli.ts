@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Command, InvalidArgumentError, Option } from "commander";
@@ -18,7 +19,7 @@ import { embedShare, readStandaloneTemplate } from "./standalone.js";
 import { defaultRoots, listSessions, resolveSession, type SessionRef } from "./resolve.js";
 import { writePrivateFile } from "./sessions/private-files.js";
 import { parseSince } from "./sessions/query.js";
-import { HARNESS_NAMES, loadSubagentFiles } from "./harnesses/index.js";
+import { HARNESSES, HARNESS_NAMES, readSession } from "./harnesses/index.js";
 import { SHARE_MODES, type HarnessName, type ShareMode } from "./schema.js";
 import { DEFAULT_HOST, startViewerServer } from "./serve.js";
 import { TOOL_VERSION } from "./version.js";
@@ -62,7 +63,7 @@ const parseMode = (value: string): ShareMode => {
 function withSessionOptions(cmd: Command, defaultMode: ShareMode): Command {
   return cmd
     .argument("[session]", "session file path, session id, or id prefix")
-    .option("-c, --current", "use the current session (Claude Code: $CLAUDE_CODE_SESSION_ID; else newest for this directory)")
+    .option("-c, --current", "use the current session (Claude Code: $CLAUDE_CODE_SESSION_ID; Codex: $CODEX_THREAD_ID; else newest for this directory)")
     .addOption(new Option("--harness <name>", "restrict to one harness").choices(HARNESS_NAMES))
     .option("--leaf <entryId>", "export the branch ending at this entry (tree-shaped sessions)")
     .option("-m, --mode <mode>", `share mode: ${SHARE_MODES.join(" | ")}`, parseMode, defaultMode)
@@ -79,9 +80,8 @@ function prepare(arg: string | undefined, opts: SessionOptions): { ref: SessionR
 /** Prepare sessions with these options; `--secrets-file` is read once, however many sessions follow. */
 function preparer(opts: SessionOptions, config: OvershareConfig, extraKnownSecrets = readSecretsFiles(opts)): (ref: SessionRef) => PreparedShare {
   return (ref) => {
-    const raw = readFileSync(ref.path, "utf8");
-    const subagentFiles = loadSubagentFiles(ref.harness, ref.path);
-    return prepareShare(raw, { mode: opts.mode, config, harness: ref.harness, leafId: opts.leaf, subagentFiles, extraKnownSecrets, includeSystemPrompt: opts.includeSystemPrompt });
+    const { raw, options } = readSession(ref.harness, ref.path);
+    return prepareShare(raw, { mode: opts.mode, config, harness: ref.harness, leafId: opts.leaf, ...options, extraKnownSecrets, includeSystemPrompt: opts.includeSystemPrompt });
   };
 }
 
@@ -122,7 +122,9 @@ program
     const refs = harnesses.flatMap((h) => listSessions(h, roots)).sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, opts.limit);
     for (const r of refs) {
       const when = new Date(r.mtimeMs).toISOString().replace("T", " ").slice(0, 16);
-      const dir = r.path.split("/").at(-2) ?? "";
+      // A harness that knows the working directory without reading the transcript names it; the others' folder is named after it.
+      const cwd = HARNESSES[r.harness].sessionCwd?.(r.path);
+      const dir = cwd ? cwd.replace(homedir(), "~") : (r.path.split("/").at(-2) ?? "");
       console.log(`${when}  ${r.harness.padEnd(11)}  ${r.id.slice(0, 8)}  ${formatBytes(r.size).padStart(8)}  ${dir}`);
     }
   });

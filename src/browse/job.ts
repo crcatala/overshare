@@ -8,8 +8,7 @@
  * because `SecretValue` cannot be serialized (and must not be). Errors cross as a `SafeError`, never as the
  * original: their messages can quote the transcript (a JSON syntax error includes a snippet of the file).
  */
-import { readFileSync } from "node:fs";
-import { loadSubagentFiles, parseSession, UnrecognizedFormatError } from "../harnesses/index.js";
+import { parseSession, readSession, SessionTooLargeError, UnrecognizedFormatError } from "../harnesses/index.js";
 import type { OvershareConfig } from "../config.js";
 import { formatDuration, formatSessionCost, formatTokens, plural } from "../format.js";
 import { PromptsUnavailableError } from "../modes.js";
@@ -204,7 +203,7 @@ export type JobResult =
 
 /** An error that is safe to show and to send between threads: fixed text, plus counts or an errno code. */
 export interface SafeError {
-  code: "prompts-unavailable" | "unrecognized-format" | "read-failed" | "internal";
+  code: "prompts-unavailable" | "unrecognized-format" | "too-large" | "read-failed" | "internal";
   message: string;
 }
 
@@ -218,6 +217,7 @@ export type JobReply = { ok: true; result: JobResult } | { ok: false; error: Saf
 export function toSafeError(err: unknown): SafeError {
   if (err instanceof PromptsUnavailableError) return { code: "prompts-unavailable", message: err.message };
   if (err instanceof UnrecognizedFormatError) return { code: "unrecognized-format", message: err.message };
+  if (err instanceof SessionTooLargeError) return { code: "too-large", message: err.message };
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
   if (typeof code === "string" && /^E[A-Z0-9]{2,20}$/.test(code)) return { code: "read-failed", message: `could not read the session file (${code})` };
   const name = err instanceof Error && /^[A-Za-z]{1,40}$/.test(err.name) ? err.name : "Error";
@@ -234,11 +234,10 @@ const publishSession = (p: PreparedShare): PublishSession => ({
 
 /** Run one job. Throws the original error; callers turn it into a `SafeError` before it leaves this code. */
 export function executeJob(req: JobRequest): JobResult {
-  const raw = readFileSync(req.path, "utf8");
-  // Claude Code keeps subagent transcripts beside the session; the CLI reads them too, so the browser must.
-  const subagentFiles = loadSubagentFiles(req.harness, req.path);
-  if (req.kind === "view") return { kind: "view", view: viewFromSession(parseSession(raw, req.harness, { subagentFiles }).session) };
-  const prepared = prepareShare(raw, { mode: req.mode, config: req.config, harness: req.harness, subagentFiles });
+  // With what the harness keeps beside the transcript (subagent transcripts, sidecar data), as the CLI reads it.
+  const { raw, options } = readSession(req.harness, req.path);
+  if (req.kind === "view") return { kind: "view", view: viewFromSession(parseSession(raw, req.harness, options).session) };
+  const prepared = prepareShare(raw, { mode: req.mode, config: req.config, harness: req.harness, ...options });
   return { kind: "review", review: summarizeShare(prepared), payload: new TextEncoder().encode(prepared.json), session: publishSession(prepared) };
 }
 

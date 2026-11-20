@@ -11,12 +11,12 @@ import { join } from "node:path";
 import { defaultRoots, listSessions, type SessionRef, type SessionRoots } from "../resolve.js";
 import { HARNESS_NAMES, type HarnessName } from "../harnesses/meta.js";
 import { writePrivateFile } from "./private-files.js";
-import { summarizeFile, type SessionSummary } from "./summary.js";
+import { sidecarKeyOf, summarizeFile, type SessionSummary } from "./summary.js";
 
 export type { SessionSummary } from "./summary.js";
 
 /** Bump when `SessionSummary` changes shape or extraction improves, so stale entries are rebuilt. */
-const INDEX_VERSION = 7;
+const INDEX_VERSION = 8;
 
 export function indexPath(env: NodeJS.ProcessEnv = process.env): string {
   return env.OVERSHARE_INDEX ?? join(env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "overshare", "index.json");
@@ -66,6 +66,14 @@ export function listRefs(opts: IndexOptions = {}) {
   return (opts.harnesses ?? HARNESS_NAMES).flatMap((h) => listSessions(h, roots)).sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
+/**
+ * A cached summary still describes the session: same harness (an entry from another build, a harness since removed or
+ * renamed, is read again), same file, and the same data beside it (a Codex rename changes the title, not the file).
+ */
+function fresh(hit: SessionSummary | undefined, ref: SessionRef): boolean {
+  return !!hit && hit.harness === ref.harness && hit.mtimeMs === ref.mtimeMs && hit.size === ref.size && hit.sidecarKey === sidecarKeyOf(ref);
+}
+
 /** Cache hits, plus the files that still have to be read. Shared by the blocking and the incremental index. */
 function plan(opts: IndexOptions) {
   const path = opts.cachePath ?? indexPath();
@@ -75,8 +83,7 @@ function plan(opts: IndexOptions) {
   const stale: SessionRef[] = [];
   for (const ref of refs) {
     const hit = cached[ref.path];
-    // A cache entry from another build (a harness since removed or renamed) is read again, not trusted.
-    if (hit && hit.harness === ref.harness && hit.mtimeMs === ref.mtimeMs && hit.size === ref.size) next[ref.path] = hit;
+    if (fresh(hit, ref)) next[ref.path] = hit!;
     else stale.push(ref);
   }
   return { path, cached, refs, next, stale };
@@ -180,7 +187,7 @@ export class IndexJob {
     for (const ref of refs) {
       wanted.add(ref.path);
       const hit = this.done[ref.path];
-      if (hit && hit.mtimeMs === ref.mtimeMs && hit.size === ref.size) rows.push(hit);
+      if (fresh(hit, ref)) rows.push(hit!);
       else {
         // The row on screen (the old summary, or a placeholder) stays until the new one has been read.
         rows.push(shown.get(ref.path) ?? placeholder(ref));

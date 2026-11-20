@@ -30,6 +30,8 @@ describe("session list", () => {
     expect(d.text()).toContain("harness: claude");
     await d.press("h"); // pi
     expect(order(d.lines(), TITLES)).toEqual(["Refactor money helpers", "Auth token refresh race", "Compare terminal multiplexers"]);
+    await d.press("h"); // codex: none in this index
+    expect(order(d.lines(), TITLES)).toEqual([]);
     await d.press("h"); // back to all
     expect(order(d.lines(), TITLES)).toHaveLength(7);
   });

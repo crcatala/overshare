@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeJob, runJob, toSafeError, type JobRequest } from "../src/browse/job.js";
 import { inlineRunner, isAbort, JobError, workerRunner } from "../src/browse/runner.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { UnrecognizedFormatError } from "../src/harnesses/index.js";
+import { SessionTooLargeError, UnrecognizedFormatError } from "../src/harnesses/index.js";
 import { PromptsUnavailableError } from "../src/modes.js";
 import { ccUsage, ClaudeTranscript, fake, randomish } from "./helpers.js";
 
@@ -68,10 +68,11 @@ describe("toSafeError", () => {
     expect(Object.keys(safe).sort()).toEqual(["code", "message"]);
   });
 
-  it("keeps the two messages this code base writes itself, and an errno code", () => {
+  it("keeps the messages this code base writes itself, and an errno code", () => {
+    expect(toSafeError(new SessionTooLargeError(300 * 1024 * 1024, 256 * 1024 * 1024))).toEqual({ code: "too-large", message: "The session file is 300 MB, more than the 256 MB overshare reads (set OVERSHARE_MAX_SESSION_MB to raise it)" });
     expect(toSafeError(new PromptsUnavailableError("Cannot use prompts mode: 12 pi user prompt(s) have no verified pre-expansion input.")).code).toBe("prompts-unavailable");
     expect(toSafeError(new PromptsUnavailableError("Cannot use prompts mode: 12 pi user prompt(s)")).message).toContain("12 pi user prompt(s)");
-    expect(toSafeError(new UnrecognizedFormatError())).toEqual({ code: "unrecognized-format", message: "Could not detect the transcript format (supported: claude-code, pi)" });
+    expect(toSafeError(new UnrecognizedFormatError())).toEqual({ code: "unrecognized-format", message: "Could not detect the transcript format (supported: claude-code, pi, codex)" });
     expect(toSafeError(Object.assign(new Error("EACCES: permission denied, open '/x'"), { code: "EACCES" }))).toEqual({ code: "read-failed", message: "could not read the session file (EACCES)" });
     expect(toSafeError(new TypeError("x is not a function"))).toEqual({ code: "internal", message: "internal error in the background reader (TypeError)" });
   });
@@ -137,7 +138,7 @@ describe("worker runner", () => {
     const err = (await workerRunner().run({ kind: "view", path, harness: "bogus" as never }, live()).catch((e: unknown) => e)) as JobError;
     expect(err).toBeInstanceOf(JobError);
     expect(JSON.stringify(err.error)).not.toContain(secret);
-    expect(err.message).toBe("Could not detect the transcript format (supported: claude-code, pi)");
+    expect(err.message).toBe("Could not detect the transcript format (supported: claude-code, pi, codex)");
     // The same file through every code path of runJob, in-process, never puts it in an error either.
     for (const harness of ["claude-code", "pi", undefined] as const) {
       const reply = runJob({ kind: "review", path, harness: harness as never, mode: "brief", config: DEFAULT_CONFIG });

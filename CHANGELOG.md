@@ -7,8 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Codex sessions. overshare reads Codex CLI rollouts (`~/.codex/sessions`, `archived_sessions` too, or
+  `$OVERSHARE_CODEX_SESSIONS`) in `list`, `browse`, `report`, `export`, `archive` and `publish`, and `--current`
+  inside Codex picks the thread it names in `CODEX_THREAD_ID`. Each command a code-mode call ran is its own tool
+  step, prompts are what you typed (so `prompts` mode works), `$skill` prompts show as skills, and model or
+  reasoning-effort switches, interrupts and error turns appear as events. Cost is estimated from the tokens at
+  OpenAI list price. A renamed thread keeps its name. Codex's instructions, injected context, account ids and
+  encrypted reasoning are never shared. Subagents and compacted or zstd-compressed rollouts come later.
+- Sessions larger than 256 MB (`OVERSHARE_MAX_SESSION_MB` to change it) are listed in `browse` as too large to
+  read, and `report`/`export`/`publish` say so, instead of the session vanishing or the read failing.
+
 ### Changed
 
+- `list` shows a Codex session's working directory where other harnesses show their project folder. Codex
+  login values are read for redaction from `$CODEX_HOME/auth.json` (they were read from `~/.codex/auth.json` only).
 - The price table also lists OpenAI and Gemini models (from models.dev, cross-checked against LiteLLM), ready for
   harnesses that record tokens but no cost. A cache miss in a pi session on one of these models is now priced from
   the table when pi's own recorded costs don't give the model's rates; pi sessions that record them are unchanged.

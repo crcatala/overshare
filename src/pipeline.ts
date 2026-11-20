@@ -20,6 +20,8 @@ export interface PrepareOptions {
   leafId?: string;
   /** Subagent transcripts of the session (for a harness that keeps them in files); see `loadSubagentFiles`. */
   subagentFiles?: SubagentFileInput[];
+  /** What the harness keeps beside the transcript (see `loadSidecar`). */
+  sidecar?: unknown;
   /** Override machine context (tests). */
   machine?: { homeDir?: string; username?: string; hostname?: string };
   /** Pre-collected known secrets; collected from this machine when omitted. */
@@ -66,7 +68,7 @@ export interface PreparedShare {
 }
 
 export function prepareShare(raw: string, opts: PrepareOptions): PreparedShare {
-  const { session: full, dropped: droppedByEntry } = parseSession(raw, opts.harness, { leafId: opts.leafId, subagentFiles: opts.subagentFiles });
+  const { session: full, dropped: droppedByEntry } = parseSession(raw, opts.harness, { leafId: opts.leafId, subagentFiles: opts.subagentFiles, sidecar: opts.sidecar });
   // The adapters key these counts by entry type, subtype and custom type, all copied from the transcript, and the record is
   // published and reported in every mode while the Redactor never walks keys: each key must pass the identifier check (ass-t3hc).
   const dropped = safeKeys(droppedByEntry, "entry");

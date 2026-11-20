@@ -20,13 +20,19 @@ export interface Harness {
   listFiles(root: string, cwd?: string): string[];
   /** The id a user types to pick `file`. */
   sessionId(file: string): string;
+  /**
+   * The working directory `file` was run in, when the harness knows it without reading the transcript (Codex: its
+   * header line, already read by `listFiles`). `list` shows it; harnesses whose folders are named after the
+   * directory leave it out.
+   */
+  sessionCwd?(file: string): string | undefined;
 
   /** True when `firstEntry` (a parsed line near the top of a transcript) looks like this harness's format. */
   detect(firstEntry: Record<string, unknown>): boolean;
-  /** Native transcript -> `NormalizedSession`. Pure: reads nothing from disk (see `subagents.load`). */
+  /** Native transcript -> `NormalizedSession`. Pure: reads nothing from disk (see `subagents.load`, `sidecar.load`). */
   parse(raw: string, options?: AdapterOptions): AdapterResult;
-  /** The browser's index: feed the lines of a transcript into `c` in one pass, without a full parse. */
-  summarize(raw: string, c: Collector): void;
+  /** The browser's index: feed the lines of a transcript into `c` in one pass, without a full parse. `sidecar` as for `parse`. */
+  summarize(raw: string, c: Collector, sidecar?: unknown): void;
 
   /** The path of the session the agent running this process says it is in (`--current` prefers it over the newest one). */
   currentSession?(env: NodeJS.ProcessEnv, root: string, cwd: string): string | undefined;
@@ -36,6 +42,19 @@ export interface Harness {
     load(sessionPath: string): SubagentFileInput[];
     /** How many there are, without reading them. */
     count(sessionPath: string, id: string): number;
+  };
+  /**
+   * What a session keeps outside its transcript file (Codex: a renamed title in `session_index.jsonl`; Antigravity: the
+   * conversation's database). Read here, by whoever reads the transcript, and handed to `parse` (as
+   * `AdapterOptions.sidecar`) and `summarize`, so both stay pure. The value is the harness's own plain data.
+   */
+  sidecar?: {
+    load(sessionPath: string): unknown;
+    /**
+     * Cheap, and different whenever `load` would return something else: the browser's index keeps a session's summary
+     * while the transcript file and this key are unchanged.
+     */
+    key(sessionPath: string): string;
   };
   /** JSON files holding this harness's own login credentials, so their values are redacted if they leak into a transcript. */
   credentialFiles?(env: NodeJS.ProcessEnv, home: string): string[];

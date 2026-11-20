@@ -69,10 +69,13 @@ export function resolveSession(arg: string | undefined, opts: ResolveOptions = {
   }
   if (!opts.current) throw new Error("Pass a session path or id, or use --current");
 
-  for (const h of harnesses) {
-    const named = HARNESSES[h].currentSession?.(env, roots[h], cwd);
-    if (named) return refFor(h, named);
-  }
+  // One agent can run inside another (Claude Code starting `codex exec`, say): both name their session in the
+  // environment. The one running this command wrote to its transcript last; the outer one is waiting on it.
+  const named = harnesses.flatMap((h) => {
+    const path = HARNESSES[h].currentSession?.(env, roots[h], cwd);
+    return path ? [refFor(h, path)] : [];
+  });
+  if (named.length) return named.sort((a, b) => b.mtimeMs - a.mtimeMs)[0]!;
   const candidates = harnesses
     .flatMap((h) => listSessions(h, roots, cwd))
     .sort((a, b) => b.mtimeMs - a.mtimeMs);

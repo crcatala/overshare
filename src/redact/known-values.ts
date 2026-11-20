@@ -106,11 +106,7 @@ export function collectKnownSecrets(sources: KnownValueSources = {}): CollectedK
 
   if (enabled.credentialFiles) {
     const add = adder("credentialFiles");
-    const jsonFiles = sources.jsonCredentialFiles ?? [
-      ...harnesses().flatMap((h) => h.credentialFiles?.(env, home) ?? []),
-      // Not a harness we read, but a login a session on this machine may well have printed.
-      join(home, ".codex", "auth.json"),
-    ];
+    const jsonFiles = sources.jsonCredentialFiles ?? harnesses().flatMap((h) => h.credentialFiles?.(env, home) ?? []);
     for (const file of jsonFiles) {
       const json = readJson(file);
       if (json !== undefined) walkJson(json, [], (path, value) => add(value, path.join(".") || "value", file.replace(home, "~")));

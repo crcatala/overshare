@@ -1,6 +1,6 @@
 # Browsing sessions (`overshare browse`)
 
-An interactive browser for finding an older session and sharing it. It lists every local Claude Code and pi session
+An interactive browser for finding an older session and sharing it. It lists every local Claude Code, pi and Codex session
 with a preview, filters and search, a two-pane session viewer, and a publish dialog that runs the same redaction
 and final re-scan as `publish`. Needs an interactive terminal.
 

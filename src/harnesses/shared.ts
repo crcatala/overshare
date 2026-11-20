@@ -32,6 +32,8 @@ export interface AdapterOptions {
   leafId?: string;
   /** Subagent transcripts of the session (Claude Code only); the adapter stays pure, the caller reads them from disk. */
   subagentFiles?: SubagentFileInput[];
+  /** What the harness's `sidecar.load` read beside the transcript (its own shape); the caller reads it from disk. */
+  sidecar?: unknown;
 }
 
 /** Counts of native entries dropped on purpose (never shared). */

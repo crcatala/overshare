@@ -165,6 +165,7 @@ src/harnesses/
   summary-kit.ts   Collector, for the browser's one-pass index
   claude-code/     parse.ts, usage.ts, summarize.ts, subagent-files.ts, index.ts (the descriptor)
   pi/              parse.ts, summarize.ts, index.ts
+  codex/           parse.ts, summarize.ts, files.ts (date-tree listing, header lines, session index), index.ts
 ```
 
 1. Add an entry for it in `src/harnesses/meta.ts`. `npm run typecheck` now fails in
@@ -174,8 +175,15 @@ src/harnesses/
    recognise a transcript (`detect`), `parse` (native transcript → `NormalizedSession`, with
    `TurnBuilder`) and `summarize` (feed lines to a `Collector`). Optional members cover what
    only some harnesses have: `currentSession` (a session id in the environment),
-   `subagents` (transcripts in files beside the session), `credentialFiles` (its login files,
-   so a leaked value is redacted).
+   `subagents` (transcripts in files beside the session), `sidecar` (other data kept outside the
+   transcript, such as Codex's renamed titles: `load` reads it for `parse` and `summarize`, `key`
+   tells the browser's index when it changed), `sessionCwd` (the working directory, when the
+   folder is not named after it), `credentialFiles` (its login files, so a leaked value is
+   redacted).
+   `parse` and `summarize` stay pure: `readSession` (in `index.ts`) is the one place a session is
+   read from disk, with its subagent files and sidecar, and it refuses a file over
+   `OVERSHARE_MAX_SESSION_MB` (256 by default) with a `SessionTooLargeError`; the browser lists such a
+   session as too large instead of reading it.
 3. Register it in `HARNESSES`.
 
 That is all: `list`, `browse` (filter, dialog, tag, preview), `--harness`, `harness:<alias>`
@@ -183,7 +191,7 @@ searches, `--current`, the viewer's label and the "supported formats" error all 
 registry and meta. Also worth adding: a fake-session generator in `src/fixtures/` (see
 `pi.ts`) and tests. Share files keep `harness.name`, so a new name is not a schema change.
 
-Format notes for harnesses in progress: [Codex](harnesses/codex.md), [Antigravity](harnesses/antigravity.md).
+Format notes: [Codex](harnesses/codex.md), [Antigravity](harnesses/antigravity.md) (in progress).
 
 ## Changing the share format
 

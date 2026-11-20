@@ -213,6 +213,8 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
   let inherited = false;
   /** A usage record with no step of its own: the call a compaction that follows was made with. */
   let bareRecord: { id: string } | undefined;
+  /** Calls checkpoints name as the ones they were made with (`compaction_response_id`). */
+  const compactionCalls = new Set<string>();
   /** Rollouts with `compacted` lines also mark the compaction as an item; one of the two is enough. */
   const hasCompactedLines = raw.includes('"type":"compacted"');
   /** Events read before the prompt of the turn they belong to (a model switch is recorded first). */
@@ -296,6 +298,8 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
         break;
       case "compacted":
         // A checkpoint: `message` is the summary that replaced the history (`replacement_history`, never copied).
+        // `compaction_response_id` names the call that made it, which may be recorded before or after this line.
+        if (str(p.compaction_response_id)) compactionCalls.add(p.compaction_response_id);
         compaction(str(p.message), ts);
         if (p.replacement_history !== undefined) bump(dropped, "compacted-history");
         break;
@@ -315,6 +319,11 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
         break;
       }
       case "response_item":
+        // Output a compaction generated (its summary) is not a reply the user saw; Codex marks it in the line's metadata.
+        if (isObj(e.metadata) && e.metadata.compaction_output === true) {
+          bump(dropped, "compaction-output");
+          break;
+        }
         responseItem(p, ts);
         break;
       case "event_msg":
@@ -453,6 +462,11 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
       case "additional_tools":
         bump(dropped, "additional_tools");
         break;
+      case "compaction":
+      case "compaction_summary":
+        // An opaque (encrypted) compaction item.
+        bump(dropped, "compaction-output");
+        break;
       default:
         bump(dropped, `response_item:${word(p.type, "unknown")}`);
     }
@@ -529,15 +543,14 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
         // A spawned agent started: which thread it is, so its rollout links to the spawn step.
         const thread = str(item.agent_thread_id);
         if (item.kind !== "started" || !thread) return;
-        // The spawn whose task name is the last part of the agent's path (`/root/explorer`), else the latest one.
+        // The item's id is the spawn call's id. Older or other builds: the spawn whose task name is the last part of
+        // the agent's path (`/root/explorer`), else the latest one.
         const name = str(item.agent_path)?.split("/").at(-1);
-        let at = unmatchedSpawns.length - 1;
-        for (let i = unmatchedSpawns.length - 1; i >= 0; i--) {
-          if (unmatchedSpawns[i]!.task !== undefined && unmatchedSpawns[i]!.task === name) {
-            at = i;
-            break;
-          }
+        let at = unmatchedSpawns.findIndex((s) => s.step.id === item.id);
+        for (let i = unmatchedSpawns.length - 1; at < 0 && i >= 0; i--) {
+          if (unmatchedSpawns[i]!.task !== undefined && unmatchedSpawns[i]!.task === name) at = i;
         }
+        if (at < 0) at = unmatchedSpawns.length - 1;
         const spawn = at >= 0 ? unmatchedSpawns.splice(at, 1)[0] : undefined;
         if (spawn) b.trackSubagent(spawn.step, thread);
         return;
@@ -559,6 +572,7 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
   b.finalizeThinking();
   // Codex records tokens, not dollars: costs are estimated at list price.
   estimateCosts(b.responses);
+  for (const r of b.responses) if (compactionCalls.has(r.id)) r.purpose = "compaction";
   // The spawned agents' own rollouts: their spend, linked to the steps that spawned them.
   const runs = (options.subagentFiles ?? []).map(readCodexRun).filter((r): r is SubagentRun => r !== undefined);
   const endMs = endedAt ? Date.parse(endedAt) : Number.NaN;

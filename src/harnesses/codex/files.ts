@@ -76,9 +76,16 @@ export function listRollouts(root: string, cwd?: string): string[] {
   });
 }
 
-/** The `sessions/` folder a rollout is filed under (its own, or the one beside `archived_sessions/`), if any. */
+/**
+ * The sessions folder a rollout is filed under: above its `YYYY/MM/DD` folders (whatever the root is called, as with
+ * `OVERSHARE_CODEX_SESSIONS`), else a folder named `sessions`, or the one beside `archived_sessions/`.
+ */
 function sessionsRootOf(file: string): string | undefined {
-  let dir = dirname(resolve(file));
+  const day = dirname(resolve(file));
+  const month = dirname(day);
+  const year = dirname(month);
+  if (/^\d{2}$/.test(basename(day)) && /^\d{2}$/.test(basename(month)) && /^\d{4}$/.test(basename(year))) return dirname(year);
+  let dir = day;
   for (let i = 0; i < 6; i++) {
     const name = basename(dir);
     if (name === "sessions") return dir;

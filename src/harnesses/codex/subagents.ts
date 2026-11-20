@@ -41,7 +41,8 @@ export function readCodexRun(file: SubagentFileInput): SubagentRun | undefined {
   let model: string | undefined;
   const responses: ResponseUsage[] = [];
   const fallback: ResponseUsage[] = [];
-  const hasRecords = file.raw.includes('"type":"token_usage_record"');
+  // Only a record that parses counts: a torn last line (the child still writing) must not turn the fallback off.
+  const hasRecords = file.raw.includes('"type":"token_usage_record"') && [...lines(file.raw)].some((l) => l.includes('"type":"token_usage_record"') && isObj(parseLine(l)));
   let lastTotal: string | undefined;
   let toolUses = 0;
   let first: number | undefined;
@@ -80,9 +81,11 @@ export function readCodexRun(file: SubagentFileInput): SubagentRun | undefined {
       finalText = undefined;
     } else if (e.type === "response_item" && p.type === "custom_tool_call") {
       finalText = undefined;
-    } else if (e.type === "response_item" && p.type === "message" && p.role === "assistant") {
+    } else if (e.type === "response_item" && p.type === "message" && p.role === "assistant" && !(isObj(e.metadata) && e.metadata.compaction_output === true)) {
       const text = (Array.isArray(p.content) ? p.content : []).filter((c: Entry) => isObj(c) && typeof c.text === "string").map((c: Entry) => c.text as string).join("\n").trim();
-      if (text) {
+      // Progress notes (`phase: commentary`) are not an answer: an agent interrupted after one has none.
+      if (p.phase === "commentary") finalText = undefined;
+      else if (text) {
         finalText = text;
         finalAt = Number.isFinite(at) ? at : undefined;
       }

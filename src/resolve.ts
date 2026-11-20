@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { HARNESSES, HARNESS_NAMES, UnrecognizedFormatError, detectHarnessInLines, type HarnessName } from "./harnesses/index.js";
+import { harnessLabel } from "./harnesses/meta.js";
 
 export type SessionRoots = Record<HarnessName, string>;
 
@@ -70,12 +71,16 @@ export function resolveSession(arg: string | undefined, opts: ResolveOptions = {
   if (!opts.current) throw new Error("Pass a session path or id, or use --current");
 
   // One agent can run inside another (Claude Code starting `codex exec`, say): both name their session in the
-  // environment. The one running this command wrote to its transcript last; the outer one is waiting on it.
+  // environment, and nothing says reliably which one runs this command. Guessing could publish the wrong transcript,
+  // so the user picks with --harness.
   const named = harnesses.flatMap((h) => {
     const path = HARNESSES[h].currentSession?.(env, roots[h], cwd);
     return path ? [refFor(h, path)] : [];
   });
-  if (named.length) return named.sort((a, b) => b.mtimeMs - a.mtimeMs)[0]!;
+  if (named.length > 1) {
+    throw new Error(`More than one agent names its current session here (${named.map((r) => harnessLabel(r.harness)).join(", ")}): pass --harness ${named.map((r) => r.harness).join(" or --harness ")} to say which.`);
+  }
+  if (named[0]) return named[0];
   const candidates = harnesses
     .flatMap((h) => listSessions(h, roots, cwd))
     .sort((a, b) => b.mtimeMs - a.mtimeMs);

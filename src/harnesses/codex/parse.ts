@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 import { projectFromCwd } from "../../sessions/repo.js";
 import type { EventKind, Step, SubagentStep, ToolAction, ToolStep, Usage } from "../../schema.js";
-import { TurnBuilder, baseSession, bump, estimateCosts, type AdapterOptions, type AdapterResult, type DropCounts } from "../shared.js";
+import { TurnBuilder, UnsupportedFormatError, baseSession, bump, estimateCosts, type AdapterOptions, type AdapterResult, type DropCounts } from "../shared.js";
 import { lines, parseLine } from "../summary-kit.js";
 import type { CodexSidecar } from "./files.js";
 
@@ -31,6 +31,25 @@ const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v)
 const firstLine = (s: string): string => s.trim().split("\n", 1)[0] ?? "";
 /** A word from the transcript that ends up in a fixed message: only a plain identifier, else a placeholder. */
 const word = (v: unknown, fallback: string): string => (typeof v === "string" && /^[\w.:/-]{1,60}$/.test(v) ? v : fallback);
+
+/** A Fernet token inside other text (a command's output that printed a rollout, a script that quotes one). */
+const EMBEDDED_BLOB = /gAAAAA[\w-]{40,}={0,2}/g;
+
+/** Every string in `v` with embedded encrypted blobs replaced by `[encrypted]`; `found.n` counts them. */
+export function scrubEmbedded<T>(v: T, found: { n: number }): T {
+  if (typeof v === "string") {
+    return v.replace(EMBEDDED_BLOB, () => {
+      found.n++;
+      return "[encrypted]";
+    }) as T;
+  }
+  if (Array.isArray(v)) return v.map((x) => scrubEmbedded(x, found)) as T;
+  if (isObj(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrubEmbedded(x, found)])) as T;
+  return v;
+}
+
+/** The legacy history format (CLI before paginated history): not read yet (ove-l2s7). */
+export const LEGACY_MESSAGE = "This Codex rollout uses the legacy history format (older Codex CLIs), which overshare does not read yet.";
 
 /** `v` without any encrypted blob (an object loses the key, an array the item); `found.n` counts what was removed. */
 export function withoutEncrypted(v: unknown, found: { n: number }): unknown {
@@ -187,8 +206,11 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
   const spawns = new Map<string, SubagentStep>();
   /** Events read before the prompt of the turn they belong to (a model switch is recorded first). */
   let pending: { event: EventKind; text: string; timestamp?: string }[] = [];
-  /** Older files have only `token_count` events; current ones repeat in them what `token_usage_record` says. */
-  const hasRecords = raw.includes('"type":"token_usage_record"');
+  /**
+   * Older files have only `token_count` events; current ones repeat in them what `token_usage_record` says. Only a
+   * record that parses counts: a torn last line must not turn the fallback off.
+   */
+  const hasRecords = raw.includes('"type":"token_usage_record"') && [...lines(raw)].some((l) => l.includes('"type":"token_usage_record"') && isObj(parseLine(l)));
   let lastTotal: string | undefined;
   let records = 0;
 
@@ -473,6 +495,11 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
     }
   }
 
+  // Legacy rollouts write `user_message` / `agent_message` events instead of display items: read as paginated, they
+  // would give a share without prompts. Refuse them plainly instead.
+  if (meta?.history_mode === "legacy" || (!raw.includes('"type":"item_completed"') && /"type":"event_msg","payload":\{"type":"(user_message|agent_message)"/.test(raw))) {
+    throw new UnsupportedFormatError(LEGACY_MESSAGE);
+  }
   flushPending();
   b.finalizeThinking();
   // Codex records tokens, not dollars: costs are estimated at list price.
@@ -487,7 +514,10 @@ export function parseCodex(raw: string, options: AdapterOptions = {}): AdapterRe
   session.startedAt = startedAt;
   session.endedAt = endedAt;
   session.models = models;
-  session.turns = b.turns;
+  // Encrypted blobs can also arrive inside other text (a command that printed a rollout): none may reach a share.
+  const embedded = { n: 0 };
+  session.turns = scrubEmbedded(b.turns, embedded);
+  if (embedded.n) bump(dropped, "encrypted-blob", embedded.n);
   session.responses = b.responses;
   session.stats.costSource = "estimated";
   return { session, dropped };

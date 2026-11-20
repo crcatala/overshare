@@ -124,7 +124,8 @@ program
       const when = new Date(r.mtimeMs).toISOString().replace("T", " ").slice(0, 16);
       // A harness that knows the working directory without reading the transcript names it; the others' folder is named after it.
       const cwd = HARNESSES[r.harness].sessionCwd?.(r.path);
-      const dir = cwd ? cwd.replace(homedir(), "~") : (r.path.split("/").at(-2) ?? "");
+      // From the transcript: no terminal controls or line breaks reach the terminal.
+      const dir = cwd ? stripControls(cwd.replace(homedir(), "~")).replace(/\s+/g, " ") : (r.path.split("/").at(-2) ?? "");
       console.log(`${when}  ${r.harness.padEnd(11)}  ${r.id.slice(0, 8)}  ${formatBytes(r.size).padStart(8)}  ${dir}`);
     }
   });

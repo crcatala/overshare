@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -5,8 +6,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { codex } from "../src/harnesses/codex/index.js";
 import { resetCodexCaches } from "../src/harnesses/codex/files.js";
-import { parseCodex } from "../src/harnesses/codex/parse.js";
-import { SessionTooLargeError, detectHarness, readSession } from "../src/harnesses/index.js";
+import { LEGACY_MESSAGE, parseCodex } from "../src/harnesses/codex/parse.js";
+import { SessionTooLargeError, UnsupportedFormatError, detectHarness, readSession } from "../src/harnesses/index.js";
+import { toSafeError } from "../src/browse/job.js";
 import { Collector } from "../src/harnesses/summary-kit.js";
 import { prepareShare } from "../src/pipeline.js";
 import { resolveSession } from "../src/resolve.js";
@@ -182,6 +184,26 @@ describe("codex: parse", () => {
     expect(parse(basic()).session.title).toBeUndefined();
   });
 
+  it("keeps the token_count fallback when the only usage record is a torn last line", () => {
+    const t = new CodexTranscript("01a0c0de-0000-7000-8000-000000000004");
+    t.records = false;
+    t.user("hi").say("hello").usage({ input: 500, cached: 100, output: 20 });
+    const raw = `${t.toJsonl()}{"timestamp":"2026-01-01T00:09:00.000Z","ordinal":99,"type":"token_usage_record","payload":{"usage":{"input_tok`;
+    expect(parseCodex(raw).session.responses.map((r) => r.usage.input)).toEqual([400]);
+  });
+
+  it("refuses a legacy-format rollout with a fixed message instead of a share without prompts", () => {
+    const legacy = new CodexTranscript("01a0c0de-0000-7000-8000-000000000005", "/w", { cliVersion: "0.120.0" });
+    (legacy.lines[0]!.payload as Record<string, unknown>).history_mode = "legacy";
+    legacy.line("event_msg", { type: "user_message", message: "hello" }).line("event_msg", { type: "agent_message", message: "hi" });
+    expect(() => parseCodex(legacy.toJsonl())).toThrow(UnsupportedFormatError);
+    expect(() => parseCodex(legacy.toJsonl())).toThrow("legacy history format");
+    // No `history_mode` at all, but legacy events and no display items: the same.
+    delete (legacy.lines[0]!.payload as Record<string, unknown>).history_mode;
+    expect(() => parseCodex(legacy.toJsonl())).toThrow(UnsupportedFormatError);
+    expect(toSafeError(new UnsupportedFormatError(LEGACY_MESSAGE))).toEqual({ code: "unsupported-format", message: LEGACY_MESSAGE });
+  });
+
   it("parses a header-only file (an old CLI) and a torn last line", () => {
     expect(parse(new CodexTranscript("01a0c0de-0000-7000-8000-000000000003", "/w", { cliVersion: "0.58.0" })).session.turns).toEqual([]);
     const raw = `${basic().toJsonl()}{"timestamp":"2026-01-01T00:09:00.000Z","type":"event_ms`;
@@ -211,6 +233,20 @@ describe("codex: what reaches a share", () => {
         expect(json, `${mode}: ${marker}`).not.toContain(marker);
       }
     }
+  });
+
+  it("replaces an encrypted blob inside other text (a command that printed a rollout, a script that quotes one)", () => {
+    const blob = encryptedBlob(53);
+    const t = new CodexTranscript().user("look at the rollout");
+    t.exec([{ cmd: "tail -1 rollout.jsonl", output: `{"encrypted_content":"${blob}"}` }]);
+    t.exec([], { input: 300 }, `const x = "${blob}";`);
+    const { json, session } = share(t.toJsonl());
+    expect(json).not.toContain(blob.slice(0, 40));
+    const steps = session.turns[0]!.steps as ToolStep[];
+    expect(steps[0]!.result?.text).toBe('{"encrypted_content":"[encrypted]"}');
+    expect(steps[1]!.input).toEqual({ code: 'const x = "[encrypted]";' });
+    // The output, the script and the script's one-line summary.
+    expect(session.redaction?.dropped["encrypted-blob"]).toBe(3);
   });
 
   it("keeps a reasoning summary as thinking text in full mode", () => {
@@ -291,20 +327,30 @@ describe("codex: files", () => {
     expect(resolveSession(h.ids.b, { roots }).harness).toBe("codex");
   });
 
-  it("picks the innermost agent's session when another agent's id is in the environment too", () => {
+  it("refuses to guess when another agent's id is in the environment too, and takes --harness", () => {
     const h = home();
     const projects = join(h.dir, "claude");
     const claudeFile = join(projects, "-work-one", "11111111-2222-3333-4444-555555555555.jsonl");
     mkdirSync(join(projects, "-work-one"), { recursive: true });
     writeFileSync(claudeFile, "{}\n");
     const roots = { "claude-code": projects, pi: join(h.dir, "none"), codex: h.root };
+    // Claude Code started Codex (or the other way round): both name a session, and which one runs the command is unknown.
     const env = { CLAUDE_CODE_SESSION_ID: "11111111-2222-3333-4444-555555555555", CODEX_THREAD_ID: h.ids.b };
-    // Claude Code started Codex: the Codex rollout is the one being written.
-    utimesSync(claudeFile, new Date(2026, 0, 1), new Date(2026, 0, 1));
-    expect(resolveSession(undefined, { current: true, env, cwd: "/work/one", roots }).path).toBe(h.files.b);
-    // Codex started Claude Code.
-    utimesSync(h.files.b, new Date(2025, 0, 1), new Date(2025, 0, 1));
-    expect(resolveSession(undefined, { current: true, env, cwd: "/work/one", roots }).path).toBe(claudeFile);
+    expect(() => resolveSession(undefined, { current: true, env, cwd: "/work/one", roots })).toThrow("More than one agent names its current session here (Claude Code, Codex): pass --harness claude-code or --harness codex to say which.");
+    expect(resolveSession(undefined, { current: true, env, cwd: "/work/one", roots, harness: "codex" }).path).toBe(h.files.b);
+    expect(resolveSession(undefined, { current: true, env, cwd: "/work/one", roots, harness: "claude-code" }).path).toBe(claudeFile);
+  });
+
+  it("strips terminal controls from the working directory `list` prints", () => {
+    const h = home();
+    const evil = "/work/\u001b]52;c;aGk=\u0007x\nfake line";
+    writeFileSync(join(h.root, "2026", "01", "01", "rollout-2026-01-01T00-00-09-01a0c0de-0000-7000-8000-0000000000e1.jsonl"), new CodexTranscript("01a0c0de-0000-7000-8000-0000000000e1", evil).user("x").toJsonl());
+    const r = spawnSync(process.execPath, ["--import", "tsx", join(import.meta.dirname, "..", "src", "cli.ts"), "list", "--harness", "codex"], { encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: h.dir, OVERSHARE_CODEX_SESSIONS: h.root } });
+    expect(r.status, r.stderr).toBe(0);
+    const row = r.stdout.split("\n").find((l) => l.includes("01a0c0de") && l.includes("/work/"))!;
+    expect(row).toContain("/work/");
+    expect(r.stdout).not.toMatch(/\u001b|\u0007/);
+    expect(r.stdout.split("\n").filter((l) => l.startsWith("fake line"))).toEqual([]);
   });
 
   it("reads a renamed title from session_index.jsonl (the last entry wins), and the browser index follows a rename", () => {
@@ -338,6 +384,28 @@ describe("session size limit", () => {
     expect(() => readSession("codex", file, { OVERSHARE_MAX_SESSION_MB: "1" })).toThrow(SessionTooLargeError);
     expect(() => readSession("codex", file, { OVERSHARE_MAX_SESSION_MB: "1" })).toThrow("The session file is 2 MB, more than the 1 MB overshare reads (set OVERSHARE_MAX_SESSION_MB to raise it)");
     expect(readSession("codex", file, {}).raw.length).toBeGreaterThan(1_000_000);
+  });
+
+  it("reads a cached browse row again when the size limit now puts the file on the other side", () => {
+    const dir = mkdtempSync(join(tmpdir(), "codex-limit-"));
+    const day = join(dir, "sessions", "2026", "01", "01");
+    mkdirSync(day, { recursive: true });
+    const t = basic();
+    while (t.toJsonl().length < 1_100_000) t.say("x".repeat(10_000), "commentary");
+    writeFileSync(join(day, "rollout-2026-01-01T00-00-00-01a0c0de-0000-7000-8000-0000000000fe.jsonl"), t.toJsonl());
+    const opts = { roots: { "claude-code": join(dir, "none"), pi: join(dir, "none"), codex: join(dir, "sessions") }, cachePath: join(dir, "index.json") };
+    const prev = process.env.OVERSHARE_MAX_SESSION_MB;
+    try {
+      delete process.env.OVERSHARE_MAX_SESSION_MB;
+      expect(buildIndex(opts)[0]).toMatchObject({ prompts: 1 });
+      process.env.OVERSHARE_MAX_SESSION_MB = "1";
+      expect(buildIndex(opts)[0]).toMatchObject({ tooLarge: true });
+      delete process.env.OVERSHARE_MAX_SESSION_MB;
+      expect(buildIndex(opts)[0]?.tooLarge).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.OVERSHARE_MAX_SESSION_MB;
+      else process.env.OVERSHARE_MAX_SESSION_MB = prev;
+    }
   });
 
   it("lists a too-large session in the browser as such instead of dropping it", () => {

@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { defaultRoots, listSessions, type SessionRef, type SessionRoots } from "../resolve.js";
+import { maxSessionBytes } from "../harnesses/index.js";
 import { HARNESS_NAMES, type HarnessName } from "../harnesses/meta.js";
 import { writePrivateFile } from "./private-files.js";
 import { sidecarKeyOf, summarizeFile, type SessionSummary } from "./summary.js";
@@ -68,10 +69,19 @@ export function listRefs(opts: IndexOptions = {}) {
 
 /**
  * A cached summary still describes the session: same harness (an entry from another build, a harness since removed or
- * renamed, is read again), same file, and the same data beside it (a Codex rename changes the title, not the file).
+ * renamed, is read again), same file, the same data beside it (a Codex rename changes the title, not the file), and
+ * the same side of the size limit.
  */
 function fresh(hit: SessionSummary | undefined, ref: SessionRef): boolean {
-  return !!hit && hit.harness === ref.harness && hit.mtimeMs === ref.mtimeMs && hit.size === ref.size && hit.sidecarKey === sidecarKeyOf(ref);
+  return (
+    !!hit &&
+    hit.harness === ref.harness &&
+    hit.mtimeMs === ref.mtimeMs &&
+    hit.size === ref.size &&
+    hit.sidecarKey === sidecarKeyOf(ref) &&
+    // The size limit can change between runs: a row read under another limit says the wrong thing.
+    !!hit.tooLarge === ref.size > maxSessionBytes()
+  );
 }
 
 /** Cache hits, plus the files that still have to be read. Shared by the blocking and the incremental index. */

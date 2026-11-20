@@ -8,6 +8,7 @@ import type { Harness } from "./types.js";
 
 export { HARNESS_NAMES, type HarnessName } from "./meta.js";
 export type { AdapterOptions, AdapterResult, SubagentFileInput } from "./shared.js";
+export { UnsupportedFormatError } from "./shared.js";
 export type { Harness } from "./types.js";
 
 /**

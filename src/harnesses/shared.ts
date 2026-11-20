@@ -36,6 +36,17 @@ export interface AdapterOptions {
   sidecar?: unknown;
 }
 
+/**
+ * A transcript in a format this harness recognises but does not read (yet). The message is fixed text the adapter
+ * chose: it never quotes the transcript.
+ */
+export class UnsupportedFormatError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsupportedFormatError";
+  }
+}
+
 /** Counts of native entries dropped on purpose (never shared). */
 export type DropCounts = Record<string, number>;
 

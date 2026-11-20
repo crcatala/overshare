@@ -8,7 +8,7 @@
  * because `SecretValue` cannot be serialized (and must not be). Errors cross as a `SafeError`, never as the
  * original: their messages can quote the transcript (a JSON syntax error includes a snippet of the file).
  */
-import { parseSession, readSession, SessionTooLargeError, UnrecognizedFormatError } from "../harnesses/index.js";
+import { parseSession, readSession, SessionTooLargeError, UnrecognizedFormatError, UnsupportedFormatError } from "../harnesses/index.js";
 import type { OvershareConfig } from "../config.js";
 import { formatDuration, formatSessionCost, formatTokens, plural } from "../format.js";
 import { PromptsUnavailableError } from "../modes.js";
@@ -203,7 +203,7 @@ export type JobResult =
 
 /** An error that is safe to show and to send between threads: fixed text, plus counts or an errno code. */
 export interface SafeError {
-  code: "prompts-unavailable" | "unrecognized-format" | "too-large" | "read-failed" | "internal";
+  code: "prompts-unavailable" | "unrecognized-format" | "unsupported-format" | "too-large" | "read-failed" | "internal";
   message: string;
 }
 
@@ -218,6 +218,7 @@ export function toSafeError(err: unknown): SafeError {
   if (err instanceof PromptsUnavailableError) return { code: "prompts-unavailable", message: err.message };
   if (err instanceof UnrecognizedFormatError) return { code: "unrecognized-format", message: err.message };
   if (err instanceof SessionTooLargeError) return { code: "too-large", message: err.message };
+  if (err instanceof UnsupportedFormatError) return { code: "unsupported-format", message: err.message };
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
   if (typeof code === "string" && /^E[A-Z0-9]{2,20}$/.test(code)) return { code: "read-failed", message: `could not read the session file (${code})` };
   const name = err instanceof Error && /^[A-Za-z]{1,40}$/.test(err.name) ? err.name : "Error";

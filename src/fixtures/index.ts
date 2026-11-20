@@ -7,7 +7,10 @@ import { readSecretsFile } from "../redact/known-values.js";
 import { projectDir as claudeProjectDir } from "../harnesses/claude-code/index.js";
 import { projectDir as piProjectDir } from "../harnesses/pi/index.js";
 import { SHARE_MODES, type ShareMode } from "../schema.js";
+import { readSession } from "../harnesses/index.js";
+import { writeAntigravity } from "./antigravity.js";
 import { emitClaudeCode } from "./claude-code.js";
+import { emitCodex } from "./codex.js";
 import { emitPi } from "./pi.js";
 import { Rng } from "./random.js";
 import { buildScript } from "./script.js";
@@ -30,6 +33,9 @@ export interface FixtureOptions {
 export interface GeneratedFixtures {
   claudeFile: string;
   piFile: string;
+  codexFile: string;
+  /** The conversation's transcript inside a fake Antigravity data folder (its database and annotation beside it). */
+  antigravityFile: string;
   /** KEY=VALUE file of planted secrets, for `--secrets-file`. */
   secretsFile: string;
   secrets: PlantedSecret[];
@@ -38,8 +44,8 @@ export interface GeneratedFixtures {
   home: string;
   username: string;
   cwd: string;
-  /** Directories to point OVERSHARE_CLAUDE_PROJECTS / OVERSHARE_PI_SESSIONS at. */
-  roots: { "claude-code": string; pi: string };
+  /** Directories to point OVERSHARE_CLAUDE_PROJECTS / OVERSHARE_PI_SESSIONS / OVERSHARE_CODEX_SESSIONS / OVERSHARE_ANTIGRAVITY_DIR at. */
+  roots: { "claude-code": string; pi: string; codex: string; antigravity: string };
 }
 
 /**
@@ -56,7 +62,7 @@ export function generateFixtures(opts: FixtureOptions): GeneratedFixtures {
   const script = buildScript(rng, { home, username, secrets, extraTurns: opts.extraTurns ?? 0 });
   const start = Date.UTC(2026, 2, 10, 14, 0, 0) + (seed % 1000) * 60_000;
 
-  const roots = { "claude-code": join(opts.outDir, "claude", "projects"), pi: join(opts.outDir, "pi", "sessions") };
+  const roots = { "claude-code": join(opts.outDir, "claude", "projects"), pi: join(opts.outDir, "pi", "sessions"), codex: join(opts.outDir, "codex", "sessions"), antigravity: join(opts.outDir, "antigravity") };
   const claudeId = rng.uuid();
   const claudeDir = join(roots["claude-code"], claudeProjectDir(script.cwd));
   const claudeFile = join(claudeDir, `${claudeId}.jsonl`);
@@ -69,9 +75,20 @@ export function generateFixtures(opts: FixtureOptions): GeneratedFixtures {
   mkdirSync(piDir, { recursive: true });
   writeFileSync(piFile, emitPi(script, new Rng(seed * 31 + 2), { sessionId: piId, start, home, inputProvenance: opts.piInputProvenance }));
 
+  // Their own random streams (seeded apart from the others'), so adding them changes no Claude Code or pi output.
+  const codexId = new Rng(seed * 17 + 5).uuid7(start);
+  const day = new Date(start).toISOString().slice(0, 10).split("-");
+  const codexDir = join(roots.codex, ...day);
+  const codexFile = join(codexDir, `rollout-${new Date(start).toISOString().slice(0, 19).replace(/:/g, "-")}-${codexId}.jsonl`);
+  mkdirSync(codexDir, { recursive: true });
+  writeFileSync(codexFile, emitCodex(script, new Rng(seed * 31 + 3), { sessionId: codexId, start, home }));
+  writeFileSync(join(opts.outDir, "codex", "session_index.jsonl"), `${JSON.stringify({ id: codexId, thread_name: script.title, updated_at: new Date(start).toISOString() })}\n`);
+
+  const antigravityFile = writeAntigravity(script, new Rng(seed * 31 + 4), { dataDir: roots.antigravity, conversationId: new Rng(seed * 17 + 7).uuid(), start, home });
+
   const secretsFile = join(opts.outDir, "secrets.env");
   writeFileSync(secretsFile, secretsEnvFile(secrets), { mode: 0o600 });
-  return { claudeFile, piFile, secretsFile, secrets: secrets.list, abandonedMarker: script.abandonedMarker, home, username, cwd: script.cwd, roots };
+  return { claudeFile, piFile, codexFile, antigravityFile, secretsFile, secrets: secrets.list, abandonedMarker: script.abandonedMarker, home, username, cwd: script.cwd, roots };
 }
 
 function safeUsername(): string {
@@ -122,12 +139,15 @@ export function exportFixtureShares(fx: GeneratedFixtures, outDir: string, confi
   mkdirSync(sharesDir, { recursive: true });
   const extraKnownSecrets = readSecretsFile(fx.secretsFile);
   const out: ExportedShare[] = [];
-  for (const [harness, file] of [["claude-code", fx.claudeFile], ["pi", fx.piFile]] as const) {
+  for (const [harness, file] of [["claude-code", fx.claudeFile], ["pi", fx.piFile], ["codex", fx.codexFile], ["antigravity", fx.antigravityFile]] as const) {
+    // As the CLI reads a session: with what its harness keeps beside the transcript (Antigravity's database).
+    const { raw, options } = readSession(harness, file);
     for (const mode of SHARE_MODES) {
-      const { json, report } = prepareShare(readFileSync(file, "utf8"), {
+      const { json, report } = prepareShare(raw, {
         mode,
         config,
         harness,
+        ...options,
         knownSecrets: [],
         extraKnownSecrets,
         machine: { homeDir: fx.home, username: fx.username },

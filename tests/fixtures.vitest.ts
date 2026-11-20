@@ -7,6 +7,7 @@ import { exampleShare, exportFixtureShares, generateFixtures } from "../src/fixt
 import { prepareShare } from "../src/pipeline.js";
 import { readSecretsFile } from "../src/redact/known-values.js";
 import { listSessions } from "../src/resolve.js";
+import { readSession } from "../src/harnesses/index.js";
 import { SCHEMA_VERSION, SHARE_MODES } from "../src/schema.js";
 
 const home = "/home/fixture-user";
@@ -123,6 +124,64 @@ describe("fixture generator", () => {
       });
     });
   }
+
+  describe("codex and antigravity", () => {
+    const more = [
+      ["codex", fx.codexFile],
+      ["antigravity", fx.antigravityFile],
+    ] as const;
+
+    it("are deterministic per seed, laid out like the real folders, and listed", () => {
+      const again = generate();
+      expect(readFileSync(again.codexFile, "utf8")).toBe(readFileSync(fx.codexFile, "utf8"));
+      expect(readFileSync(again.antigravityFile, "utf8")).toBe(readFileSync(fx.antigravityFile, "utf8"));
+      expect(listSessions("codex", fx.roots).map((r) => r.path)).toEqual([fx.codexFile]);
+      expect(listSessions("antigravity", fx.roots).map((r) => r.path)).toEqual([fx.antigravityFile]);
+    });
+
+    for (const [harness, file] of more) {
+      const { raw, options } = readSession(harness, file);
+      const opts = { config: DEFAULT_CONFIG, harness, machine, knownSecrets: [], extraKnownSecrets: extra, ...options };
+
+      for (const mode of SHARE_MODES) {
+        it(`${harness} ${mode}: leaks no planted secret, home path or abandoned branch`, () => {
+          const { json, report } = prepareShare(raw, { ...opts, mode });
+          expect(report.blocked).toBe(false);
+          for (const s of fx.secrets) for (const line of s.value.split("\n")) if (line.length > 20) expect(json, s.label).not.toContain(line);
+          expect(json).not.toContain(home);
+          expect(json).not.toContain(fx.abandonedMarker);
+          expect(json).not.toMatch(/gAAAA/);
+        });
+      }
+
+      it(`${harness}: exercises what the viewer renders`, () => {
+        const { session } = prepareShare(raw, { ...opts, mode: "full" });
+        const steps = session.turns.flatMap((t) => t.steps);
+        const events = new Set(steps.flatMap((s) => (s.kind === "event" ? [s.event] : [])));
+        expect(session.title).toBeTruthy();
+        expect(session.project).toMatchObject({ name: "acme-billing-api", branch: "fix/invoice-currency" });
+        expect(session.stats.toolCalls).toBeGreaterThan(5);
+        expect(session.stats.cost).toBeGreaterThan(0);
+        expect(session.stats.costSource).toBe("estimated");
+        expect(session.turns.every((t) => !t.user || t.user.authored)).toBe(true);
+        expect(session.turns.some((t) => t.user?.images)).toBe(true);
+        expect(steps.some((s) => s.kind === "thinking" && s.text)).toBe(true);
+        expect(steps.some((s) => s.kind === "tool" && s.action === "edit")).toBe(true);
+        for (const e of ["error", "compaction", "model_change"] as const) expect(events.has(e), e).toBe(true);
+        expect(session.stats.cache?.rebuilds).toBeGreaterThanOrEqual(1);
+        if (harness === "codex") {
+          // Antigravity's results carry no exit status; Codex's commands do.
+          expect(session.stats.toolErrors).toBeGreaterThanOrEqual(1);
+          expect(session.stats.subagents).toBe(1);
+          expect(events.has("interrupted")).toBe(true);
+          expect(steps.some((s) => s.kind === "event" && s.skill?.invokedBy === "user")).toBe(true);
+        } else {
+          expect(events.has("notification")).toBe(true);
+          expect(steps.filter((s) => s.kind === "tool").every((s) => s.kind === "tool" && s.result)).toBe(true);
+        }
+      });
+    }
+  });
 
   it("refuses historical pi fixture prompts exports instead of leaking the expanded review template", () => {
     const legacy = generateFixtures({ outDir: mkdtempSync(join(tmpdir(), "as-legacy-pi-")), seed: 3, home, username: "fixture-user", piInputProvenance: false });

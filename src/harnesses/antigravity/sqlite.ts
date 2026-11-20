@@ -15,9 +15,11 @@ import { pathToFileURL } from "node:url";
 interface Statement {
   all(...params: unknown[]): Record<string, unknown>[];
   get(...params: unknown[]): Record<string, unknown> | undefined;
+  run(...params: unknown[]): unknown;
 }
 export interface Database {
   prepare(sql: string): Statement;
+  exec(sql: string): void;
   close(): void;
 }
 type SqliteModule = { DatabaseSync: new (path: string | URL, options?: Record<string, unknown>) => Database };
@@ -73,4 +75,10 @@ export function withDatabase<T>(path: string, read: (db: Database) => T): T | un
       // already closed
     }
   }
+}
+
+/** A new database to write (the fake sessions `overshare fixtures` makes); undefined when Node has no `node:sqlite`. */
+export function createDatabase(path: string): Database | undefined {
+  const mod = sqlite();
+  return mod ? new mod.DatabaseSync(path) : undefined;
 }

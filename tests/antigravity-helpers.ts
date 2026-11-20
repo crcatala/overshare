@@ -7,35 +7,12 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { encode, type Message } from "../src/harnesses/antigravity/protobuf.js";
 
 type Json = Record<string, unknown>;
 
-/** Protobuf wire encoding: a message is a list of [field, value] (number = varint, string/bytes = length-delimited, array = submessage). */
-export type Pb = [number, number | string | Uint8Array | Pb][];
-
-function varint(n: number): number[] {
-  const out: number[] = [];
-  let v = n;
-  do {
-    let b = v % 128;
-    v = Math.floor(v / 128);
-    if (v > 0) b |= 0x80;
-    out.push(b);
-  } while (v > 0);
-  return out;
-}
-
-export function encode(msg: Pb): Uint8Array {
-  const bytes: number[] = [];
-  for (const [field, value] of msg) {
-    if (typeof value === "number") bytes.push(...varint(field * 8), ...varint(value));
-    else {
-      const body = typeof value === "string" ? new TextEncoder().encode(value) : value instanceof Uint8Array ? value : encode(value);
-      bytes.push(...varint(field * 8 + 2), ...varint(body.length), ...body);
-    }
-  }
-  return Uint8Array.from(bytes);
-}
+/** A message to encode (see `encode` in src/harnesses/antigravity/protobuf.ts). */
+export type Pb = Message;
 
 export interface Call {
   name: string;

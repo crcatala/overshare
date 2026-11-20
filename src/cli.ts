@@ -360,7 +360,7 @@ const rel = (p: string) => relative(process.cwd(), p) || ".";
 
 program
   .command("fixtures")
-  .description("generate realistic fake Claude Code + pi sessions (with planted fake secrets) for testing")
+  .description("generate realistic fake Claude Code, pi, Codex and Antigravity sessions (with planted fake secrets) for testing")
   .option("-o, --out <dir>", "output directory", "fixtures-out")
   .option("-s, --seed <n>", "random seed (same seed → same output)", (v) => Number.parseInt(v, 10), 1)
   .option("--turns <n>", "extra generic work turns to append (bigger sessions)", (v) => Number.parseInt(v, 10), 0)
@@ -369,7 +369,7 @@ program
   .option("--no-shares", "only write transcripts; skip exporting share JSON for the viewer")
   .action((opts: { out: string; seed: number; turns: number; home?: string; user?: string; shares: boolean }) => {
     const fx = generateFixtures({ outDir: opts.out, seed: opts.seed, extraTurns: opts.turns, home: opts.home, username: opts.user });
-    console.log(`Transcripts (seed ${opts.seed}):\n  claude-code  ${rel(fx.claudeFile)}\n  pi           ${rel(fx.piFile)}`);
+    console.log(`Transcripts (seed ${opts.seed}):\n  claude-code  ${rel(fx.claudeFile)}\n  pi           ${rel(fx.piFile)}\n  codex        ${rel(fx.codexFile)}\n  antigravity  ${rel(fx.antigravityFile)}`);
     console.log(`Planted fake secrets: ${fx.secrets.length} → ${rel(fx.secretsFile)}`);
     if (opts.shares) {
       console.log("\nShares (redacted with the secrets file):");
@@ -378,7 +378,7 @@ program
       }
       console.log(`\nView them:   overshare serve ${rel(join(opts.out, "shares"))}/*.json   (or: overshare demo)`);
     }
-    console.log(`Try the CLI: OVERSHARE_CLAUDE_PROJECTS=${rel(fx.roots["claude-code"])} OVERSHARE_PI_SESSIONS=${rel(fx.roots.pi)} overshare list`);
+    console.log(`Try the CLI: OVERSHARE_CLAUDE_PROJECTS=${rel(fx.roots["claude-code"])} OVERSHARE_PI_SESSIONS=${rel(fx.roots.pi)} OVERSHARE_CODEX_SESSIONS=${rel(fx.roots.codex)} OVERSHARE_ANTIGRAVITY_DIR=${rel(fx.roots.antigravity)} overshare list`);
     console.log(`             overshare report ${rel(fx.claudeFile)} --mode full --secrets-file ${rel(fx.secretsFile)}`);
   });
 
@@ -396,7 +396,7 @@ program
     const files = exportFixtureShares(fx, opts.out, loadConfig()).map((r) => r.file);
     const { url, port } = await startViewerServer({ port: opts.port, files, host: opts.host, allowedHosts: opts.allowedHost });
     if (port !== opts.port) console.log(`Port ${opts.port} is in use; using ${port} instead.`);
-    console.log(`Generated fake Claude Code + pi sessions (seed ${opts.seed}) in ${rel(opts.out)} — nothing is uploaded.\n`);
+    console.log(`Generated fake Claude Code, pi, Codex and Antigravity sessions (seed ${opts.seed}) in ${rel(opts.out)} — nothing is uploaded.\n`);
     console.log(`All sessions:  ${url}`);
     console.log(`Claude Code:   ${url}#local:claude-code-full.json`);
     console.log(`pi:            ${url}#local:pi-full.json`);

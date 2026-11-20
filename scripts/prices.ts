@@ -23,6 +23,8 @@ export interface Snapshot {
 }
 
 const RATE_KEYS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+/** A date stamp on a model id, as `findPrice` strips it: `-20250514` (Claude) or `-2025-11-13` (OpenAI). */
+const DATED = /-(\d{4}-\d{2}-\d{2}|\d{8})$/;
 /** Anthropic bills 1-hour cache writes at twice the input rate (src/pricing.ts applies the same rule). */
 const CACHE_WRITE_1H_INPUT_MULTIPLIER = 2;
 
@@ -183,7 +185,8 @@ export function diffTables(before: PriceTable, after: PriceTable): TableDiff {
  * supplemental family would silently replace it.
  */
 export function shadowedSupplements(prices: PriceTable, supplemental: PriceTable): string[] {
-  const familyOf = (id: string) => id.replace(/-(\d{8}|latest)$/, "").replace(/-0$/, "");
+  // Every date stamp `findPrice` strips: `-20250514` (Claude), `-2025-11-13` (OpenAI), `-latest`.
+  const familyOf = (id: string) => id.replace(DATED, "").replace(/-latest$/, "").replace(/-0$/, "");
   return Object.entries(prices)
     .filter(([id, p]) => {
       const s = supplemental[id] ?? supplemental[familyOf(id)];
@@ -223,8 +226,9 @@ const LITELLM_SOURCE: Record<PriceProvider, { provider: string; prefix: string }
  * (`*_above_<size/1000>k_tokens`), and for Anthropic the 1-hour write (`cache_creation_input_token_cost_above_1hr`,
  * per tier too), which should be 2x input. A tier only one side lists, or a rate LiteLLM leaves out, is a
  * disagreement (`litellm` undefined), except an OpenAI or Google cache rate LiteLLM leaves out where ours is the input
- * rate: the generator reads a missing cache rate the same way. Only models both list are compared; `onlyLitellm`
- * names LiteLLM models of the families the generator keeps.
+ * rate: the generator reads a missing cache rate the same way. Only models both list are compared, a LiteLLM dated
+ * alias of one of ours against that model's rates (what `findPrice` gives it); `onlyLitellm` names the other LiteLLM
+ * models of the families the generator keeps.
  */
 export function crossCheck(prices: PriceTable, litellm: unknown): CrossCheck {
   const theirs: Record<string, Json> = {};
@@ -235,14 +239,19 @@ export function crossCheck(prices: PriceTable, litellm: unknown): CrossCheck {
     const id = key.slice(LITELLM_SOURCE[provider].prefix.length);
     if (!SOURCES.find((s) => s.provider === provider)!.keep(id)) continue;
     theirs[id] = m;
-    // A dated alias of a model we list (`gpt-5.1-2025-11-13`) is priced through that model: not worth naming.
-    if (!(id.replace(/-(\d{4}-\d{2}-\d{2}|\d{8})$/, "") in prices)) unmatched.add(id);
+    unmatched.add(id);
+  }
+  // A dated alias we do not list (`gpt-5.1-2025-11-13`) is priced at its undated model's rates, so it is compared with
+  // those (and reported under its own id) rather than named as only in LiteLLM.
+  const compared: [string, ModelPrice, Json][] = [];
+  for (const [id, m] of Object.entries(theirs)) {
+    const p = prices[id] ?? prices[id.replace(DATED, "")];
+    if (!p) continue;
+    unmatched.delete(id);
+    compared.push([id, p, m]);
   }
   const disagreements: Disagreement[] = [];
-  for (const [id, p] of Object.entries(prices)) {
-    const m = theirs[id];
-    if (!m) continue;
-    unmatched.delete(id);
+  for (const [id, p, m] of compared.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     const anthropic = providerOfId(id) === "anthropic";
     // A rate LiteLLM does not list (or lists as something other than a number) is a disagreement too, so a
     // partial comparison never reads as agreement.

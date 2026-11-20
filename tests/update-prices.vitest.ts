@@ -113,6 +113,10 @@ describe("generated table", () => {
     expect(shadowedSupplements({ "claude-sonnet-4-20250514": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 } }, sup)).toEqual([]);
     expect(shadowedSupplements({ "claude-sonnet-4-20250514": { input: 3, output: 15, cacheRead: 0.25, cacheWrite: 3.75 } }, sup)).toEqual(["claude-sonnet-4-20250514"]);
     expect(shadowedSupplements({ "claude-sonnet-4-5": { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } }, sup)).toEqual([]);
+    // An OpenAI-style date stamp is a family too: a generated dated Codex row would shadow the hand-kept one.
+    const codex = { "gpt-5.1-codex": { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 1.25 } };
+    expect(shadowedSupplements({ "gpt-5.1-codex-2025-11-13": { input: 2, output: 10, cacheRead: 0.125, cacheWrite: 1.25 } }, codex)).toEqual(["gpt-5.1-codex-2025-11-13"]);
+    expect(shadowedSupplements({ "gpt-5.1-codex-2025-11-13": codex["gpt-5.1-codex"] }, codex)).toEqual([]);
     // The committed table shadows nothing.
     expect(shadowedSupplements({ ...ANTHROPIC_PRICES, ...OPENAI_PRICES, ...GOOGLE_PRICES }, SUPPLEMENTAL_PRICES)).toEqual([]);
   });
@@ -125,6 +129,14 @@ describe("LiteLLM cross-check", () => {
     expect(r.onlyOurs).toEqual([]);
     // gpt-4o is in LiteLLM only; the dated alias of a model we list, and Vertex's copy of a Gemini one, are not named.
     expect(r.onlyLitellm).toEqual(["gpt-4o"]);
+  });
+
+  it("compares a LiteLLM dated alias with the undated model it is priced as", () => {
+    const ll = litellm();
+    ll["gpt-6.1-sol-2026-09-29"].output_cost_per_token = 1.2e-5;
+    const r = crossCheck(fromModelsDev(modelsDev()).prices, ll);
+    expect(r.disagreements).toEqual([{ id: "gpt-6.1-sol-2026-09-29", field: "output", ours: 10, litellm: 12 }]);
+    expect(r.onlyLitellm).not.toContain("gpt-6.1-sol-2026-09-29");
   });
 
   it("checks OpenAI and Gemini rates and tiers, and the Gemini entries under their gemini/ key", () => {

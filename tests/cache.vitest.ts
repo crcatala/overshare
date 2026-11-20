@@ -482,6 +482,22 @@ describe("cache events through the adapters and the pipeline", () => {
     expect(s.responses[1]!.cacheEvent!.cost).toBeCloseTo((60_500 * 2.25) / 1e6, 9);
   });
 
+  it("keeps a pi model's free cache reads as a rate of 0, not as missing (no list-price fallback)", () => {
+    // gpt-6.1-sol is in the price table ($2 input, $0.10 cached): the recorded rates must win over it.
+    const usage = (input: number, cacheRead: number) => ({ ...piUsage(input, 20, cacheRead, 0), cost: { input: (input * 0.5) / 1e6, cacheRead: 0, cacheWrite: 0, output: 0, total: (input * 0.5) / 1e6 } });
+    const t = new PiTranscript().user("go");
+    t.assistant([{ type: "text", text: "a" }], usage(500, 60_000), { model: "gpt-6.1-sol" });
+    t.assistant([{ type: "text", text: "b" }], usage(60_500, 0), { model: "gpt-6.1-sol" });
+    const { session: s } = parsePi(t.toJsonl());
+    const st = computeStats(s);
+    expect(st.rates?.["gpt-6.1-sol"]).toEqual({ input: 0.5, cacheRead: 0 });
+    expect(s.responses[1]!.cacheEvent!.cost).toBeCloseTo((60_500 * 0.5) / 1e6, 9);
+    // A call recorded as free altogether still gives no rates.
+    const free = new PiTranscript().user("go");
+    free.assistant([{ type: "text", text: "a" }], { ...piUsage(500, 20, 60_000, 0), cost: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 } }, { model: "glm-x" });
+    expect(computeStats(parsePi(free.toJsonl()).session).rates).toBeUndefined();
+  });
+
   it("shows no cache summary for a pi provider that reports no cache tokens", () => {
     const t = new PiTranscript().user("go");
     t.assistant([{ type: "text", text: "a" }], piUsage(50_000, 20));

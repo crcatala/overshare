@@ -1,11 +1,11 @@
-import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { antigravity } from "../src/harnesses/antigravity/index.js";
 import { dataFolders, resetAntigravityCaches } from "../src/harnesses/antigravity/files.js";
-import { MISSING_OUTPUT, parseAntigravity, unwrapPrompt } from "../src/harnesses/antigravity/parse.js";
+import { MISSING_OUTPUT, SHORTENED_FIELD, parseAntigravity, unwrapPrompt } from "../src/harnesses/antigravity/parse.js";
 import { detectHarness, readSession } from "../src/harnesses/index.js";
 import { Collector } from "../src/harnesses/summary-kit.js";
 import { prepareShare } from "../src/pipeline.js";
@@ -70,6 +70,9 @@ describe("antigravity: prompts", () => {
     expect(unwrapPrompt(wrapPrompt("plain ask")).text).toBe("plain ask");
     expect(unwrapPrompt(wrapPrompt("inside T3", { t3: true })).text).toBe("inside T3");
     expect(unwrapPrompt("no wrapper at all").text).toBe("no wrapper at all");
+    // A plain prompt that mentions the tag is not mistaken for T3's wrapper.
+    const literal = "Explain why <user_request>x</user_request> breaks the parser, then fix it";
+    expect(unwrapPrompt(wrapPrompt(literal)).text).toBe(literal);
   });
 
   it("marks prompts authored, so prompts mode shows only the typed text", () => {
@@ -178,6 +181,74 @@ describe("antigravity: shortened tool output", () => {
     expect(result).toContain("more output");
     expect(result).not.toContain("<truncated 12 lines>");
     expect(p.report.counts["secret-pattern"] ?? 0).toBeGreaterThan(0);
+  });
+
+  it("reads no output for a transcript outside its conversation layout, nor one linked out of the conversation", () => {
+    const secret = fake.github();
+    const full = `x\nTOKEN=${secret}\ny\n`;
+    const c = new AntigravityConversation().user("dump");
+    const preview = c.shortened(full, [full.indexOf(secret) + 12, full.length - 2]);
+    c.respond({ calls: [{ name: "run_command", args: { CommandLine: "cat" }, result: preview }] });
+    // A loose copy, with an unrelated steps/<n>/output.txt beside it.
+    const loose = mkdtempSync(join(tmpdir(), "ag-loose-"));
+    mkdirSync(join(loose, "x", "steps", "2"), { recursive: true });
+    writeFileSync(join(loose, "x", "steps", "2", "output.txt"), "UNRELATED-LOCAL-FILE");
+    mkdirSync(join(loose, "x", "logs"), { recursive: true });
+    const looseFile = join(loose, "x", "logs", "transcript_full.jsonl");
+    writeFileSync(looseFile, c.toJsonl());
+    const a = readSession("antigravity", looseFile);
+    expect(prepareShare(a.raw, { mode: "full", config: DEFAULT_CONFIG, harness: "antigravity", knownSecrets: [], ...a.options }).json).not.toContain("UNRELATED-LOCAL-FILE");
+    // In its layout, but the output file is a link to a file outside the conversation.
+    const l = load(c, { outputs: false });
+    const outside = join(mkdtempSync(join(tmpdir(), "ag-outside-")), "secret.txt");
+    writeFileSync(outside, "OUTSIDE-THE-CONVERSATION");
+    const stepDir = join(l.data, "brain", c.id, ".system_generated", "steps", "2");
+    mkdirSync(stepDir, { recursive: true });
+    symlinkSync(outside, join(stepDir, "output.txt"));
+    const b = readSession("antigravity", l.file);
+    const p = prepareShare(b.raw, { mode: "full", config: DEFAULT_CONFIG, harness: "antigravity", knownSecrets: [], ...b.options });
+    expect(p.json).not.toContain("OUTSIDE-THE-CONVERSATION");
+    expect(tools(p.session.turns[0]!.steps)[0]!.result?.text).toBe(MISSING_OUTPUT);
+  });
+
+  it("holds full outputs to the size budget before reading them, and reads none for the browser's index", () => {
+    const c = new AntigravityConversation().user("dump");
+    const full = "y".repeat(1_200_000);
+    const preview = c.shortened(full, [100, full.length - 100]);
+    c.respond({ calls: [{ name: "run_command", args: { CommandLine: "cat" }, result: preview }] });
+    const l = load(c);
+    expect((l.options.sidecar as { outputs: Record<string, string | null> }).outputs[2]).toBe(full);
+    expect(antigravity.sidecar!.load(l.file, "summary")).not.toHaveProperty("outputs");
+    const prev = process.env.OVERSHARE_MAX_SESSION_MB;
+    process.env.OVERSHARE_MAX_SESSION_MB = "1";
+    try {
+      expect((antigravity.sidecar!.load(l.file) as { outputs: Record<string, string | null> }).outputs[2]).toBeNull();
+    } finally {
+      if (prev === undefined) delete process.env.OVERSHARE_MAX_SESSION_MB;
+      else process.env.OVERSHARE_MAX_SESSION_MB = prev;
+    }
+  });
+
+  it("never shares a field the shortened transcript.jsonl cut (the fallback when the full one is missing)", () => {
+    const secret = fake.github();
+    const data = dataDir();
+    const c = new AntigravityConversation().user("go").respond({ text: "ok", calls: [{ name: "run_command", args: { CommandLine: "env" }, result: "x" }] });
+    const lines = c.toJsonl().trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+    // The result's content and the call's arguments were cut mid-secret.
+    lines[2]!.content = `TOKEN=${secret.slice(0, 14)}\n<truncated 40 lines>\nend`;
+    lines[2]!.truncated_fields = ["content"];
+    (lines[1]!.tool_calls as Record<string, unknown>[])[0]!.args = { CommandLine: `echo ${secret.slice(0, 16)}<truncated>` };
+    lines[1]!.truncated_fields = ["tool_calls"];
+    const logs = join(data, "brain", c.id, ".system_generated", "logs");
+    mkdirSync(logs, { recursive: true });
+    const file = join(logs, "transcript.jsonl");
+    writeFileSync(file, `${lines.map((l) => JSON.stringify(l)).join("\n")}\n`);
+    expect(antigravity.listFiles(data)).toEqual([file]);
+    const r = readSession("antigravity", file);
+    const p = prepareShare(r.raw, { mode: "full", config: DEFAULT_CONFIG, harness: "antigravity", knownSecrets: [], ...r.options });
+    expect(p.json).not.toContain(secret.slice(0, 10));
+    expect(tools(p.session.turns[0]!.steps)[0]).toMatchObject({ name: "run_command", result: { text: SHORTENED_FIELD } });
+    expect(p.report.dropped["shortened-field"]).toBe(2);
   });
 
   it("drops the preview when the full output file is gone", () => {

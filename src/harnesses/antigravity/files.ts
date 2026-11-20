@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { listDir } from "../discovery.js";
@@ -72,6 +72,15 @@ export function dataFolderOf(file: string): string | undefined {
 
 /** `brain/<id>/.system_generated/`, where shortened tool outputs are kept in full. */
 const generatedOf = (file: string): string => dirname(dirname(resolve(file)));
+
+/**
+ * The transcript sits where Antigravity writes it (`brain/<id>/.system_generated/logs/<transcript>`). Only then is
+ * anything read from the folders around it: a loose copy elsewhere must not pick up unrelated files beside it.
+ */
+function inConversationLayout(file: string): boolean {
+  const parts = resolve(file).split(/[\\/]/);
+  return parts.length >= 5 && TRANSCRIPTS.includes(parts.at(-1)!) && parts.at(-2) === "logs" && parts.at(-3) === ".system_generated" && parts.at(-5) === "brain";
+}
 
 export interface Workspace {
   /** The folder (from its `file://` URI). */
@@ -241,7 +250,11 @@ export interface AntigravitySidecar {
 /** The marker of a shortened tool result, and the step folder its full output is in. */
 export const SHORTENED = /The tool's output was truncated due to being too long\. You can find the full output in a file at \S*?[\\/]steps[\\/](\d+)[\\/]output\.txt/;
 
-/** Full outputs of the shortened results in a transcript, read from this conversation's own `steps/` folder only. */
+/**
+ * Full outputs of the shortened results in a transcript, read from this conversation's own `steps/` folder only:
+ * the transcript must sit in its conversation layout, and each file, links resolved, must stay inside that folder.
+ * Each is held to what is left of the size budget before it is read; one that does not fit (or is missing) is null.
+ */
 function shortenedOutputs(file: string): Record<string, string | null> {
   const out: Record<string, string | null> = {};
   let raw: string;
@@ -250,29 +263,44 @@ function shortenedOutputs(file: string): Record<string, string | null> {
   } catch {
     return out;
   }
-  let total = 0;
+  const shortened: [number, string][] = [];
   for (const line of lines(raw)) {
     if (!line.includes("truncated due to being too long")) continue;
     const e = parseLine(line);
     const m = typeof e?.content === "string" ? SHORTENED.exec(e.content) : null;
-    if (!m || typeof e?.step_index !== "number") continue;
-    const path = join(generatedOf(file), "steps", m[1]!, "output.txt");
+    if (m && typeof e?.step_index === "number") shortened.push([e.step_index, m[1]!]);
+  }
+  if (!shortened.length) return out;
+  let root: string | undefined;
+  try {
+    root = inConversationLayout(file) ? realpathSync(generatedOf(file)) : undefined;
+  } catch {
+    root = undefined;
+  }
+  let budget = maxSessionBytes() - raw.length;
+  for (const [step, n] of shortened) {
+    out[step] = null;
+    if (!root) continue;
     try {
-      const full = readFileSync(path, "utf8");
-      total += full.length;
-      out[e.step_index] = total <= maxSessionBytes() ? full : null;
+      const path = realpathSync(join(root, "steps", n, "output.txt"));
+      if (!path.startsWith(`${root}/`)) continue;
+      const size = statSync(path).size;
+      if (size > budget) continue;
+      budget -= size;
+      out[step] = readFileSync(path, "utf8");
     } catch {
-      out[e.step_index] = null;
+      // gone: the preview is dropped
     }
   }
   return out;
 }
 
-export function loadAntigravitySidecar(file: string): AntigravitySidecar {
+export function loadAntigravitySidecar(file: string, purpose: "parse" | "summary" = "parse"): AntigravitySidecar {
   const title = annotationTitle(file);
   const db = conversationDb(file);
   const workspaces = db?.workspaces.length ? db.workspaces : workspacesOfConversation(file);
-  const outputs = shortenedOutputs(file);
+  // The browser's index shows no tool output: only a share reads the full copies.
+  const outputs = purpose === "summary" ? {} : shortenedOutputs(file);
   return {
     id: conversationId(file),
     ...(title ? { title } : {}),

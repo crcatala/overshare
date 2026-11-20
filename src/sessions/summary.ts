@@ -154,7 +154,7 @@ export function summarizeFile(ref: SummarizeInput): SessionSummary {
   }
   let sidecar: unknown;
   try {
-    sidecar = loadSidecar(ref.harness, ref.path);
+    sidecar = loadSidecar(ref.harness, ref.path, "summary");
   } catch (err) {
     // What the session keeps beside it (a continuation's history) can push it over the limit too.
     if (err instanceof SessionTooLargeError) return tooLargeSummary(ref);

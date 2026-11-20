@@ -69,8 +69,8 @@ export function loadSubagentFiles(harness: HarnessName, sessionPath: string): Su
 }
 
 /** What a harness keeps beside a session's transcript (see `Harness.sidecar`), or undefined when it keeps nothing there. */
-export function loadSidecar(harness: HarnessName, sessionPath: string): unknown {
-  return known(harness)?.sidecar?.load(sessionPath);
+export function loadSidecar(harness: HarnessName, sessionPath: string, purpose: "parse" | "summary" = "parse"): unknown {
+  return known(harness)?.sidecar?.load(sessionPath, purpose);
 }
 
 /**

@@ -32,8 +32,15 @@ export const STEP_SOURCES = /^(USER_[A-Z_]+|MODEL|SYSTEM)$/;
 /** What the user typed, from a `USER_INPUT`, and the settings changes that came with it. */
 export function unwrapPrompt(content: string): { text: string; settings: string[] } {
   const request = /<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/.exec(content)?.[1];
-  // Under T3 Code the first prompt also carries T3's instructions; what the user typed is the nested request.
-  const nested = request === undefined ? undefined : /<user_request>([\s\S]*?)<\/user_request>/.exec(request)?.[1];
+  // Under T3 Code the first prompt starts with T3's instructions, then what the user typed in `<user_request>` (then
+  // `<runtime_info>`). Only that shape is unwrapped: a plain prompt that mentions `<user_request>` stays whole.
+  let nested: string | undefined;
+  const t3 = request?.trimStart().startsWith("<t3_code_instructions>") ? request.slice(request.indexOf("</t3_code_instructions>") + "</t3_code_instructions>".length) : undefined;
+  if (t3 !== undefined) {
+    const open = t3.indexOf("<user_request>");
+    const close = t3.lastIndexOf("</user_request>");
+    if (open >= 0 && close > open) nested = t3.slice(open + "<user_request>".length, close);
+  }
   const text = (nested ?? request ?? (/<[A-Z_]+>/.test(content) ? "" : content)).trim();
   const settings = [...content.matchAll(/<USER_SETTINGS_CHANGE>([\s\S]*?)<\/USER_SETTINGS_CHANGE>/g)].map((m) => m[1]!.trim()).filter(Boolean);
   return { text, settings };
@@ -68,6 +75,27 @@ export function describeAntigravityTool(name: string, args: Entry): { action: To
   return { ...generic, summary: str(args.toolSummary) ? firstLine(args.toolSummary) : generic.summary };
 }
 
+/** What replaces a field the shortened `transcript.jsonl` cut (its middle was removed before any redaction). */
+export const SHORTENED_FIELD = "[Shortened by Antigravity; not shared]";
+
+/**
+ * A step from `transcript.jsonl` (the fallback when `transcript_full.jsonl` is missing) lists the fields it shortened
+ * in `truncated_fields`. A cut field can end inside a secret no pattern then matches, so it is replaced, never shared:
+ * text by a marker, tool calls by their names alone.
+ */
+function withoutShortenedFields(e: Entry, dropped: DropCounts): Entry {
+  if (!Array.isArray(e.truncated_fields) || !e.truncated_fields.length) return e;
+  const out: Entry = { ...e };
+  for (const f of e.truncated_fields) {
+    if (typeof f !== "string" || !(f in out)) continue;
+    if (f === "tool_calls" && Array.isArray(out.tool_calls)) out.tool_calls = out.tool_calls.map((c: unknown) => ({ name: isObj(c) ? c.name : "unknown", args: { note: SHORTENED_FIELD } }));
+    else if (typeof out[f] === "string") out[f] = SHORTENED_FIELD;
+    else delete out[f];
+    bump(dropped, "shortened-field");
+  }
+  return out;
+}
+
 /** A tool result's text without the `Created At` / `Completed At` lines Antigravity puts first. */
 const resultBody = (content: string): string => content.replace(/^(?:(?:Created|Completed) At: [^\n]*\n)+/, "");
 
@@ -86,8 +114,9 @@ export function parseAntigravity(raw: string, options: AdapterOptions = {}): Ada
   const hasDb = isObj(sidecar.answers);
 
   for (const line of lines(raw)) {
-    const e = parseLine(line);
-    if (!isObj(e) || typeof e.step_index !== "number" || typeof e.type !== "string") continue;
+    const parsed = parseLine(line);
+    if (!isObj(parsed) || typeof parsed.step_index !== "number" || typeof parsed.type !== "string") continue;
+    const e = withoutShortenedFields(parsed, dropped);
     const idx = e.step_index;
     const ts = str(e.created_at);
     if (ts) {

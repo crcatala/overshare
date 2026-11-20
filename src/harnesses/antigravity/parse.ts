@@ -96,8 +96,18 @@ function withoutShortenedFields(e: Entry, dropped: DropCounts): Entry {
   return out;
 }
 
+/** JSON text with object keys sorted, to compare arguments however their keys were ordered. */
+function stableJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stableJson).join(",")}]`;
+  if (isObj(v)) return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stableJson(v[k])}`).join(",")}}`;
+  return JSON.stringify(v) ?? "null";
+}
+
 /** A tool result's text without the `Created At` / `Completed At` lines Antigravity puts first. */
 const resultBody = (content: string): string => content.replace(/^(?:(?:Created|Completed) At: [^\n]*\n)+/, "");
+
+/** The result of a call whose step Antigravity left out of the transcript (status 6: it did not run). */
+export const SKIPPED_RESULT = "[Not run: Antigravity cancelled this step]";
 
 /** What replaces a shortened preview whose full output file is gone: the preview may end inside a secret, so it is not shared. */
 export const MISSING_OUTPUT = "[Antigravity shortened this output and its full copy is gone; the shortened preview is not shared]";
@@ -146,14 +156,32 @@ export function parseAntigravity(raw: string, options: AdapterOptions = {}): Ada
       case "PLANNER_RESPONSE": {
         b.responseStarted();
         const responseId = `step-${idx}`;
-        const model = str(e.model);
+        // As written (`gemini-4-neon-high`, the thinking level included); the database's base model when missing.
+        const model = str(e.model) ?? sidecar.models?.[idx];
         if (model && !models.includes(model)) models.push(model);
         const thinking = typeof e.thinking === "string" ? e.thinking.trim() : "";
         if (thinking) b.addStep({ kind: "thinking", id: b.nextId("k"), ...(ts ? { timestamp: ts } : {}), responseId, chars: thinking.length, blocks: 1, text: thinking });
         if (content.trim()) b.addStep({ kind: "text", id: b.nextId("t"), ...(ts ? { timestamp: ts } : {}), responseId, text: content.trim(), ...(model ? { model } : {}) });
         const calls: Entry[] = (Array.isArray(e.tool_calls) ? e.tool_calls : []).filter(isObj);
-        const ids = sidecar.calls?.[idx] ?? [];
-        const callIds = calls.map((_, i) => ids[i] || `${responseId}-call-${i}`);
+        // The database's ids, when its calls for this response are the transcript's (same names, same order);
+        // otherwise the transcript stands: its results are paired by position, and the report says so.
+        // Names, and arguments where the database records them, so two calls of one tool in another order do not pass.
+        const names = calls.map((c) => str(c.name) ?? "unknown");
+        const dbNames = sidecar.callNames?.[idx];
+        const dbArgs = sidecar.callArgs?.[idx];
+        const dbIds = sidecar.calls?.[idx] ?? [];
+        const sameArgs = (i: number): boolean => {
+          const recorded = dbArgs?.[i];
+          if (!recorded) return true;
+          try {
+            return stableJson(JSON.parse(recorded)) === stableJson(isObj(calls[i]!.args) ? calls[i]!.args : {});
+          } catch {
+            return false;
+          }
+        };
+        const matches = dbIds.length === calls.length && (!dbNames || (dbNames.length === names.length && dbNames.every((n, i) => n === names[i]))) && calls.every((_, i) => sameArgs(i));
+        if (calls.length && hasDb && !matches) bump(dropped, "db-call-mismatch");
+        const callIds = calls.map((_, i) => (matches && dbIds[i]) || `${responseId}-call-${i}`);
         calls.forEach((call, i) => {
           const name = str(call.name) ?? "unknown";
           const args: Entry = isObj(call.args) ? call.args : {};
@@ -161,8 +189,19 @@ export function parseAntigravity(raw: string, options: AdapterOptions = {}): Ada
           const step = b.current.steps.at(-1);
           if (step?.kind === "tool") Object.assign(step, describeAntigravityTool(name, args));
         });
-        positional = !hasDb && calls.length ? { ids: callIds, at: idx } : undefined;
+        positional = (!hasDb || !matches) && calls.length ? { ids: callIds, at: idx } : undefined;
         const usage: Usage = { input: count(e.input_tokens), output: count(e.output_tokens), cacheRead: count(e.cache_read_tokens), cacheWrite: count(e.cache_write_tokens), reasoning: 0 };
+        // The database splits the output into thinking and reply and records cache writes (Claude models). Used only
+        // when it agrees with the transcript on what both record; otherwise the transcript stands, and the report says so.
+        const db = sidecar.usage?.[idx];
+        if (db) {
+          // Cache writes count towards agreement only when the transcript records them; otherwise they come from the database.
+          const writesAgree = e.cache_write_tokens === undefined || db.cacheWrite === usage.cacheWrite;
+          if (db.input === usage.input && db.output === usage.output && db.cacheRead === usage.cacheRead && writesAgree) {
+            usage.reasoning = Math.min(db.thinking, usage.output);
+            if (e.cache_write_tokens === undefined) usage.cacheWrite = db.cacheWrite;
+          } else bump(dropped, "db-usage-mismatch");
+        }
         if (usage.input + usage.output + usage.cacheRead + usage.cacheWrite > 0) b.setResponseUsage(responseId, usage, { model, timestamp: ts });
         b.idle = calls.length === 0;
         break;
@@ -177,13 +216,18 @@ export function parseAntigravity(raw: string, options: AdapterOptions = {}): Ada
           if (typeof full !== "string") bump(dropped, "shortened-output");
         }
         const result = { text, ...(images ? { images } : {}) };
-        let callId = sidecar.answers?.[idx];
-        if (!callId && positional) {
-          callId = positional.ids.shift();
+        // By the id the database gives, when it names a call still waiting (a verified call's late result never goes
+        // to another call), else (no database, or its calls did not match) by position while it lines up.
+        let attached = false;
+        const answer = sidecar.answers?.[idx];
+        if (answer) attached = !!b.attachToolResult(answer, result);
+        if (!attached && positional) {
+          const callId = positional.ids.shift();
           positional.at = idx;
           if (!positional.ids.length) positional = undefined;
+          attached = !!callId && !!b.attachToolResult(callId, result);
         }
-        if (!callId || !b.attachToolResult(callId, result)) {
+        if (!attached) {
           // A result whose call is unknown (no database, and the steps around it do not line up): shown on its own.
           const step: ToolStep = { kind: "tool", id: b.nextId("r"), ...(ts ? { timestamp: ts } : {}), name: "tool", action: "other", summary: "result of a call this transcript does not identify", result };
           b.addStep(step);
@@ -219,6 +263,10 @@ export function parseAntigravity(raw: string, options: AdapterOptions = {}): Ada
       default:
         bump(dropped, `step:${/^[A-Z_]{1,40}$/.test(e.type) ? e.type : "unknown"}`);
     }
+  }
+  // Calls whose result step the transcript left out (status 6 in the database): they did not run.
+  for (const skip of Object.values(isObj(sidecar.skipped) ? sidecar.skipped : {})) {
+    if (skip?.answers && b.attachToolResult(skip.answers, { text: SKIPPED_RESULT })) bump(dropped, "skipped-step");
   }
   b.finalizeThinking();
   // Antigravity records tokens, not dollars: costs are estimated at list price (by the base model).

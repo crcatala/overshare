@@ -1,6 +1,6 @@
 ---
 id: ove-ntsi
-status: open
+status: closed
 deps: [ove-nl3h]
 links: []
 created: 2026-11-20T18:20:21Z
@@ -20,3 +20,9 @@ Follow-up to the Antigravity MVP (ove-nl3h), which already opens the .db for the
 - Version-gate: unknown table layouts or step types are skipped, not guessed.
 - Later, when samples exist: subagents via parent_conversation_id / parent_references (the "swarm" plugin).
 
+
+## Notes
+
+**2026-11-20T20:03:53Z**
+
+Done in PR (feat/antigravity-db-usage): steps.metadata 9 usage (thinking split + cache writes) used only when it agrees with the transcript (else db-usage-mismatch counted, transcript kept); gen_metadata base model (field 1: 19 model, 20 kv incl last_step_index) as fallback model; status-6 steps -> 'not run' results (skipped-step); db call ids used only when tool names match the transcript's in order (else db-call-mismatch, positional pairing) - from the #117 review. Subagents (parent_conversation_id / parent_references) left until a sample exists: no local conversation has one.

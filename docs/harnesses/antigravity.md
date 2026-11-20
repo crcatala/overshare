@@ -1,8 +1,8 @@
 # Google Antigravity session format (research notes)
 
 Status: `src/harnesses/antigravity/` reads `transcript_full.jsonl` with the conversation `.db` for the working
-directory, title and tool-call ids (ove-nl3h); thinking tokens, cache writes, skipped steps and subagents from the
-`.db` are ove-ntsi. Plan and tickets: `.tickets/` epic "Support Codex and Antigravity sessions". Gathered 2026-11-20 from 4 local conversations (Antigravity 1.5.12–1.5.13, the ACP build that T3
+directory, title and tool-call ids (ove-nl3h), and for thinking tokens, cache writes, the base model and skipped
+steps (ove-ntsi). Subagents (`parent_conversation_id`) wait for a sample. Plan and tickets: `.tickets/` epic "Support Codex and Antigravity sessions". Gathered 2026-11-20 from 4 local conversations (Antigravity 1.5.12–1.5.13, the ACP build that T3
 Code runs), plus community reverse-engineering. **Google publishes no description of these files**; its docs
 only name the `~/.gemini/antigravity/` folder. Everything below is observed, and the format changes between
 versions and between products (app, IDE, `agy` CLI, ACP), so skip unknown types and keep a fixture per version.
@@ -129,7 +129,9 @@ would add them. No cost is recorded.
     10 response output, 1 model enum.
   - Model response payload (field 20): 3 thinking, 7 tool calls (1 id, 2 name, 3 args JSON).
   - Tool result payload: field 5 → 4 → 1 is the id of the call it answers.
-  - `gen_metadata.data`: field 19 model (`gemini-4-neon`), 21 display name.
+  - `gen_metadata.data`: one row per generation; inside field 1: 19 model (`gemini-4-neon`), 21 display name, and
+    key/value pairs (20) including `last_step_index`, the step before the model response it produced. (Field 1.4
+    repeats the usage of `steps.metadata` 9.) On all 105 local responses the `.db` usage agreed with the transcript.
 
 Node 22.13+ ships `node:sqlite`, so reading these needs no dependency; protobuf needs a small wire-format reader
 (ccusage and session-migrate both do this without a schema). On Node 22.19, overshare's minimum, loading

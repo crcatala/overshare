@@ -167,6 +167,8 @@ src/harnesses/
   pi/              parse.ts, summarize.ts, index.ts
   codex/           parse.ts, summarize.ts, files.ts (date-tree listing, header lines, session index),
                    subagents.ts (child rollouts), index.ts
+  antigravity/     parse.ts, summarize.ts, files.ts (data folders, the conversation .db), sqlite.ts
+                   (read-only node:sqlite, loaded lazily), protobuf.ts (schema-less wire reader), index.ts
   subagent-runs.ts linking subagents' own transcripts (Claude Code, Codex) to the steps that launched them
 ```
 
@@ -193,7 +195,7 @@ searches, `--current`, the viewer's label and the "supported formats" error all 
 registry and meta. Also worth adding: a fake-session generator in `src/fixtures/` (see
 `pi.ts`) and tests. Share files keep `harness.name`, so a new name is not a schema change.
 
-Format notes: [Codex](harnesses/codex.md), [Antigravity](harnesses/antigravity.md) (in progress).
+Format notes: [Codex](harnesses/codex.md), [Antigravity](harnesses/antigravity.md).
 
 ## Changing the share format
 

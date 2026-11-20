@@ -141,7 +141,7 @@ source names and counts, never values), and held in a type that refuses to be st
 |---|---|---|
 | `env` | secret-looking environment variables (`*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASSWORD*`…) | **on** |
 | `projectEnv` | the session project's `.env*` files (not `.example`/`.sample`/`.template`) | **on** |
-| `credentialFiles` | pi `auth.json`, Claude `.credentials.json`, Codex `auth.json`, `~/.config/gh/hosts.yml`, `~/.npmrc`, `~/.netrc` | off |
+| `credentialFiles` | pi `auth.json`, Claude `.credentials.json`, Codex `auth.json`, Antigravity `antigravity-oauth-token` (each data folder), `~/.config/gh/hosts.yml`, `~/.npmrc`, `~/.netrc` | off |
 | `ghToken` | runs `gh auth token` | off |
 
 `env` and `projectEnv` are on because they are already in the process or in the project the session

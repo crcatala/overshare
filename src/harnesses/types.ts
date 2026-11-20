@@ -49,7 +49,8 @@ export interface Harness {
    * `AdapterOptions.sidecar`) and `summarize`, so both stay pure. The value is the harness's own plain data.
    */
   sidecar?: {
-    load(sessionPath: string): unknown;
+    /** `summary`: for the browser's index, which needs less (a harness may skip reading what only a share uses). */
+    load(sessionPath: string, purpose?: "parse" | "summary"): unknown;
     /**
      * Cheap, and different whenever `load` would return something else: the browser's index keeps a session's summary
      * while the transcript file and this key are unchanged.

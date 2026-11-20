@@ -1,6 +1,6 @@
 ---
 id: ove-nl3h
-status: open
+status: closed
 deps: [ove-m3y1, ove-f6hn]
 links: []
 created: 2026-11-20T18:20:21Z
@@ -47,3 +47,7 @@ Resolved 2026-11-20 (docs/harnesses/antigravity.md):
 - cwd: read the conversation .db's trajectory_metadata_blob (top-level field 7 URIs; field 1 workspaces with git and branch), not conversation_summaries.db. Matched the index on 6/6; the index is a cache and already holds a stale entry. Several workspaces are possible (T3 adds its attachments folder first): cwd = first workspace with git info, else first non-attachments one; listFiles(cwd) matches any. So this MVP already needs node:sqlite plus a top-level protobuf scan, shared later with ove-ntsi. Title from annotations/<id>.pbtxt.
 - currentSession: read ANTIGRAVITY_CONVERSATION_ID when set (the 1.5.13 binary sets it for plugin sidecars and agentapi shims; not verified for run_command shells), else newest session for the cwd. A one-line check in an Antigravity thread (printenv | grep ANTIGRAVITY) settles it.
 - antigravity-oauth-token is JSON (token, auth_method, id_token_email): the existing JSON credential reader handles it.
+
+**2026-11-20T19:54:30Z**
+
+Decisions (PR): (1) several data folders: one root per harness kept; Antigravity's root is one data folder (OVERSHARE_ANTIGRAVITY_DIR, else ANTIGRAVITY_DATA_DIR) or, by default, the home folder, under which listFiles discovers every known data folder (~/.gemini/antigravity{,-ide,-cli,-acp,-backup}, ~/.config/antigravity, ~/.local/share/t3/userdata/providers/antigravity/*/antigravity-acp). No SessionRoots type change. (2) protobuf reader lives in src/harnesses/antigravity/protobuf.ts (schema-less, defensive). (3) node:sqlite: loaded lazily via createRequire only when a .db is read; process.emitWarning filtered for that one ExperimentalWarning during the load; verified no stderr under Node 22.19 with the built CLI. DB opened via file URL mode=ro, plus immutable=1 when -wal is empty. (4) Sidecar carries id, title (annotation), workspaces, call ids, result->call map, full outputs of shortened results (from this conversation's own steps/<n>/output.txt only; missing file -> preview dropped). (5) Without a DB: pair by position only while step indexes are consecutive; else a standalone 'tool' step. (6) SYSTEM_MESSAGE: '[Message] ... content=' -> notification; reminders dropped. Settings change 'from None' (first selection) not shown. (7) Local check: 4/4 conversations, every result attached to the call the .db names, token totals equal the transcript sums.

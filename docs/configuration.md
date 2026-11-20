@@ -64,6 +64,7 @@ A missing file means defaults; an invalid one is an error.
 | `OVERSHARE_CLAUDE_PROJECTS` | Where Claude Code sessions live (default `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`). |
 | `OVERSHARE_PI_SESSIONS` | Where pi sessions live (default `$PI_CODING_AGENT_SESSION_DIR`, else `~/.pi/agent/sessions`). |
 | `OVERSHARE_CODEX_SESSIONS` | Where Codex rollouts live (default `$CODEX_HOME/sessions`, else `~/.codex/sessions`); `archived_sessions/` beside it is read too. |
+| `OVERSHARE_ANTIGRAVITY_DIR` | One Antigravity data folder to read (`ANTIGRAVITY_DATA_DIR` works too). Default: every data folder found in your home folder (`~/.gemini/antigravity*`, `~/.config/antigravity`, and the one T3 Code runs under `~/.local/share/t3/`). |
 | `OVERSHARE_MAX_SESSION_MB` | Largest transcript overshare reads, in megabytes (default 256; a compressed `.zst` one is measured decompressed). A larger one is listed as too large and not read. |
 | `OVERSHARE_BROWSE_SETTINGS` | Path to the `browse` settings file. |
 | `OVERSHARE_INDEX` | Path to the `browse` session index cache. |

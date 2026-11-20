@@ -2,7 +2,7 @@
 id: ass-zl0d
 status: closed
 deps: []
-links: [ass-6jd4]
+links: [ass-6jd4, ove-v5c6]
 created: 2026-10-04T16:25:13Z
 type: task
 priority: 2

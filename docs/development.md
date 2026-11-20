@@ -183,6 +183,8 @@ searches, `--current`, the viewer's label and the "supported formats" error all 
 registry and meta. Also worth adding: a fake-session generator in `src/fixtures/` (see
 `pi.ts`) and tests. Share files keep `harness.name`, so a new name is not a schema change.
 
+Format notes for harnesses in progress: [Codex](harnesses/codex.md), [Antigravity](harnesses/antigravity.md).
+
 ## Changing the share format
 
 Additive changes (a new optional field) need nothing special. An incompatible change needs a
